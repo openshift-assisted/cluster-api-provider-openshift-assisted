@@ -22,10 +22,6 @@ import (
 
 	"github.com/pkg/errors"
 
-	"github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1beta1"
-	hiveext "github.com/openshift/assisted-service/api/hiveextension/v1beta1"
-	aimodels "github.com/openshift/assisted-service/models"
-	hivev1 "github.com/openshift/hive/apis/hive/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -36,6 +32,11 @@ import (
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1beta1"
+	hiveext "github.com/openshift/assisted-service/api/hiveextension/v1beta1"
+	aimodels "github.com/openshift/assisted-service/models"
+	hivev1 "github.com/openshift/hive/apis/hive/v1"
 )
 
 // AgentClusterInstallReconciler reconciles a AgentClusterInstall object
@@ -159,6 +160,13 @@ func (r *AgentClusterInstallReconciler) ClusterKubeconfigSecretExists(ctx contex
 		return !apierrors.IsNotFound(err)
 	}
 	return true
+}
+
+func IsAgentControlPlaneReferencingClusterDeployment(agentCP v1beta1.AgentControlPlane, clusterDeployment *hivev1.ClusterDeployment) bool {
+	return agentCP.Spec.AgentConfigSpec.ClusterDeploymentRef != nil &&
+		agentCP.Spec.AgentConfigSpec.ClusterDeploymentRef.GroupVersionKind().String() == hivev1.SchemeGroupVersion.WithKind("ClusterDeployment").String() &&
+		agentCP.Spec.AgentConfigSpec.ClusterDeploymentRef.Namespace == clusterDeployment.Namespace &&
+		agentCP.Spec.AgentConfigSpec.ClusterDeploymentRef.Name == clusterDeployment.Name
 }
 
 // GenerateSecretWithOwner returns a Kubernetes secret for the given Cluster name, namespace, kubeconfig data, and ownerReference.

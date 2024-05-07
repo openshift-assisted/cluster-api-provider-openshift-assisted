@@ -20,9 +20,6 @@ import (
 	"context"
 	"time"
 
-	bootstrapv1beta1 "github.com/openshift-assisted/cluster-api-agent/bootstrap/api/v1beta1"
-	"github.com/openshift/hive/apis/hive/v1/agent"
-	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -33,6 +30,11 @@ import (
 	"sigs.k8s.io/cluster-api/util/annotations"
 	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/cluster-api/util/labels/format"
+
+	bootstrapv1beta1 "github.com/openshift-assisted/cluster-api-agent/bootstrap/api/v1beta1"
+	hiveext "github.com/openshift/assisted-service/api/hiveextension/v1beta1"
+	"github.com/openshift/hive/apis/hive/v1/agent"
+	"github.com/pkg/errors"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/cluster-api/util"
@@ -245,6 +247,12 @@ func (r *AgentControlPlaneReconciler) createClusterDeployment(ctx context.Contex
 			Name:      acp.Name,
 			Namespace: acp.Namespace,
 			Labels:    controlPlaneMachineLabelsForCluster(acp, clusterName),
+			OwnerReferences: []metav1.OwnerReference{{
+				Kind:       acp.Kind,
+				APIVersion: acp.APIVersion,
+				Name:       acp.Name,
+				UID:        acp.UID,
+			}},
 		},
 		Spec: hivev1.ClusterDeploymentSpec{
 			ClusterName: clusterName,
@@ -261,8 +269,14 @@ func (r *AgentControlPlaneReconciler) createClusterDeployment(ctx context.Contex
 			// ManageDNS: bool,
 			//ClusterMetadata: *hivev1.ClusterMetadata.
 			Installed: false,
-			// Provisioning: *hivev1.Provisioning
-			//ClusterInstallRef: // reference to AgentClusterInstall  *ClusterInstallLocalReference
+			// Provisioning: &hivev1.Provisioning{},
+			// We need to set the clusterInstallRef to pass clusterdeployment_validating_admission_hook
+			ClusterInstallRef: &hivev1.ClusterInstallLocalReference{
+				Kind:    "AgentClusterInstall",
+				Group:   hiveext.Group,
+				Version: hiveext.Version,
+				Name:    acp.Name,
+			},
 			// ClusterPoolRef *ClusterPoolReference `json:"clusterPoolRef,omitempty"`,
 			// ClusterPoolRef *ClusterPoolReference `json:"clusterPoolRef,omitempty"`
 			PullSecretRef: pullSecret,

@@ -5,6 +5,7 @@ go 1.22.0
 toolchain go1.22.2
 
 require (
+	github.com/metal3-io/baremetal-operator/apis v0.6.0
 	github.com/metal3-io/cluster-api-provider-metal3/api v1.7.0
 	github.com/onsi/ginkgo/v2 v2.17.1
 	github.com/onsi/gomega v1.32.0
@@ -57,7 +58,6 @@ require (
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect
 	github.com/matttproud/golang_protobuf_extensions/v2 v2.0.0 // indirect
-	github.com/metal3-io/baremetal-operator/apis v0.6.0 // indirect
 	github.com/metal3-io/baremetal-operator/pkg/hardwareutils v0.5.1 // indirect
 	github.com/metal3-io/ip-address-manager/api v1.7.0 // indirect
 	github.com/mitchellh/mapstructure v1.5.0 // indirect

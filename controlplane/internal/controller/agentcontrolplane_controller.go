@@ -57,6 +57,7 @@ type AgentControlPlaneReconciler struct {
 // +kubebuilder:rbac:groups=bootstrap.cluster.x-k8s.io,resources=agentbootstrapconfigs,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=metal3machines,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=metal3machinetemplates,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machinedeployments,verbs=get;list;watch
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machines;machines/status,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=hive.openshift.io,resources=clusterimagesets,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=extensions.hive.openshift.io,resources=agentclusterinstalls,verbs=get;list;watch;create;update;patch;delete
@@ -173,7 +174,10 @@ func (r *AgentControlPlaneReconciler) computeDesiredMachine(acp *controlplanev1b
 	var machineName string
 	var machineUID types.UID
 	var version *string
-	annotations := map[string]string{}
+	annotations := map[string]string{
+		"bmac.agent-install.openshift.io/role": "master",
+		"foo":                                  "bar",
+	}
 
 	// Creating a new machine
 	machineName = names.SimpleNameGenerator.GenerateName(acp.Name + "-")

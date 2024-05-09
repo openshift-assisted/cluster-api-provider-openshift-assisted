@@ -25,7 +25,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"k8s.io/apimachinery/pkg/types"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/util"
@@ -46,6 +45,7 @@ func (r *ClusterDeploymentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&hivev1.ClusterDeployment{}).
 		Watches(&v1beta1.AgentControlPlane{}, &handler.EnqueueRequestForObject{}).
+		Watches(&clusterv1.MachineDeployment{}, &handler.EnqueueRequestForObject{}).
 		Complete(r)
 }
 func (r *ClusterDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -111,7 +111,14 @@ func (r *ClusterDeploymentReconciler) ensureAgentClusterInstall(ctx context.Cont
 	if imageSet == nil {
 		return ctrl.Result{Requeue: true, RequeueAfter: 10 * time.Second}, nil
 	}
-
+	workerNodes := r.getWorkerNodesCount(ctx, cluster)
+	aci, err := r.createOrUpdateAgentClusterInstall(ctx, clusterDeployment, acp, cluster, imageSet, workerNodes)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if aci == nil {
+		return ctrl.Result{Requeue: true, RequeueAfter: 10 * time.Second}, nil
+	}
 	if clusterDeployment.Spec.ClusterInstallRef != nil {
 		log.Info(
 			"skipping reconciliation: cluster deployment already has a referenced agent cluster install",
@@ -121,17 +128,25 @@ func (r *ClusterDeploymentReconciler) ensureAgentClusterInstall(ctx context.Cont
 		)
 		return ctrl.Result{}, nil
 	}
-	aci, err := r.createOrUpdateAgentClusterInstall(ctx, clusterDeployment, acp, cluster, imageSet)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-	if aci == nil {
-		return ctrl.Result{Requeue: true, RequeueAfter: 10 * time.Second}, nil
-	}
-
 	err = r.updateClusterDeploymentRef(ctx, clusterDeployment, aci)
 
 	return ctrl.Result{}, err
+}
+
+func (r *ClusterDeploymentReconciler) getWorkerNodesCount(ctx context.Context, cluster *clusterv1.Cluster) int {
+	log := ctrl.LoggerFrom(ctx)
+
+	mdList := clusterv1.MachineDeploymentList{}
+
+	if err := r.Client.List(ctx, &mdList, client.MatchingLabels{clusterv1.ClusterNameLabel: cluster.Name}); err != nil {
+		log.Error(err, "failed to list MachineDeployments", "cluster", cluster.Name)
+		return 0
+	}
+	count := 0
+	for _, md := range mdList.Items {
+		count += int(*md.Spec.Replicas)
+	}
+	return count
 }
 
 func (r *ClusterDeploymentReconciler) updateClusterDeploymentRef(ctx context.Context, cd *hivev1.ClusterDeployment, aci *hiveext.AgentClusterInstall) error {
@@ -189,7 +204,7 @@ func computeClusterImageSet(imageSetName string, releaseImage string) *hivev1.Cl
 	}
 }
 
-func (r *ClusterDeploymentReconciler) createOrUpdateAgentClusterInstall(ctx context.Context, clusterDeployment *hivev1.ClusterDeployment, acp v1beta1.AgentControlPlane, cluster *clusterv1.Cluster, imageSet *hivev1.ClusterImageSet) (*hiveext.AgentClusterInstall, error) {
+func (r *ClusterDeploymentReconciler) createOrUpdateAgentClusterInstall(ctx context.Context, clusterDeployment *hivev1.ClusterDeployment, acp v1beta1.AgentControlPlane, cluster *clusterv1.Cluster, imageSet *hivev1.ClusterImageSet, workerNodes int) (*hiveext.AgentClusterInstall, error) {
 	log := ctrl.LoggerFrom(ctx)
 
 	aci := &hiveext.AgentClusterInstall{}
@@ -202,7 +217,7 @@ func (r *ClusterDeploymentReconciler) createOrUpdateAgentClusterInstall(ctx cont
 			return nil, err
 		}
 		log.Info("creating agent cluster install for ClusterDeployment", "name", clusterDeployment.Name, "namespace", clusterDeployment.Namespace)
-		aci = computeAgentClusterInstall(clusterDeployment, acp, imageSet, cluster)
+		aci = computeAgentClusterInstall(clusterDeployment, acp, imageSet, cluster, workerNodes)
 		if err := r.Client.Create(ctx, aci); err != nil {
 			if !apierrors.IsAlreadyExists(err) {
 				log.Info("failed to create agent cluster install for ClusterDeployment", "name", clusterDeployment.Name, "namespace", clusterDeployment.Namespace)
@@ -220,7 +235,7 @@ func (r *ClusterDeploymentReconciler) createOrUpdateAgentClusterInstall(ctx cont
 	return aci, nil
 }
 
-func computeAgentClusterInstall(clusterDeployment *hivev1.ClusterDeployment, acp v1beta1.AgentControlPlane, imageSet *hivev1.ClusterImageSet, cluster *clusterv1.Cluster) *hiveext.AgentClusterInstall {
+func computeAgentClusterInstall(clusterDeployment *hivev1.ClusterDeployment, acp v1beta1.AgentControlPlane, imageSet *hivev1.ClusterImageSet, cluster *clusterv1.Cluster, workerReplicas int) *hiveext.AgentClusterInstall {
 	var clusterNetwork []hiveext.ClusterNetworkEntry
 
 	if cluster.Spec.ClusterNetwork != nil && cluster.Spec.ClusterNetwork.Pods != nil {
@@ -248,6 +263,7 @@ func computeAgentClusterInstall(clusterDeployment *hivev1.ClusterDeployment, acp
 			ClusterDeploymentRef: corev1.LocalObjectReference{Name: clusterDeployment.Name},
 			ProvisionRequirements: hiveext.ProvisionRequirements{
 				ControlPlaneAgents: int(acp.Spec.Replicas),
+				WorkerAgents:       workerReplicas,
 			},
 			SSHPublicKey: acp.Spec.AgentConfigSpec.SSHAuthorizedKey,
 			ImageSetRef:  &hivev1.ClusterImageSetReference{Name: imageSet.Name},

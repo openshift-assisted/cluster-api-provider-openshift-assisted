@@ -137,7 +137,6 @@ func (r *ClusterDeploymentReconciler) getWorkerNodesCount(ctx context.Context, c
 	log := ctrl.LoggerFrom(ctx)
 
 	mdList := clusterv1.MachineDeploymentList{}
-
 	if err := r.Client.List(ctx, &mdList, client.MatchingLabels{clusterv1.ClusterNameLabel: cluster.Name}); err != nil {
 		log.Error(err, "failed to list MachineDeployments", "cluster", cluster.Name)
 		return 0

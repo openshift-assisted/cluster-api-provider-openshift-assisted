@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"github.com/pkg/errors"
 
 	"github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1beta1"
 	controlplanev1beta1 "github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1beta1"
@@ -120,12 +121,22 @@ func (r *AgentClusterInstallReconciler) Reconcile(ctx context.Context, req ctrl.
 				}
 
 				if !r.ClusterKubeconfigSecretExists(ctx, clusterName, agentCP.Namespace) {
+					kubeconfig, ok := kubeconfigSecret.Data["kubeconfig"]
+					if !ok {
+						return ctrl.Result{}, errors.New("kubeconfig not found in secret")
+					}
 					// Create secret <cluster-name>-kubeconfig from original kubeconfig secret - this is what the CAPI Cluster looks for to set the control plane as initialized
-					clusterNameKubeconfigSecret := GenerateSecretWithOwner(client.ObjectKey{Name: clusterName, Namespace: agentCP.Namespace}, kubeconfigSecret.Data["value"], *metav1.NewControllerRef(&agentCP, controlplanev1beta1.GroupVersion.WithKind(agentControlPlaneKind)))
+					clusterNameKubeconfigSecret := GenerateSecretWithOwner(client.ObjectKey{Name: clusterName, Namespace: agentCP.Namespace}, kubeconfig, *metav1.NewControllerRef(&agentCP, controlplanev1beta1.GroupVersion.WithKind(agentControlPlaneKind)))
 					log.Info("Cluster kubeconfig doesn't exist, creating it", "secret name", clusterNameKubeconfigSecret.Name)
 					if err := r.Client.Create(ctx, clusterNameKubeconfigSecret); err != nil {
-						log.Error(err, "failed creating secret for agent control plane", "agent cluster install name", agentClusterInstall.Name, "agent cluster install namespace", agentClusterInstall.Namespace, "agent control plane name", agentCP.Name)
-						return ctrl.Result{}, err
+						if !apierrors.IsAlreadyExists(err) {
+							log.Error(err, "failed creating secret for agent control plane", "agent cluster install name", agentClusterInstall.Name, "agent cluster install namespace", agentClusterInstall.Namespace, "agent control plane name", agentCP.Name)
+							return ctrl.Result{}, err
+						}
+						if err := r.Client.Update(ctx, clusterNameKubeconfigSecret); err != nil {
+							log.Error(err, "failed to update secret for agent control plane", "agent cluster install name", agentClusterInstall.Name, "agent cluster install namespace", agentClusterInstall.Namespace, "agent control plane name", agentCP.Name)
+							return ctrl.Result{}, err
+						}
 					}
 					// Update AgentControlPlane status
 					agentCP.Status.Ready = true

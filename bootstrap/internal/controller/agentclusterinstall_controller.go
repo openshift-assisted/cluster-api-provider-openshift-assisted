@@ -35,8 +35,9 @@ import (
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/log"
 )
+
+const ProviderIDLabelKey = "metal3.io/uuid"
 
 // AgentClusterInstallReconciler reconciles a AgentClusterInstall object
 type AgentClusterInstallReconciler struct {
@@ -54,44 +55,58 @@ func (r *AgentClusterInstallReconciler) SetupWithManager(mgr ctrl.Manager) error
 func (r *AgentClusterInstallReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
 
+	// handle deletion: do nothing
 	defer func() {
-		log.Info("Agent Cluster Install Reconcile ended")
+		log.Info("agentclusterinstall reconcile ended")
 	}()
-	log.Info("Agent Cluster Install Reconcile started")
-	agentClusterInstall := &hiveext.AgentClusterInstall{}
-	if err := r.Client.Get(ctx, req.NamespacedName, agentClusterInstall); err != nil {
+
+	log.Info("agentclusterinstall reconcile started")
+	aci := &hiveext.AgentClusterInstall{}
+	if err := r.Client.Get(ctx, req.NamespacedName, aci); err != nil {
 		if apierrors.IsNotFound(err) {
+			log.Info("no ACI found", "name", req.NamespacedName)
 			return ctrl.Result{}, nil
 		}
 		return ctrl.Result{}, err
 	}
-	log.Info("Reconciling AgentClusterInstall", "name", agentClusterInstall.Name, "namespace", agentClusterInstall.Namespace)
-
-	clusterName, ok := agentClusterInstall.GetLabels()[clusterv1.ClusterNameLabel]
-	if !ok {
-		log.Info("Ending reconcile for agentcluster install, missing clustername label")
+	if aci == nil {
+		log.Info("agentclusterinstall is nil", "name", req.Name, "namespace", req.Namespace)
 		return ctrl.Result{}, nil
 	}
-	log.Info("agentclusterinstall", "name", agentClusterInstall.Name, "clustername", clusterName)
+	log.Info("reconciling AgentClusterInstall", "name", aci.Name, "namespace", aci.Namespace)
 
-	// Get all Metal3 Machines associated with this cluster
-	metal3Machines := &metal3.Metal3MachineList{}
-	if err := r.Client.List(ctx, metal3Machines); err != nil {
-		log.Error(err, "couldn't get metal3machines associated with agentclusterinstall", "aci name", agentClusterInstall.Name)
+	clusterName, ok := aci.GetLabels()[clusterv1.ClusterNameLabel]
+	if !ok {
+		log.Info("agentclusterinstall, does not belong to any cluster", "name", aci.Name, "namespace", aci.Namespace)
+		return ctrl.Result{}, nil
+	}
+	log.Info("found cluster linked to agentclusterinstall", "name", aci.Name, "clustername", clusterName)
+
+	if !isInstallCompleted(aci) {
+		log.Info("install has not completed yet", "name", aci.Name, "clustername", clusterName)
+		return ctrl.Result{}, nil
+	}
+	if !hasKubeconfigSecretRef(aci) {
+		log.Info("kubeconfig secret reference not found", "name", aci.Name, "clustername", clusterName)
+		return ctrl.Result{}, nil
+	}
+
+	// Set metal3 node label on spoke node so that capm3 can set the provider ID
+	log.Info("agentcluster install finished installing, setting bmh ID label for spoke nodes")
+	if err := r.labelWorkloadClusterNodes(ctx, aci); err != nil {
+		log.Error(err, "failed setting spokes node label", "agentclusterinstall name", aci.Name)
 		return ctrl.Result{}, err
 	}
-	// Check if cluster has finished installing
-	if agentClusterInstall.Status.DebugInfo.State == aimodels.ClusterStatusAddingHosts &&
-		agentClusterInstall.Spec.ClusterMetadata.AdminKubeconfigSecretRef.Name != "" {
-		// Set metal3 node label on spoke node so that capm3 can set the provider ID
-		log.Info("agentcluster install finished installing, setting bmh ID label for spoke nodes")
-		if err := r.setSpokesNodeLabel(ctx, metal3Machines, agentClusterInstall); err != nil {
-			log.Error(err, "failed setting spokes node label", "agentclusterinstall name", agentClusterInstall.Name)
-			return ctrl.Result{}, err
-		}
-		log.Info("finished setting labels on spoke nodes for agentclusterinstall", "agentclusterinstall name", agentClusterInstall.Name, "metal3 machines length", len(metal3Machines.Items))
-	}
+
 	return ctrl.Result{}, nil
+}
+
+func hasKubeconfigSecretRef(aci *hiveext.AgentClusterInstall) bool {
+	return aci != nil && aci.Spec.ClusterMetadata.AdminKubeconfigSecretRef.Name != ""
+}
+
+func isInstallCompleted(aci *hiveext.AgentClusterInstall) bool {
+	return aci.Status.DebugInfo.State == aimodels.ClusterStatusAddingHosts
 }
 
 func getSpokeClient(kubeconfig []byte) (client.Client, error) {
@@ -120,33 +135,72 @@ func getKubeClientSchemes() *runtime.Scheme {
 	return schemes
 }
 
-func (r *AgentClusterInstallReconciler) setSpokesNodeLabel(ctx context.Context, metal3Machines *metal3.Metal3MachineList, aci *hiveext.AgentClusterInstall) error {
-	log := log.FromContext(ctx)
+func (r *AgentClusterInstallReconciler) labelWorkloadClusterNodes(ctx context.Context, aci *hiveext.AgentClusterInstall) error {
+	log := ctrl.LoggerFrom(ctx)
+	// Get all Metal3 Machines associated with this cluster
+	metal3Machines := &metal3.Metal3MachineList{}
+	if err := r.Client.List(ctx, metal3Machines); err != nil {
+		log.Error(err, "couldn't get metal3machines associated with agentclusterinstall", "aci name", aci.Name)
+		return err
+	}
 	secretName := aci.Spec.ClusterMetadata.AdminKubeconfigSecretRef.Name
 	kubeconfigSecret := &corev1.Secret{}
 	if err := r.Client.Get(ctx, client.ObjectKey{Name: secretName, Namespace: aci.Namespace}, kubeconfigSecret); err != nil {
 		log.Error(err, "failed getting kubeconfig secret for agentclusterinstall", "agent cluster install name", aci.Name, "agent cluster install namespace", aci.Namespace, "secret name", secretName)
 		return err
 	}
+	kubeconfig, ok := kubeconfigSecret.Data["kubeconfig"]
+	if !ok {
+		return errors.New("kubeconfig not found in secret")
+	}
 	// Create spoke client from kubeconfig
-	targetClient, err := getSpokeClient(kubeconfigSecret.Data["kubeconfig"])
+	targetClient, err := getSpokeClient(kubeconfig)
 	if err != nil {
 		log.Error(err, "couldn't create spoke cluster client")
 		return err
 	}
-
-	for _, metal3Machine := range metal3Machines.Items {
-		if err := r.setSpokeNodeLabel(ctx, targetClient, &metal3Machine); err != nil {
-			log.Error(err, "couldn't set spoke node label for metal3 machine", "machine name", metal3Machine.Name)
+	nodes := corev1.NodeList{}
+	err = targetClient.List(ctx, &nodes)
+	if err != nil {
+		log.Error(err, "couldn't list nodes")
+		return err
+	}
+	log.Info("found nodes in workload cluster", "number", len(nodes.Items))
+	for _, node := range nodes.Items {
+		machine, err := getMachineByMatchingIP(*metal3Machines, node)
+		if err != nil {
+			log.Info("could not match any machine to node", "name", node.Name)
 			continue
 		}
-		log.Info("set label on spoke node", "agent cluster install name", aci.Name, "machine name", metal3Machine.Name)
+		if err := r.setNodeMetadata(ctx, targetClient, node, machine); err != nil {
+			log.Info("could not set node metadata", "name", node.Name)
+		} else {
+			log.Info("set node metadata", "name", node.Name)
+		}
 	}
 	return nil
 }
 
+// return metal3 machine from list when matching node's internal IP address
+func getMachineByMatchingIP(machines metal3.Metal3MachineList, node corev1.Node) (*metal3.Metal3Machine, error) {
+	for _, machine := range machines.Items {
+		for _, machineAddr := range machine.Status.Addresses {
+			if corev1.NodeAddressType(machineAddr.Type) == corev1.NodeInternalIP {
+				for _, nodeAddr := range node.Status.Addresses {
+					if nodeAddr.Type == corev1.NodeInternalIP {
+						if nodeAddr.Address == machineAddr.Address {
+							return &machine, nil
+						}
+					}
+				}
+			}
+		}
+	}
+	return nil, errors.New("could not match any machine to node")
+}
+
 func (r *AgentClusterInstallReconciler) setSpokeNodeLabel(ctx context.Context, spokeClient client.Client, metal3Machine *metal3.Metal3Machine) error {
-	log := log.FromContext(ctx)
+	log := ctrl.LoggerFrom(ctx)
 	// Get node name from network
 	var nodeName string
 	for _, addr := range metal3Machine.Status.Addresses {
@@ -206,4 +260,50 @@ func (r *AgentClusterInstallReconciler) setSpokeNodeLabel(ctx context.Context, s
 		log.Info("added uuid bmh id label to node", "node name", nodeName, "bmhID", bmhID)
 	}
 	return nil
+}
+
+func (r *AgentClusterInstallReconciler) setNodeMetadata(ctx context.Context, targetClient client.Client, node corev1.Node, machine *metal3.Metal3Machine) error {
+	log := ctrl.LoggerFrom(ctx)
+	providerID, ok := node.Labels[ProviderIDLabelKey]
+	if ok {
+		log.Info("providerID already set", "providerID", providerID)
+		return nil
+	}
+	bmh, err := r.getBMH(ctx, *machine)
+	if err != nil {
+		log.Error(err, "couldn't get bmh", "machine name", machine.Name)
+		return err
+	}
+	node.Labels[ProviderIDLabelKey] = string(bmh.ObjectMeta.GetUID())
+	return targetClient.Update(ctx, &node)
+}
+
+func (r *AgentClusterInstallReconciler) getBMH(ctx context.Context, metal3Machine metal3.Metal3Machine) (*bmh_v1alpha1.BareMetalHost, error) {
+	log := ctrl.LoggerFrom(ctx)
+
+	annotations := metal3Machine.ObjectMeta.GetAnnotations()
+	if annotations == nil {
+		return nil, errors.New("metal3machine has no annotations")
+	}
+	hostKey, ok := annotations["metal3.io/BareMetalHost"]
+	if !ok {
+		return nil, errors.New("metal3machine has no BMH annotation")
+	}
+	hostNamespace, hostName, err := cache.SplitMetaNamespaceKey(hostKey)
+	if err != nil {
+		log.Error(err, "error parsing annotation value", "annotation key", hostKey)
+		return nil, err
+	}
+
+	bmh := bmh_v1alpha1.BareMetalHost{}
+	key := client.ObjectKey{
+		Name:      hostName,
+		Namespace: hostNamespace,
+	}
+	if err := r.Client.Get(ctx, key, &bmh); err != nil {
+		log.Error(err, "couldn't get associated bmh", "annotation key", hostKey)
+		return nil, err
+	}
+
+	return &bmh, nil
 }

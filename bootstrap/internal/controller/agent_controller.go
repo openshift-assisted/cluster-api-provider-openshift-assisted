@@ -2,7 +2,11 @@ package controller
 
 import (
 	"context"
+	"errors"
+	"strings"
+	"time"
 
+	bmh_v1alpha1 "github.com/metal3-io/baremetal-operator/apis/metal3.io/v1alpha1"
 	"github.com/openshift-assisted/cluster-api-agent/bootstrap/api/v1beta1"
 	aiv1beta1 "github.com/openshift/assisted-service/api/v1beta1"
 	hivev1 "github.com/openshift/hive/apis/hive/v1"
@@ -56,6 +60,30 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		log.Error(err, "agentboostrapconfig not found for cluster", "cluster", clusterName)
 		return ctrl.Result{}, err
 	}
+	if agent.Status.Inventory.Interfaces == nil {
+		log.Info("agent doesn't have interfaces yet", "agent name", agent.Name)
+		return ctrl.Result{RequeueAfter: 20 * time.Second}, nil
+	}
+
+	bmhs := &bmh_v1alpha1.BareMetalHostList{}
+	if err := r.Client.List(ctx, bmhs); err != nil {
+		log.Error(err, "can't get bmhs for agent", "cluster", clusterName)
+		return ctrl.Result{}, err
+	}
+	var bmhUID string
+	for _, bmh := range bmhs.Items {
+		for _, agentInterface := range agent.Status.Inventory.Interfaces {
+			if agentInterface.MacAddress != "" && strings.EqualFold(bmh.Spec.BootMACAddress, agentInterface.MacAddress) {
+				bmhUID = string(bmh.GetUID())
+			}
+		}
+	}
+	if bmhUID == "" {
+		log.Info("no bmh UID match for agent", "cluster", clusterName)
+		return ctrl.Result{}, errors.New("no bmh UID match for agent")
+	}
+
+	agent.Spec.NodeLabels = map[string]string{"metal3.io/uuid": bmhUID}
 	agent.Spec.Approved = true
 	if err := r.Client.Update(ctx, agent); err != nil {
 		log.Error(err, "couldn't update agent", "name", agent.Name, "namespace", agent.Namespace)

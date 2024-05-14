@@ -1,0 +1,918 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  labels:
+    app.kubernetes.io/component: manager
+    app.kubernetes.io/created-by: cluster-api-agent
+    app.kubernetes.io/instance: system
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: namespace
+    app.kubernetes.io/part-of: cluster-api-agent
+    control-plane: controller-manager
+  name: capi-agent-controlplane-system
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.14.0
+  labels:
+    cluster.x-k8s.io/v1beta1: v1beta1
+  name: agentcontrolplanes.controlplane.cluster.x-k8s.io
+spec:
+  group: controlplane.cluster.x-k8s.io
+  names:
+    kind: AgentControlPlane
+    listKind: AgentControlPlaneList
+    plural: agentcontrolplanes
+    singular: agentcontrolplane
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - description: Cluster
+      jsonPath: .metadata.labels['cluster\.x-k8s\.io/cluster-name']
+      name: Cluster
+      type: string
+    - description: This denotes whether or not the control plane has the uploaded
+        kubeadm-config configmap
+      jsonPath: .status.initialized
+      name: Initialized
+      type: boolean
+    - description: KubeadmControlPlane API Server is ready to receive requests
+      jsonPath: .status.ready
+      name: API Server Available
+      type: boolean
+    - description: Total number of machines desired by this control plane
+      jsonPath: .spec.replicas
+      name: Desired
+      priority: 10
+      type: integer
+    - description: Total number of non-terminated machines targeted by this control
+        plane
+      jsonPath: .status.replicas
+      name: Replicas
+      type: integer
+    - description: Total number of fully running and ready control plane machines
+      jsonPath: .status.readyReplicas
+      name: Ready
+      type: integer
+    - description: Total number of non-terminated machines targeted by this control
+        plane that have the desired template spec
+      jsonPath: .status.updatedReplicas
+      name: Updated
+      type: integer
+    - description: Total number of unavailable machines targeted by this control plane
+      jsonPath: .status.unavailableReplicas
+      name: Unavailable
+      type: integer
+    - description: Time duration since creation of KubeadmControlPlane
+      jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    - description: OpenShift version associated with this control plane
+      jsonPath: .spec.version
+      name: Version
+      type: string
+    name: v1beta1
+    schema:
+      openAPIV3Schema:
+        description: AgentControlPlane is the Schema for the agentcontrolplanes API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: AgentControlPlaneSpec defines the desired state of AgentControlPlane
+            properties:
+              agentBootstrapConfigSpec:
+                description: AgentBootstrapConfigSpec defines the desired state of
+                  AgentBootstrapConfig
+                properties:
+                  infraEnvRef:
+                    description: |-
+                      Here we can add details to configure infraenv
+                      InfraEnvRef references the infra env to generate the ISO
+                    properties:
+                      apiVersion:
+                        description: API version of the referent.
+                        type: string
+                      fieldPath:
+                        description: |-
+                          If referring to a piece of an object instead of an entire object, this string
+                          should contain a valid JSON/Go field access statement, such as desiredState.manifest.containers[2].
+                          For example, if the object reference is to a container within a pod, this would take on a value like:
+                          "spec.containers{name}" (where "name" refers to the name of the container that triggered
+                          the event) or if no container name is specified "spec.containers[2]" (container with
+                          index 2 in this pod). This syntax is chosen only to have some well-defined way of
+                          referencing a part of an object.
+                          TODO: this design is not final and this field is subject to change in the future.
+                        type: string
+                      kind:
+                        description: |-
+                          Kind of the referent.
+                          More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+                        type: string
+                      name:
+                        description: |-
+                          Name of the referent.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                      namespace:
+                        description: |-
+                          Namespace of the referent.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/namespaces/
+                        type: string
+                      resourceVersion:
+                        description: |-
+                          Specific resourceVersion to which this reference is made, if any.
+                          More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#concurrency-control-and-consistency
+                        type: string
+                      uid:
+                        description: |-
+                          UID of the referent.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#uids
+                        type: string
+                    type: object
+                    x-kubernetes-map-type: atomic
+                  pullSecretRef:
+                    description: |-
+                      LocalObjectReference contains enough information to let you locate the
+                      referenced object inside the same namespace.
+                    properties:
+                      name:
+                        description: |-
+                          Name of the referent.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                          TODO: Add other useful fields. apiVersion, kind, uid?
+                        type: string
+                    type: object
+                    x-kubernetes-map-type: atomic
+                  sshAuthorizedKey:
+                    type: string
+                type: object
+              agentConfigSpec:
+                description: AgentConfigSpec specs for the AgentConfig
+                properties:
+                  apiVIPs:
+                    items:
+                      type: string
+                    type: array
+                  baseDomain:
+                    description: Base domain for install cluster
+                    type: string
+                  clusterDeploymentRef:
+                    description: ClusterDeploymentRef references the ClusterDeployment
+                      used to create the cluster
+                    properties:
+                      apiVersion:
+                        description: API version of the referent.
+                        type: string
+                      fieldPath:
+                        description: |-
+                          If referring to a piece of an object instead of an entire object, this string
+                          should contain a valid JSON/Go field access statement, such as desiredState.manifest.containers[2].
+                          For example, if the object reference is to a container within a pod, this would take on a value like:
+                          "spec.containers{name}" (where "name" refers to the name of the container that triggered
+                          the event) or if no container name is specified "spec.containers[2]" (container with
+                          index 2 in this pod). This syntax is chosen only to have some well-defined way of
+                          referencing a part of an object.
+                          TODO: this design is not final and this field is subject to change in the future.
+                        type: string
+                      kind:
+                        description: |-
+                          Kind of the referent.
+                          More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+                        type: string
+                      name:
+                        description: |-
+                          Name of the referent.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                      namespace:
+                        description: |-
+                          Namespace of the referent.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/namespaces/
+                        type: string
+                      resourceVersion:
+                        description: |-
+                          Specific resourceVersion to which this reference is made, if any.
+                          More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#concurrency-control-and-consistency
+                        type: string
+                      uid:
+                        description: |-
+                          UID of the referent.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#uids
+                        type: string
+                    type: object
+                    x-kubernetes-map-type: atomic
+                  ingressVIPs:
+                    items:
+                      type: string
+                    type: array
+                  machineNetwork:
+                    items:
+                      description: MachineNetworkEntry is a single IP address block
+                        for node IP blocks.
+                      properties:
+                        cidr:
+                          description: CIDR is the IP block address pool for machines
+                            within the cluster.
+                          type: string
+                      required:
+                      - cidr
+                      type: object
+                    type: array
+                  pullSecretRef:
+                    description: PullSecretRef references pull secret necessary for
+                      the cluster installation
+                    properties:
+                      name:
+                        description: |-
+                          Name of the referent.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                          TODO: Add other useful fields. apiVersion, kind, uid?
+                        type: string
+                    type: object
+                    x-kubernetes-map-type: atomic
+                  releaseImage:
+                    type: string
+                  sshAuthorizedKey:
+                    description: SSHAuthorizedKey ssh key for accessing the cluster
+                      nodes after reboot
+                    type: string
+                  userManagedNetworking:
+                    type: boolean
+                required:
+                - baseDomain
+                - releaseImage
+                type: object
+              machineTemplate:
+                properties:
+                  infrastructureRef:
+                    description: |-
+                      InfrastructureRef is a required reference to a custom resource
+                      offered by an infrastructure provider.
+                    properties:
+                      apiVersion:
+                        description: API version of the referent.
+                        type: string
+                      fieldPath:
+                        description: |-
+                          If referring to a piece of an object instead of an entire object, this string
+                          should contain a valid JSON/Go field access statement, such as desiredState.manifest.containers[2].
+                          For example, if the object reference is to a container within a pod, this would take on a value like:
+                          "spec.containers{name}" (where "name" refers to the name of the container that triggered
+                          the event) or if no container name is specified "spec.containers[2]" (container with
+                          index 2 in this pod). This syntax is chosen only to have some well-defined way of
+                          referencing a part of an object.
+                          TODO: this design is not final and this field is subject to change in the future.
+                        type: string
+                      kind:
+                        description: |-
+                          Kind of the referent.
+                          More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+                        type: string
+                      name:
+                        description: |-
+                          Name of the referent.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                      namespace:
+                        description: |-
+                          Namespace of the referent.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/namespaces/
+                        type: string
+                      resourceVersion:
+                        description: |-
+                          Specific resourceVersion to which this reference is made, if any.
+                          More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#concurrency-control-and-consistency
+                        type: string
+                      uid:
+                        description: |-
+                          UID of the referent.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#uids
+                        type: string
+                    type: object
+                    x-kubernetes-map-type: atomic
+                  metadata:
+                    description: |-
+                      Standard object's metadata.
+                      More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#metadata
+                    properties:
+                      annotations:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          Annotations is an unstructured key value map stored with a resource that may be
+                          set by external tools to store and retrieve arbitrary metadata. They are not
+                          queryable and should be preserved when modifying objects.
+                          More info: http://kubernetes.io/docs/user-guide/annotations
+                        type: object
+                      labels:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          Map of string keys and values that can be used to organize and categorize
+                          (scope and select) objects. May match selectors of replication controllers
+                          and services.
+                          More info: http://kubernetes.io/docs/user-guide/labels
+                        type: object
+                    type: object
+                  nodeDeletionTimeout:
+                    description: |-
+                      NodeDeletionTimeout defines how long the machine controller will attempt to delete the Node that the Machine
+                      hosts after the Machine is marked for deletion. A duration of 0 will retry deletion indefinitely.
+                      If no value is provided, the default value for this property of the Machine resource will be used.
+                    type: string
+                  nodeDrainTimeout:
+                    description: |-
+                      NodeDrainTimeout is the total amount of time that the controller will spend on draining a controlplane node
+                      The default value is 0, meaning that the node can be drained without any time limitations.
+                      NOTE: NodeDrainTimeout is different from `kubectl drain --timeout`
+                    type: string
+                  nodeVolumeDetachTimeout:
+                    description: |-
+                      NodeVolumeDetachTimeout is the total amount of time that the controller will spend on waiting for all volumes
+                      to be detached. The default value is 0, meaning that the volumes can be detached without any time limitations.
+                    type: string
+                required:
+                - infrastructureRef
+                type: object
+              replicas:
+                format: int32
+                type: integer
+              version:
+                type: string
+            required:
+            - agentConfigSpec
+            - machineTemplate
+            - version
+            type: object
+          status:
+            description: AgentControlPlaneStatus defines the observed state of AgentControlPlane
+            properties:
+              conditions:
+                description: Conditions defines current service state of the KubeadmControlPlane.
+                items:
+                  description: Condition defines an observation of a Cluster API resource
+                    operational state.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        Last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed. If that is not known, then using the time when
+                        the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        A human readable message indicating details about the transition.
+                        This field may be empty.
+                      type: string
+                    reason:
+                      description: |-
+                        The reason for the condition's last transition in CamelCase.
+                        The specific API may choose whether or not this field is considered a guaranteed API.
+                        This field may not be empty.
+                      type: string
+                    severity:
+                      description: |-
+                        Severity provides an explicit classification of Reason code, so the users or machines can immediately
+                        understand the current situation and act accordingly.
+                        The Severity field MUST be set only when Status=False.
+                      type: string
+                    status:
+                      description: Status of the condition, one of True, False, Unknown.
+                      type: string
+                    type:
+                      description: |-
+                        Type of condition in CamelCase or in foo.example.com/CamelCase.
+                        Many .condition.type values are consistent across resources like Available, but because arbitrary conditions
+                        can be useful (see .node.status.conditions), the ability to deconflict is important.
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - status
+                  - type
+                  type: object
+                type: array
+              failureMessage:
+                description: |-
+                  ErrorMessage indicates that there is a terminal problem reconciling the
+                  state, and will be set to a descriptive error message.
+                type: string
+              failureReason:
+                description: |-
+                  FailureReason indicates that there is a terminal problem reconciling the
+                  state, and will be set to a token value suitable for
+                  programmatic interpretation.
+                type: string
+              initialized:
+                description: |-
+                  Initialized denotes whether or not the control plane has the
+                  uploaded kubeadm-config configmap.
+                type: boolean
+              ready:
+                description: |-
+                  Ready denotes that the KubeadmControlPlane API Server became ready during initial provisioning
+                  to receive requests.
+                  NOTE: this field is part of the Cluster API contract and it is used to orchestrate provisioning.
+                  The value of this field is never updated after provisioning is completed. Please use conditions
+                  to check the operational state of the control plane.
+                type: boolean
+              readyReplicas:
+                description: Total number of fully running and ready control plane
+                  machines.
+                format: int32
+                type: integer
+              replicas:
+                description: |-
+                  Total number of non-terminated machines targeted by this control plane
+                  (their labels match the selector).
+                format: int32
+                type: integer
+              selector:
+                description: |-
+                  Selector is the label selector in string format to avoid introspection
+                  by clients, and is used to provide the CRD-based integration for the
+                  scale subresource and additional integrations for things like kubectl
+                  describe.. The string will be in the same format as the query-param syntax.
+                  More info about label selectors: http://kubernetes.io/docs/user-guide/labels#label-selectors
+                type: string
+              unavailableReplicas:
+                description: |-
+                  Total number of unavailable machines targeted by this control plane.
+                  This is the total number of machines that are still required for
+                  the deployment to have 100% available capacity. They may either
+                  be machines that are running but not yet ready or machines
+                  that still have not been created.
+                format: int32
+                type: integer
+              updatedReplicas:
+                description: |-
+                  Total number of non-terminated machines targeted by this control plane
+                  that have the desired template spec.
+                format: int32
+                type: integer
+              version:
+                description: |-
+                  Version represents the minimum Kubernetes version for the control plane machines
+                  in the cluster.
+                type: string
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      scale:
+        labelSelectorPath: .status.selector
+        specReplicasPath: .spec.replicas
+        statusReplicasPath: .status.replicas
+      status: {}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: cluster-api-agent
+  name: capi-agent-controlplanecontroller-manager
+  namespace: capi-agent-controlplane-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    app.kubernetes.io/component: rbac
+    app.kubernetes.io/created-by: cluster-api-agent
+    app.kubernetes.io/instance: leader-election-role
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: role
+    app.kubernetes.io/part-of: cluster-api-agent
+  name: capi-agent-controlplaneleader-election-role
+  namespace: capi-agent-controlplane-system
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - coordination.k8s.io
+  resources:
+  - leases
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: capi-agent-controlplanemanager-role
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - update
+  - watch
+- apiGroups:
+  - bootstrap.cluster.x-k8s.io
+  resources:
+  - agentbootstrapconfigs
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - cluster.x-k8s.io
+  resources:
+  - clusters
+  - clusters/status
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - cluster.x-k8s.io
+  resources:
+  - machinedeployments
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - cluster.x-k8s.io
+  resources:
+  - machinepools
+  verbs:
+  - list
+- apiGroups:
+  - cluster.x-k8s.io
+  resources:
+  - machines
+  - machines/status
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - controlplane.cluster.x-k8s.io
+  resources:
+  - agentcontrolplanes
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - controlplane.cluster.x-k8s.io
+  resources:
+  - agentcontrolplanes/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - controlplane.cluster.x-k8s.io
+  resources:
+  - agentcontrolplanes/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - extensions.hive.openshift.io
+  resources:
+  - agentclusterinstalls
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - extensions.hive.openshift.io
+  resources:
+  - agentclusterinstalls/status
+  verbs:
+  - get
+- apiGroups:
+  - hive.openshift.io
+  resources:
+  - clusterdeployments
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - hive.openshift.io
+  resources:
+  - clusterdeployments/status
+  verbs:
+  - get
+- apiGroups:
+  - hive.openshift.io
+  resources:
+  - clusterimagesets
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - infrastructure.cluster.x-k8s.io
+  resources:
+  - metal3machines
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - infrastructure.cluster.x-k8s.io
+  resources:
+  - metal3machinetemplates
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/component: kube-rbac-proxy
+    app.kubernetes.io/created-by: cluster-api-agent
+    app.kubernetes.io/instance: metrics-reader
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: clusterrole
+    app.kubernetes.io/part-of: cluster-api-agent
+  name: capi-agent-controlplanemetrics-reader
+rules:
+- nonResourceURLs:
+  - /metrics
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/component: kube-rbac-proxy
+    app.kubernetes.io/created-by: cluster-api-agent
+    app.kubernetes.io/instance: proxy-role
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: clusterrole
+    app.kubernetes.io/part-of: cluster-api-agent
+  name: capi-agent-controlplaneproxy-role
+rules:
+- apiGroups:
+  - authentication.k8s.io
+  resources:
+  - tokenreviews
+  verbs:
+  - create
+- apiGroups:
+  - authorization.k8s.io
+  resources:
+  - subjectaccessreviews
+  verbs:
+  - create
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    app.kubernetes.io/component: rbac
+    app.kubernetes.io/created-by: cluster-api-agent
+    app.kubernetes.io/instance: leader-election-rolebinding
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: rolebinding
+    app.kubernetes.io/part-of: cluster-api-agent
+  name: capi-agent-controlplaneleader-election-rolebinding
+  namespace: capi-agent-controlplane-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: capi-agent-controlplaneleader-election-role
+subjects:
+- kind: ServiceAccount
+  name: capi-agent-controlplanecontroller-manager
+  namespace: capi-agent-controlplane-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    app.kubernetes.io/component: rbac
+    app.kubernetes.io/created-by: cluster-api-agent
+    app.kubernetes.io/instance: manager-rolebinding
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: clusterrolebinding
+    app.kubernetes.io/part-of: cluster-api-agent
+  name: capi-agent-controlplanemanager-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: capi-agent-controlplanemanager-role
+subjects:
+- kind: ServiceAccount
+  name: capi-agent-controlplanecontroller-manager
+  namespace: capi-agent-controlplane-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    app.kubernetes.io/component: kube-rbac-proxy
+    app.kubernetes.io/created-by: cluster-api-agent
+    app.kubernetes.io/instance: proxy-rolebinding
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: clusterrolebinding
+    app.kubernetes.io/part-of: cluster-api-agent
+  name: capi-agent-controlplaneproxy-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: capi-agent-controlplaneproxy-role
+subjects:
+- kind: ServiceAccount
+  name: capi-agent-controlplanecontroller-manager
+  namespace: capi-agent-controlplane-system
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/component: kube-rbac-proxy
+    app.kubernetes.io/created-by: cluster-api-agent
+    app.kubernetes.io/instance: controller-manager-metrics-service
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: service
+    app.kubernetes.io/part-of: cluster-api-agent
+    control-plane: controller-manager
+  name: capi-agent-controlplanecontroller-manager-metrics-service
+  namespace: capi-agent-controlplane-system
+spec:
+  ports:
+  - name: https
+    port: 8443
+    protocol: TCP
+    targetPort: https
+  selector:
+    control-plane: controller-manager
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app.kubernetes.io/component: manager
+    app.kubernetes.io/created-by: cluster-api-agent
+    app.kubernetes.io/instance: controller-manager
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: deployment
+    app.kubernetes.io/part-of: cluster-api-agent
+    control-plane: controller-manager
+  name: capi-agent-controlplanecontroller-manager
+  namespace: capi-agent-controlplane-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      control-plane: controller-manager
+  template:
+    metadata:
+      annotations:
+        kubectl.kubernetes.io/default-container: manager
+      labels:
+        control-plane: controller-manager
+    spec:
+      containers:
+      - args:
+        - --secure-listen-address=0.0.0.0:8443
+        - --upstream=http://127.0.0.1:8080/
+        - --logtostderr=true
+        - --v=0
+        image: gcr.io/kubebuilder/kube-rbac-proxy:v0.15.0
+        name: kube-rbac-proxy
+        ports:
+        - containerPort: 8443
+          name: https
+          protocol: TCP
+        resources:
+          limits:
+            cpu: 500m
+            memory: 128Mi
+          requests:
+            cpu: 5m
+            memory: 64Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+      - args:
+        - --health-probe-bind-address=:8081
+        - --metrics-bind-address=127.0.0.1:8080
+        - --leader-elect
+        command:
+        - /manager
+        image: quay.io/edge-infrastructure/openshift-capi-agent-controlplane:latest
+        imagePullPolicy: Always
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8081
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        name: manager
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 8081
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          limits:
+            cpu: 500m
+            memory: 128Mi
+          requests:
+            cpu: 10m
+            memory: 64Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+      securityContext:
+        runAsNonRoot: true
+      serviceAccountName: capi-agent-controlplanecontroller-manager
+      terminationGracePeriodSeconds: 10

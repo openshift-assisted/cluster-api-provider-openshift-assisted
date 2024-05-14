@@ -18,6 +18,9 @@ package controller
 
 import (
 	"context"
+	"sigs.k8s.io/cluster-api/controllers/external"
+	"sigs.k8s.io/cluster-api/util/conditions"
+	"sigs.k8s.io/cluster-api/util/labels/format"
 	"time"
 
 	bootstrapv1beta1 "github.com/openshift-assisted/cluster-api-agent/bootstrap/api/v1beta1"
@@ -29,10 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apiserver/pkg/storage/names"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
-	"sigs.k8s.io/cluster-api/controllers/external"
 	"sigs.k8s.io/cluster-api/util/annotations"
-	"sigs.k8s.io/cluster-api/util/conditions"
-	"sigs.k8s.io/cluster-api/util/labels/format"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/cluster-api/util"
@@ -96,6 +96,9 @@ func (r *AgentControlPlaneReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		if rerr = r.Client.Update(ctx, acp); rerr != nil {
 			log.Error(rerr, "couldn't update AgentControlPlane", "name", acp.Name, "namespace", acp.Namespace)
 		}
+		if rerr = r.Client.Status().Update(ctx, acp); rerr != nil {
+			log.Error(rerr, "couldn't update AgentControlPlane Status", "name", acp.Name, "namespace", acp.Namespace)
+		}
 	}()
 	cluster, err := util.GetOwnerCluster(ctx, r.Client, acp.ObjectMeta)
 	if err != nil {
@@ -153,6 +156,13 @@ func (r *AgentControlPlaneReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	numMachines := int32(machines.Len()) //acp.Status.Replicas
 	desiredReplicas := acp.Spec.Replicas
 	machinesToCreate := desiredReplicas - numMachines
+
+	readyMachines := machines.Filter(collections.IsReady())
+	acp.Status.ReadyReplicas = int32(readyMachines.Len())
+
+	acp.Status.Replicas = numMachines
+	acp.Status.UpdatedReplicas = numMachines
+	acp.Status.UnavailableReplicas = numMachines - acp.Status.ReadyReplicas
 
 	log.Info("ACP", "all acp spec", acp.Spec)
 	if machinesToCreate > 0 {

@@ -19,6 +19,8 @@ package controller
 import (
 	"context"
 	"fmt"
+	"github.com/openshift/assisted-service/api/hiveextension/v1beta1"
+	aimodels "github.com/openshift/assisted-service/models"
 	"github.com/pkg/errors"
 	"time"
 
@@ -173,12 +175,35 @@ func (r *AgentBootstrapConfigReconciler) Reconcile(ctx context.Context, req ctrl
 	}
 
 	clusterDeployment := clusterDeployments.Items[0]
-	/*aci, err := r.getACIFromClusterDeployment(ctx, &clusterDeployment)
-	if err != nil {
-		log.Info("cluster deployment is not referencing ACI... yet?", "name", clusterDeployment.Name, "namespace", clusterDeployment.Namespace)
-		return ctrl.Result{Requeue: true, RequeueAfter: 10 * time.Second}, err
+	if clusterDeployment.Spec.ClusterInstallRef == nil {
+		log.Info("cluster deployment does not reference ACI", "name", clusterDeployment.Name, "namespace", clusterDeployment.Namespace)
+		return ctrl.Result{Requeue: true, RequeueAfter: 10 * time.Second}, nil
 	}
-	*/
+	objKey := types.NamespacedName{
+		Namespace: clusterDeployment.Namespace,
+		Name:      clusterDeployment.Spec.ClusterInstallRef.Name,
+	}
+	aci := v1beta1.AgentClusterInstall{}
+	if err := r.Client.Get(ctx, objKey, &aci); err != nil {
+		log.Info("could not retrieve ACI", "name", objKey.Name, "namespace", objKey.Namespace)
+		return ctrl.Result{}, err
+	}
+
+	// Get the Machine associated with this agentbootstrapconfig
+
+	// TODO: change the way we get this, for now it has the same name but that may not be the case - we should change to fetch by spec's reference to this agentbootstrapconfig
+	machine, err := util.GetMachineByName(ctx, r.Client, config.Namespace, config.Name)
+	if err != nil {
+		log.Error(err, "couldn't get machine associated with agentbootstrapconfig", "name", config.Name)
+		return ctrl.Result{}, err
+	}
+
+	// if added worker after start install, will be treated as day2
+	if !util.IsControlPlaneMachine(machine) && !(aci.Status.DebugInfo.State == aimodels.ClusterStatusAddingHosts || aci.Status.DebugInfo.State == aimodels.ClusterStatusPendingForInput || aci.Status.DebugInfo.State == aimodels.ClusterStatusInsufficient || aci.Status.DebugInfo.State == "") {
+		log.Info("not controlplane machine and installation already started, requeuing")
+		return ctrl.Result{Requeue: true, RequeueAfter: 60 * time.Second}, nil
+	}
+
 	// IF not installing yet or finished, can deal with the machine
 	// IF installing, requeue
 	infraEnvName, err := getInfraEnvName(config)
@@ -221,15 +246,6 @@ func (r *AgentBootstrapConfigReconciler) Reconcile(ctx context.Context, req ctrl
 
 	if config.Status.ISODownloadURL == "" {
 		return ctrl.Result{}, nil
-	}
-
-	// Get the Machine associated with this agentbootstrapconfig
-
-	// TODO: change the way we get this, for now it has the same name but that may not be the case - we should change to fetch by spec's reference to this agentbootstrapconfig
-	machine, err := util.GetMachineByName(ctx, r.Client, config.Namespace, config.Name)
-	if err != nil {
-		log.Error(err, "couldn't get machine associated with agentbootstrapconfig", "name", config.Name)
-		return ctrl.Result{}, err
 	}
 
 	// Get Metal3 Machine owned by this Machine that is related to this agentbootstrapconfig

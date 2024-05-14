@@ -68,6 +68,11 @@ func (in *AgentControlPlaneConfigSpec) DeepCopyInto(out *AgentControlPlaneConfig
 		*out = new(corev1.ObjectReference)
 		**out = **in
 	}
+	if in.UserManagedNetworking != nil {
+		in, out := &in.UserManagedNetworking, &out.UserManagedNetworking
+		*out = new(bool)
+		**out = **in
+	}
 	if in.APIVIPs != nil {
 		in, out := &in.APIVIPs, &out.APIVIPs
 		*out = make([]string, len(*in))

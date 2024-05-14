@@ -240,6 +240,8 @@ spec:
                     description: SSHAuthorizedKey ssh key for accessing the cluster
                       nodes after reboot
                     type: string
+                  userManagedNetworking:
+                    type: boolean
                 required:
                 - baseDomain
                 - releaseImage

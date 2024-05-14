@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"fmt"
 
 	bmh_v1alpha1 "github.com/metal3-io/baremetal-operator/apis/metal3.io/v1alpha1"
 	metal3 "github.com/metal3-io/cluster-api-provider-metal3/api/v1beta1"
@@ -172,7 +173,23 @@ func (r *AgentClusterInstallReconciler) labelWorkloadClusterNodes(ctx context.Co
 			log.Info("could not match any machine to node", "name", node.Name)
 			continue
 		}
-		if err := r.setNodeMetadata(ctx, targetClient, node, machine); err != nil {
+		bmh, err := r.getBMH(ctx, *machine)
+		if err != nil {
+			log.Error(err, "couldn't get bmh", "machine name", machine.Name)
+			return err
+		}
+		bmhUID := string(bmh.ObjectMeta.GetUID())
+		providerId := fmt.Sprintf("metal3.io://%s", bmhUID)
+		op, err := ctrl.CreateOrUpdate(ctx, r.Client, machine, func() error {
+			machine.Spec.ProviderID = &providerId
+			return nil
+		})
+		if err != nil {
+			log.Error(err, "error trying to update machine", "op", op, "machine", machine.Name)
+			return err
+		}
+		log.Info("set providerID successfully", "op", op, "machine", machine.Name)
+		if err := r.setNodeMetadata(ctx, targetClient, node, machine, bmhUID); err != nil {
 			log.Info("could not set node metadata", "name", node.Name)
 		} else {
 			log.Info("set node metadata", "name", node.Name)
@@ -199,82 +216,14 @@ func getMachineByMatchingIP(machines metal3.Metal3MachineList, node corev1.Node)
 	return nil, errors.New("could not match any machine to node")
 }
 
-func (r *AgentClusterInstallReconciler) setSpokeNodeLabel(ctx context.Context, spokeClient client.Client, metal3Machine *metal3.Metal3Machine) error {
-	log := ctrl.LoggerFrom(ctx)
-	// Get node name from network
-	var nodeName string
-	for _, addr := range metal3Machine.Status.Addresses {
-		if corev1.NodeAddressType(addr.Type) == corev1.NodeInternalDNS {
-			nodeName = addr.Address
-			break
-		}
-	}
-	if nodeName != "" {
-		node := &corev1.Node{}
-		if err := spokeClient.Get(ctx, client.ObjectKey{Name: nodeName}, node); err != nil {
-			log.Error(err, "Couldn't get spoke node to set provider id", "node name", nodeName)
-			return err
-		}
-		nodeLabels := node.GetLabels()
-		// at this point, the provider id on metal3machine does not exist so we need to label the spoke cluster node
-		// with the metal3.io/uuid = bmhID
-		// node.Spec.ProviderID = *metal3Machine.Spec.ProviderID
-		if nodeLabels == nil {
-			nodeLabels = map[string]string{}
-		}
-		annotations := metal3Machine.ObjectMeta.GetAnnotations()
-		if annotations == nil {
-			log.Info("metal3machine has no annotations")
-			return nil
-		}
-		hostKey, ok := annotations["metal3.io/BareMetalHost"]
-		if !ok {
-			log.Info("metal3machine has no BMH annotation")
-			return nil
-		}
-		hostNamespace, hostName, err := cache.SplitMetaNamespaceKey(hostKey)
-		if err != nil {
-			log.Error(err, "Error parsing annotation value", "annotation key", hostKey)
-			return err
-		}
-
-		bmh := &bmh_v1alpha1.BareMetalHost{}
-		key := client.ObjectKey{
-			Name:      hostName,
-			Namespace: hostNamespace,
-		}
-		if err := r.Client.Get(ctx, key, bmh); err != nil {
-			log.Error(err, "couldn't get associated bmh", "annotation key", hostKey)
-			return err
-		}
-
-		bmhID := string(bmh.ObjectMeta.GetUID())
-
-		// Expected node label
-		// https://github.com/metal3-io/cluster-api-provider-metal3/blob/1ba01bd229ed1f93065948939202d976b4fae8cc/baremetal/metal3machine_manager.go#L1306
-		nodeLabels["metal3.io/uuid"] = bmhID
-		if err := spokeClient.Update(ctx, node); err != nil {
-			log.Error(err, "Couldn't set provider id on spoke node", "node name", nodeName, "provider id", metal3Machine.Spec.ProviderID)
-			return err
-		}
-		log.Info("added uuid bmh id label to node", "node name", nodeName, "bmhID", bmhID)
-	}
-	return nil
-}
-
-func (r *AgentClusterInstallReconciler) setNodeMetadata(ctx context.Context, targetClient client.Client, node corev1.Node, machine *metal3.Metal3Machine) error {
+func (r *AgentClusterInstallReconciler) setNodeMetadata(ctx context.Context, targetClient client.Client, node corev1.Node, machine *metal3.Metal3Machine, bmhUid string) error {
 	log := ctrl.LoggerFrom(ctx)
 	providerID, ok := node.Labels[ProviderIDLabelKey]
 	if ok {
 		log.Info("providerID already set", "providerID", providerID)
 		return nil
 	}
-	bmh, err := r.getBMH(ctx, *machine)
-	if err != nil {
-		log.Error(err, "couldn't get bmh", "machine name", machine.Name)
-		return err
-	}
-	node.Labels[ProviderIDLabelKey] = string(bmh.ObjectMeta.GetUID())
+	node.Labels[ProviderIDLabelKey] = bmhUid
 	return targetClient.Update(ctx, &node)
 }
 

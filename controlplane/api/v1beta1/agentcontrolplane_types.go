@@ -84,12 +84,12 @@ type AgentControlPlaneConfigSpec struct {
 	ClusterDeploymentRef *corev1.ObjectReference `json:"clusterDeploymentRef,omitempty"`
 
 	// Base domain for install cluster
-	BaseDomain string `json:"baseDomain"`
-
-	APIVIPs        []string                      `json:"apiVIPs,omitempty"`
-	IngressVIPs    []string                      `json:"ingressVIPs,omitempty"`
-	MachineNetwork []hiveext.MachineNetworkEntry `json:"machineNetwork,omitempty"`
-	ReleaseImage   string                        `json:"releaseImage"`
+	BaseDomain            string                        `json:"baseDomain"`
+	UserManagedNetworking *bool                         `json:"userManagedNetworking,omitempty"`
+	APIVIPs               []string                      `json:"apiVIPs,omitempty"`
+	IngressVIPs           []string                      `json:"ingressVIPs,omitempty"`
+	MachineNetwork        []hiveext.MachineNetworkEntry `json:"machineNetwork,omitempty"`
+	ReleaseImage          string                        `json:"releaseImage"`
 }
 
 // AgentControlPlaneStatus defines the observed state of AgentControlPlane

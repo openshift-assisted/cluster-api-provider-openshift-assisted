@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1beta1"
+	v1 "github.com/openshift/api/config/v1"
 	hiveext "github.com/openshift/assisted-service/api/hiveextension/v1beta1"
 	hivev1 "github.com/openshift/hive/apis/hive/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -246,7 +247,8 @@ func computeAgentClusterInstall(clusterDeployment *hivev1.ClusterDeployment, acp
 	if cluster.Spec.ClusterNetwork != nil && cluster.Spec.ClusterNetwork.Services != nil {
 		serviceNetwork = cluster.Spec.ClusterNetwork.Services.CIDRBlocks
 	}
-	return &hiveext.AgentClusterInstall{
+
+	aci := &hiveext.AgentClusterInstall{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      clusterDeployment.Name,
 			Namespace: clusterDeployment.Namespace,
@@ -256,9 +258,6 @@ func computeAgentClusterInstall(clusterDeployment *hivev1.ClusterDeployment, acp
 			},
 		},
 		Spec: hiveext.AgentClusterInstallSpec{
-			// TODO: fix this stuff below
-			APIVIP:               acp.Spec.AgentConfigSpec.APIVIPs[0],
-			IngressVIP:           acp.Spec.AgentConfigSpec.IngressVIPs[0],
 			ClusterDeploymentRef: corev1.LocalObjectReference{Name: clusterDeployment.Name},
 			ProvisionRequirements: hiveext.ProvisionRequirements{
 				ControlPlaneAgents: int(acp.Spec.Replicas),
@@ -267,10 +266,26 @@ func computeAgentClusterInstall(clusterDeployment *hivev1.ClusterDeployment, acp
 			SSHPublicKey: acp.Spec.AgentConfigSpec.SSHAuthorizedKey,
 			ImageSetRef:  &hivev1.ClusterImageSetReference{Name: imageSet.Name},
 			Networking: hiveext.Networking{
-				ClusterNetwork: clusterNetwork,
-				ServiceNetwork: serviceNetwork,
-				MachineNetwork: acp.Spec.AgentConfigSpec.MachineNetwork,
+				UserManagedNetworking: acp.Spec.AgentConfigSpec.UserManagedNetworking,
+				ClusterNetwork:        clusterNetwork,
+				ServiceNetwork:        serviceNetwork,
+				MachineNetwork:        acp.Spec.AgentConfigSpec.MachineNetwork,
 			},
 		},
 	}
+	if aci.Spec.Networking.UserManagedNetworking != nil && *aci.Spec.Networking.UserManagedNetworking {
+		aci.Spec.PlatformType = hiveext.PlatformType(v1.NonePlatformType)
+		return aci
+	}
+
+	// not user managed networking: need APIVIP
+	// TODO: make field mutually exclusive (usermanagednetworking and APIVIPS & INGRESSVIPS)
+	// TODO: for older openshift version use only singular, for newer can use plural
+	if len(acp.Spec.AgentConfigSpec.APIVIPs) > 0 {
+		aci.Spec.APIVIP = acp.Spec.AgentConfigSpec.APIVIPs[0]
+	}
+	if len(acp.Spec.AgentConfigSpec.IngressVIPs) > 0 {
+		aci.Spec.IngressVIP = acp.Spec.AgentConfigSpec.IngressVIPs[0]
+	}
+	return aci
 }

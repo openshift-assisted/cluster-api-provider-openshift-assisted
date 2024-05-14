@@ -35,6 +35,11 @@ After this we will be able to initialize clusterctl:
 clusterctl init --bootstrap openshift-agent --control-plane openshift-agent -i  metal3:v1.7.0
 ```
 
+
+
+## Architecture Design
+
+[Detailed architecture design](./docs/architecture_design.md)
 ### To Deploy on the cluster
 **Build and push your image to the location specified by `IMG`:**
 

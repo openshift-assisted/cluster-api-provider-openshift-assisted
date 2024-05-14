@@ -107,7 +107,7 @@ type AgentBootstrapConfigStatus struct {
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 
-	// Conditions defines current service state of the AgentBootstrapConfig.
+	// Conditions defines current service state of the Agent Bootstrap Config.
 	// +optional
 	Conditions clusterv1.Conditions `json:"conditions,omitempty"`
 }

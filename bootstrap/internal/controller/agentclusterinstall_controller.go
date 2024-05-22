@@ -19,13 +19,11 @@ package controller
 import (
 	"context"
 	"fmt"
-
 	bmh_v1alpha1 "github.com/metal3-io/baremetal-operator/apis/metal3.io/v1alpha1"
 	metal3 "github.com/metal3-io/cluster-api-provider-metal3/api/v1beta1"
-	"github.com/pkg/errors"
-
 	hiveext "github.com/openshift/assisted-service/api/hiveextension/v1beta1"
 	aimodels "github.com/openshift/assisted-service/models"
+	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -34,6 +32,7 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/clientcmd"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	"sigs.k8s.io/cluster-api/util"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -92,13 +91,14 @@ func (r *AgentClusterInstallReconciler) Reconcile(ctx context.Context, req ctrl.
 		return ctrl.Result{}, nil
 	}
 
-	// Set metal3 node label on spoke node so that capm3 can set the provider ID
-	log.Info("agentcluster install finished installing, setting bmh ID label for spoke nodes")
-	if err := r.labelWorkloadClusterNodes(ctx, aci); err != nil {
-		log.Error(err, "failed setting spokes node label", "agentclusterinstall name", aci.Name)
-		return ctrl.Result{}, err
+	log.Info("checking platform", "platform", aci.Spec.PlatformType)
+	if aci.Spec.PlatformType != hiveext.PlatformType(aimodels.PlatformTypeNone) {
+		log.Info("setting providerID to machine and metal3machine")
+		if err := r.setProviderID(ctx, aci); err != nil {
+			log.Error(err, "failed setting spokes node label", "agentclusterinstall name", aci.Name)
+			return ctrl.Result{}, err
+		}
 	}
-
 	return ctrl.Result{}, nil
 }
 
@@ -136,7 +136,7 @@ func getKubeClientSchemes() *runtime.Scheme {
 	return schemes
 }
 
-func (r *AgentClusterInstallReconciler) labelWorkloadClusterNodes(ctx context.Context, aci *hiveext.AgentClusterInstall) error {
+func (r *AgentClusterInstallReconciler) setProviderID(ctx context.Context, aci *hiveext.AgentClusterInstall) error {
 	log := ctrl.LoggerFrom(ctx)
 	// Get all Metal3 Machines associated with this cluster
 	metal3Machines := &metal3.Metal3MachineList{}
@@ -168,26 +168,42 @@ func (r *AgentClusterInstallReconciler) labelWorkloadClusterNodes(ctx context.Co
 	}
 	log.Info("found nodes in workload cluster", "number", len(nodes.Items))
 	for _, node := range nodes.Items {
-		machine, err := getMachineByMatchingIP(*metal3Machines, node)
+		metal3Machine, err := getMachineByMatchingIP(*metal3Machines, node)
 		if err != nil {
-			log.Info("could not match any machine to node", "name", node.Name)
+			log.Info("could not match any metal3Machine to node", "name", node.Name)
 			continue
 		}
-		bmh, err := r.getBMH(ctx, *machine)
+		bmh, err := r.getBMH(ctx, *metal3Machine)
 		if err != nil {
-			log.Error(err, "couldn't get bmh", "machine name", machine.Name)
+			log.Error(err, "couldn't get bmh", "metal3Machine name", metal3Machine.Name)
 			return err
 		}
 		bmhUID := string(bmh.ObjectMeta.GetUID())
 		providerId := fmt.Sprintf("metal3.io://%s", bmhUID)
-		op, err := ctrl.CreateOrUpdate(ctx, r.Client, machine, func() error {
-			machine.Spec.ProviderID = &providerId
+
+		op, err := ctrl.CreateOrUpdate(ctx, r.Client, metal3Machine, func() error {
+			metal3Machine.Spec.ProviderID = &providerId
 			return nil
 		})
 		if err != nil {
-			log.Error(err, "error trying to update machine", "op", op, "machine", machine.Name)
+			log.Error(err, "error trying to update metal3 metal3Machine", "op", op, "metal3Machine", metal3Machine.Name)
 			return err
 		}
+
+		machine, err := util.GetMachineByName(ctx, r.Client, metal3Machine.Namespace, metal3Machine.Name)
+		if err != nil {
+			log.Error(err, "couldn't get machine from metal3machine", "name", metal3Machine.Name)
+			return err
+		}
+		op, err = ctrl.CreateOrUpdate(ctx, r.Client, machine, func() error {
+			metal3Machine.Spec.ProviderID = &node.Spec.ProviderID
+			return nil
+		})
+		if err != nil {
+			log.Error(err, "error trying to update metal3Machine", "op", op, "metal3Machine", metal3Machine.Name)
+			return err
+		}
+
 	}
 	return nil
 }

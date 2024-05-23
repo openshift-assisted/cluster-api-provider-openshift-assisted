@@ -46,10 +46,15 @@ import (
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	bsutil "sigs.k8s.io/cluster-api/bootstrap/util"
 	"sigs.k8s.io/cluster-api/util"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 )
 
 var liveIsoFormat string = "live-iso"
+
+const (
+	agentBootstrapConfigFinalizer = "agentbootstrapconfig." + bootstrapv1beta1.Group + "/deprovision"
+)
 
 // AgentBootstrapConfigReconciler reconciles a AgentBootstrapConfigSpec object
 type AgentBootstrapConfigReconciler struct {
@@ -88,9 +93,12 @@ type AgentBootstrapConfigReconciler struct {
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.17.2/pkg/reconcile
 func (r *AgentBootstrapConfigReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Result, rerr error) {
-
 	log := ctrl.LoggerFrom(ctx)
+
 	log.V(logutil.TraceLevel).Info("Reconciling AgentBootstrapConfig")
+	defer (func() {
+		log.V(logutil.TraceLevel).Info("Finished reconciling AgentBootstrapConfig")
+	})()
 
 	config := &bootstrapv1alpha1.AgentBootstrapConfig{}
 	if err := r.Client.Get(ctx, req.NamespacedName, config); err != nil {
@@ -143,6 +151,17 @@ func (r *AgentBootstrapConfigReconciler) Reconcile(ctx context.Context, req ctrl
 
 	log.V(logutil.TraceLevel).Info("config owner found", "name", configOwner.GetName())
 
+	if !config.DeletionTimestamp.IsZero() {
+		return r.handleDeletion(ctx, config, configOwner)
+	}
+
+	if !controllerutil.ContainsFinalizer(config, agentBootstrapConfigFinalizer) {
+		controllerutil.AddFinalizer(config, agentBootstrapConfigFinalizer)
+		if err := r.Client.Update(ctx, config); err != nil {
+			log.Error(rerr, "couldn't update Agent Bootstrap Config")
+			return ctrl.Result{}, err
+		}
+	}
 	clusterName, ok := config.Labels[clusterv1.ClusterNameLabel]
 	if !ok {
 		return ctrl.Result{}, fmt.Errorf("cluster name label not found in config")
@@ -383,6 +402,28 @@ func (r *AgentBootstrapConfigReconciler) setMetal3MachineTemplateImage(ctx conte
 		}
 	}
 	return nil
+}
+
+func (r *AgentBootstrapConfigReconciler) handleDeletion(ctx context.Context, config *bootstrapv1alpha1.AgentBootstrapConfig, owner *bsutil.ConfigOwner) (ctrl.Result, error) {
+	log := ctrl.LoggerFrom(ctx)
+	if controllerutil.ContainsFinalizer(config, agentBootstrapConfigFinalizer) {
+		// Check if it's a control plane node and if that cluster is being deleted
+		if _, isControlPlane := config.Labels[clusterv1.MachineControlPlaneLabel]; isControlPlane && owner.GetDeletionTimestamp().IsZero() {
+			// Don't remove finalizer if the controlplane is not being deleted
+			err := fmt.Errorf("Agent bootstrap config belongs to control plane that's not being deleted")
+			log.Error(err, "unable to delete agent bootstrap config")
+			return ctrl.Result{}, err
+		}
+
+		// Remove finalizer to delete
+		if controllerutil.RemoveFinalizer(config, agentBootstrapConfigFinalizer) {
+			if err := r.Client.Update(ctx, config); err != nil {
+				log.Error(err, "failed removing the AgentBootstrapConfig finalizer")
+				return ctrl.Result{}, err
+			}
+		}
+	}
+	return ctrl.Result{}, nil
 }
 
 func getInfraEnvName(config *bootstrapv1alpha1.AgentBootstrapConfig) (string, error) {

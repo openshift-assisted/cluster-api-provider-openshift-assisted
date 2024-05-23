@@ -40,6 +40,7 @@ import (
 	"sigs.k8s.io/cluster-api/util/collections"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	controlplanev1beta1 "github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1beta1"
 	hivev1 "github.com/openshift/hive/apis/hive/v1"
@@ -47,6 +48,7 @@ import (
 
 const (
 	agentControlPlaneKind = "AgentControlPlane"
+	acpFinalizer          = "agentcontrolplane." + controlplanev1beta1.Group + "/deprovision"
 )
 
 // AgentControlPlaneReconciler reconciles a AgentControlPlane object
@@ -85,7 +87,6 @@ type AgentControlPlaneReconciler struct {
 func (r *AgentControlPlaneReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Result, rerr error) {
 	log := ctrl.LoggerFrom(ctx)
 
-	// handle deletion
 	acp := &controlplanev1beta1.AgentControlPlane{}
 	if err := r.Client.Get(ctx, req.NamespacedName, acp); err != nil {
 		if apierrors.IsNotFound(err) {
@@ -93,11 +94,25 @@ func (r *AgentControlPlaneReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		}
 		return ctrl.Result{}, err
 	}
+	log.WithValues("AgentControlPlane Name", acp.Name, "AgentControlPlane Namespace", acp.Namespace)
+	log.V(5).Info("Started reconciling AgentControlPlane")
 	defer func() {
 		if rerr = r.Client.Status().Update(ctx, acp); rerr != nil {
-			log.Error(rerr, "couldn't update AgentControlPlane Status", "name", acp.Name, "namespace", acp.Namespace)
+			log.Error(rerr, "couldn't update AgentControlPlane Status")
 		}
+		log.V(5).Info("Finished reconciling AgentControlPlane")
 	}()
+
+	if acp.DeletionTimestamp != nil {
+		return r.handleDeletion(ctx, acp)
+	}
+	if !controllerutil.ContainsFinalizer(acp, acpFinalizer) {
+		controllerutil.AddFinalizer(acp, acpFinalizer)
+		if err := r.Client.Update(ctx, acp); err != nil {
+			log.V(5).Error(rerr, "couldn't update AgentControlPlane", "name", acp.Name, "namespace", acp.Namespace)
+			return ctrl.Result{}, err
+		}
+	}
 
 	cluster, err := util.GetOwnerCluster(ctx, r.Client, acp.ObjectMeta)
 	if err != nil {
@@ -123,7 +138,7 @@ func (r *AgentControlPlaneReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	if acp.Status.ClusterDeploymentRef == nil {
 		log.Info("Creating clusterdeployment")
 		err, clusterDeployment := r.createClusterDeployment(ctx, acp, cluster.Name)
-		if err != nil {
+		if err != nil && !apierrors.IsAlreadyExists(err) {
 			log.Error(
 				err,
 				"couldn't create clusterDeployment",
@@ -140,10 +155,6 @@ func (r *AgentControlPlaneReconciler) Reconcile(ctx context.Context, req ctrl.Re
 				Kind:       "ClusterDeployment",
 				APIVersion: hivev1.SchemeGroupVersion.String(),
 			}
-			if err = r.Client.Status().Update(ctx, acp); err != nil {
-				log.Error(rerr, "couldn't update AgentControlPlane", "name", acp.Name, "namespace", acp.Namespace)
-				return ctrl.Result{}, err
-			}
 			log.Info("Added clusterdeployment ref")
 		}
 	}
@@ -154,10 +165,6 @@ func (r *AgentControlPlaneReconciler) Reconcile(ctx context.Context, req ctrl.Re
 			// Cluster deployment no longer exists, unset reference and re-reconcile
 			acp.Status.ClusterDeploymentRef = nil
 			log.Info("Clusterdeployment doesn't exist, unset reference and reconcile again")
-			if err := r.Client.Update(ctx, acp); err != nil {
-				log.Error(err, "failed to updated agentcontrolplane to unreference clusterdeployment")
-				return ctrl.Result{}, err
-			}
 			return ctrl.Result{Requeue: true, RequeueAfter: 10 * time.Second}, nil
 		}
 	}
@@ -197,6 +204,45 @@ func (r *AgentControlPlaneReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		}
 	}
 	return ctrl.Result{}, rerr
+}
+
+// Ensures dependencies are deleted before allowing the AgentControlPlane to be deleted
+// Deletes the ClusterDeployment (which deletes the AgentClusterInstall)
+// Machines, InfraMachines, and AgentBootstrapConfigs get auto-deleted when the ACP has a deletion timestamp - this deprovisions the BMH automatically
+// TODO: should we handle watching until all machines & agentbootstrapconfigs are deleted too?
+func (r *AgentControlPlaneReconciler) handleDeletion(ctx context.Context, acp *controlplanev1beta1.AgentControlPlane) (ctrl.Result, error) {
+	log := ctrl.LoggerFrom(ctx)
+	if controllerutil.ContainsFinalizer(acp, acpFinalizer) {
+		// Delete cluster deployment
+		if err := r.deleteClusterDeployment(ctx, acp.Status.ClusterDeploymentRef); err != nil && !apierrors.IsNotFound(err) {
+			log.Error(err, "failed deleting cluster deployment for ACP")
+			return ctrl.Result{}, err
+		}
+		log.Info("ACP's clusterdeployment is deleted")
+		acp.Status.ClusterDeploymentRef = nil
+
+		if controllerutil.RemoveFinalizer(acp, acpFinalizer) {
+			if err := r.Client.Update(ctx, acp); err != nil {
+				log.Error(err, "failed updating the ACP finalizer")
+				return ctrl.Result{}, err
+			}
+		}
+	}
+	log.V(5).Info("ACP doesn't contain finalizer, allow deletion")
+	return ctrl.Result{}, nil
+}
+
+func (r *AgentControlPlaneReconciler) deleteClusterDeployment(ctx context.Context, clusterDeployment *corev1.ObjectReference) error {
+	if clusterDeployment == nil {
+		return nil
+	}
+	cd := &hivev1.ClusterDeployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      clusterDeployment.Name,
+			Namespace: clusterDeployment.Namespace,
+		},
+	}
+	return r.Client.Delete(ctx, cd)
 }
 
 func (r *AgentControlPlaneReconciler) computeDesiredMachine(acp *controlplanev1beta1.AgentControlPlane, cluster *clusterv1.Cluster) (*clusterv1.Machine, error) {
@@ -312,7 +358,7 @@ func (r *AgentControlPlaneReconciler) createClusterDeployment(ctx context.Contex
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *AgentControlPlaneReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	//TODO: maybe enqueue for clusterdeployment owned by this ACP?
+	//TODO: maybe enqueue for clusterdeployment owned by this ACP in case it gets deleted...?
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&controlplanev1beta1.AgentControlPlane{}).
 		Complete(r)

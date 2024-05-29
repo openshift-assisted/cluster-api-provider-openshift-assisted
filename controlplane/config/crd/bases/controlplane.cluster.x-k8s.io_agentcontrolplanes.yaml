@@ -88,56 +88,125 @@ spec:
                 description: AgentBootstrapConfigSpec defines the desired state of
                   AgentBootstrapConfig
                 properties:
-                  infraEnvRef:
+                  additionalNTPSources:
                     description: |-
-                      Here we can add details to configure infraenv
-                      InfraEnvRef references the infra env to generate the ISO
+                      AdditionalNTPSources is a list of NTP sources (hostname or IP) to be added to all cluster
+                      hosts. They are added to any NTP sources that were configured through other means.
+                    items:
+                      type: string
+                    type: array
+                  additionalTrustBundle:
+                    description: |-
+                      PEM-encoded X.509 certificate bundle. Hosts discovered by this
+                      infra-env will trust the certificates in this bundle. Clusters formed
+                      from the hosts discovered by this infra-env will also trust the
+                      certificates in this bundle.
+                    type: string
+                  cpuArchitecture:
+                    default: x86_64
+                    description: CpuArchitecture specifies the target CPU architecture.
+                      Default is x86_64
+                    type: string
+                  kernelArguments:
+                    description: |-
+                      KernelArguments is the additional kernel arguments to be passed during boot time of the discovery image.
+                      Applicable for both iPXE, and ISO streaming from Image Service.
+                    items:
+                      properties:
+                        operation:
+                          description: Operation is the operation to apply on the
+                            kernel argument.
+                          enum:
+                          - append
+                          - replace
+                          - delete
+                          type: string
+                        value:
+                          description: |-
+                            Value can have the form <parameter> or <parameter>=<value>. The following examples should be supported:
+                            rd.net.timeout.carrier=60
+                            isolcpus=1,2,10-20,100-2000:2/25
+                            quiet
+                          pattern: ^(?:(?:[^ \t\n\r"]+)|(?:"[^"]*"))+$
+                          type: string
+                      type: object
+                    type: array
+                  nmStateConfigLabelSelector:
+                    description: |-
+                      NmstateConfigLabelSelector associates NMStateConfigs for hosts that are considered part
+                      of this installation environment.
                     properties:
-                      apiVersion:
-                        description: API version of the referent.
-                        type: string
-                      fieldPath:
+                      matchExpressions:
+                        description: matchExpressions is a list of label selector
+                          requirements. The requirements are ANDed.
+                        items:
+                          description: |-
+                            A label selector requirement is a selector that contains values, a key, and an operator that
+                            relates the key and values.
+                          properties:
+                            key:
+                              description: key is the label key that the selector
+                                applies to.
+                              type: string
+                            operator:
+                              description: |-
+                                operator represents a key's relationship to a set of values.
+                                Valid operators are In, NotIn, Exists and DoesNotExist.
+                              type: string
+                            values:
+                              description: |-
+                                values is an array of string values. If the operator is In or NotIn,
+                                the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                                the values array must be empty. This array is replaced during a strategic
+                                merge patch.
+                              items:
+                                type: string
+                              type: array
+                              x-kubernetes-list-type: atomic
+                          required:
+                          - key
+                          - operator
+                          type: object
+                        type: array
+                        x-kubernetes-list-type: atomic
+                      matchLabels:
+                        additionalProperties:
+                          type: string
                         description: |-
-                          If referring to a piece of an object instead of an entire object, this string
-                          should contain a valid JSON/Go field access statement, such as desiredState.manifest.containers[2].
-                          For example, if the object reference is to a container within a pod, this would take on a value like:
-                          "spec.containers{name}" (where "name" refers to the name of the container that triggered
-                          the event) or if no container name is specified "spec.containers[2]" (container with
-                          index 2 in this pod). This syntax is chosen only to have some well-defined way of
-                          referencing a part of an object.
-                          TODO: this design is not final and this field is subject to change in the future.
-                        type: string
-                      kind:
-                        description: |-
-                          Kind of the referent.
-                          More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
-                        type: string
-                      name:
-                        description: |-
-                          Name of the referent.
-                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                        type: string
-                      namespace:
-                        description: |-
-                          Namespace of the referent.
-                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/namespaces/
-                        type: string
-                      resourceVersion:
-                        description: |-
-                          Specific resourceVersion to which this reference is made, if any.
-                          More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#concurrency-control-and-consistency
-                        type: string
-                      uid:
-                        description: |-
-                          UID of the referent.
-                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#uids
-                        type: string
+                          matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                          map is equivalent to an element of matchExpressions, whose key field is "key", the
+                          operator is "In", and the values array contains only "value". The requirements are ANDed.
+                        type: object
                     type: object
                     x-kubernetes-map-type: atomic
-                  pullSecretRef:
+                  osImageVersion:
                     description: |-
-                      LocalObjectReference contains enough information to let you locate the
-                      referenced object inside the same namespace.
+                      OSImageVersion is the version of OS image to use when generating the InfraEnv.
+                      The version should refer to an OSImage specified in the AgentServiceConfig
+                      (i.e. OSImageVersion should equal to an OpenshiftVersion in OSImages list).
+                      Note: OSImageVersion can't be specified along with ClusterRef.
+                    type: string
+                  proxy:
+                    description: |-
+                      Proxy defines the proxy settings for agents and clusters that use the InfraEnv. If
+                      unset, the agents and clusters will not be configured to use a proxy.
+                    properties:
+                      httpProxy:
+                        description: HTTPProxy is the URL of the proxy for HTTP requests.
+                        type: string
+                      httpsProxy:
+                        description: HTTPSProxy is the URL of the proxy for HTTPS
+                          requests.
+                        type: string
+                      noProxy:
+                        description: |-
+                          NoProxy is a comma-separated list of domains and CIDRs for which the proxy should not be
+                          used.
+                        type: string
+                    type: object
+                  pullSecretRef:
+                    description: PullSecretRef is the reference to the secret to use
+                      when pulling images.
                     properties:
                       name:
                         description: |-
@@ -148,80 +217,86 @@ spec:
                     type: object
                     x-kubernetes-map-type: atomic
                   sshAuthorizedKey:
+                    description: SSHAuthorizedKey is a SSH public keys that will be
+                      added to all agents for use in debugging.
                     type: string
                 type: object
               agentConfigSpec:
                 description: AgentConfigSpec specs for the AgentConfig
                 properties:
-                  apiVIPs:
-                    items:
-                      type: string
-                    type: array
                   baseDomain:
-                    description: Base domain for install cluster
+                    description: BaseDomain is the base domain to which the cluster
+                      should belong.
                     type: string
-                  clusterDeploymentRef:
-                    description: ClusterDeploymentRef references the ClusterDeployment
-                      used to create the cluster
+                  clusterName:
+                    description: |-
+                      ClusterName is the friendly name of the cluster. It is used for subdomains,
+                      some resource tagging, and other instances where a friendly name for the
+                      cluster is useful.
+                      If not defined ClusterName will be set as the CAPI ClusterName
+                    type: string
+                  diskEncryption:
+                    description: DiskEncryption is the configuration to enable/disable
+                      disk encryption for cluster nodes.
                     properties:
-                      apiVersion:
-                        description: API version of the referent.
+                      enableOn:
+                        default: none
+                        description: Enable/disable disk encryption on master nodes,
+                          worker nodes, or all nodes.
+                        enum:
+                        - none
+                        - all
+                        - masters
+                        - workers
                         type: string
-                      fieldPath:
-                        description: |-
-                          If referring to a piece of an object instead of an entire object, this string
-                          should contain a valid JSON/Go field access statement, such as desiredState.manifest.containers[2].
-                          For example, if the object reference is to a container within a pod, this would take on a value like:
-                          "spec.containers{name}" (where "name" refers to the name of the container that triggered
-                          the event) or if no container name is specified "spec.containers[2]" (container with
-                          index 2 in this pod). This syntax is chosen only to have some well-defined way of
-                          referencing a part of an object.
-                          TODO: this design is not final and this field is subject to change in the future.
+                      mode:
+                        description: The disk encryption mode to use.
+                        enum:
+                        - tpmv2
+                        - tang
                         type: string
-                      kind:
-                        description: |-
-                          Kind of the referent.
-                          More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
-                        type: string
-                      name:
-                        description: |-
-                          Name of the referent.
-                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                        type: string
-                      namespace:
-                        description: |-
-                          Namespace of the referent.
-                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/namespaces/
-                        type: string
-                      resourceVersion:
-                        description: |-
-                          Specific resourceVersion to which this reference is made, if any.
-                          More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#concurrency-control-and-consistency
-                        type: string
-                      uid:
-                        description: |-
-                          UID of the referent.
-                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#uids
+                      tangServers:
+                        description: JSON-formatted string containing additional information
+                          regarding tang's configuration
                         type: string
                     type: object
-                    x-kubernetes-map-type: atomic
-                  ingressVIPs:
+                  manifestsConfigMapRefs:
+                    description: |-
+                      ManifestsConfigMapRefs is an array of references to user-provided manifests ConfigMaps to
+                      add to or replace manifests that are generated by the installer.
+                      Manifest names in each ConfigMap should be unique across all referenced ConfigMaps.
                     items:
-                      type: string
-                    type: array
-                  machineNetwork:
-                    items:
-                      description: MachineNetworkEntry is a single IP address block
-                        for node IP blocks.
+                      description: ManifestsConfigMapReference is a reference to a
+                        manifests ConfigMap
                       properties:
-                        cidr:
-                          description: CIDR is the IP block address pool for machines
-                            within the cluster.
+                        name:
+                          description: Name is the name of the ConfigMap that this
+                            refers to
                           type: string
                       required:
-                      - cidr
+                      - name
                       type: object
                     type: array
+                  mastersSchedulable:
+                    description: Set to true to allow control plane nodes to be schedulable
+                    type: boolean
+                  proxy:
+                    description: Proxy defines the proxy settings used for the install
+                      config
+                    properties:
+                      httpProxy:
+                        description: HTTPProxy is the URL of the proxy for HTTP requests.
+                        type: string
+                      httpsProxy:
+                        description: HTTPSProxy is the URL of the proxy for HTTPS
+                          requests.
+                        type: string
+                      noProxy:
+                        description: |-
+                          NoProxy is a comma-separated list of domains and CIDRs for which the proxy should not be
+                          used.
+                        type: string
+                    type: object
                   pullSecretRef:
                     description: PullSecretRef references pull secret necessary for
                       the cluster installation
@@ -240,8 +315,6 @@ spec:
                     description: SSHAuthorizedKey ssh key for accessing the cluster
                       nodes after reboot
                     type: string
-                  userManagedNetworking:
-                    type: boolean
                 required:
                 - baseDomain
                 - releaseImage
@@ -351,6 +424,51 @@ spec:
           status:
             description: AgentControlPlaneStatus defines the observed state of AgentControlPlane
             properties:
+              clusterDeploymentRef:
+                description: ClusterDeploymentRef references the ClusterDeployment
+                  used to create the cluster
+                properties:
+                  apiVersion:
+                    description: API version of the referent.
+                    type: string
+                  fieldPath:
+                    description: |-
+                      If referring to a piece of an object instead of an entire object, this string
+                      should contain a valid JSON/Go field access statement, such as desiredState.manifest.containers[2].
+                      For example, if the object reference is to a container within a pod, this would take on a value like:
+                      "spec.containers{name}" (where "name" refers to the name of the container that triggered
+                      the event) or if no container name is specified "spec.containers[2]" (container with
+                      index 2 in this pod). This syntax is chosen only to have some well-defined way of
+                      referencing a part of an object.
+                      TODO: this design is not final and this field is subject to change in the future.
+                    type: string
+                  kind:
+                    description: |-
+                      Kind of the referent.
+                      More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+                    type: string
+                  name:
+                    description: |-
+                      Name of the referent.
+                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                    type: string
+                  namespace:
+                    description: |-
+                      Namespace of the referent.
+                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/namespaces/
+                    type: string
+                  resourceVersion:
+                    description: |-
+                      Specific resourceVersion to which this reference is made, if any.
+                      More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#concurrency-control-and-consistency
+                    type: string
+                  uid:
+                    description: |-
+                      UID of the referent.
+                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#uids
+                    type: string
+                type: object
+                x-kubernetes-map-type: atomic
               conditions:
                 description: Conditions defines current service state of the KubeadmControlPlane.
                 items:

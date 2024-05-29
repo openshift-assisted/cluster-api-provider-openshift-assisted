@@ -236,10 +236,10 @@ func (r *AgentBootstrapConfigReconciler) Reconcile(ctx context.Context, req ctrl
 	}
 
 	// Set infraEnv if not already set
-	if config.Spec.InfraEnvRef == nil {
-		config.Spec.InfraEnvRef = &corev1.ObjectReference{Name: infraEnv.Name, Namespace: infraEnv.Namespace, Kind: "InfraEnv", APIVersion: infraEnv.APIVersion}
-		if err := r.Client.Update(ctx, config); err != nil {
-			log.Error(err, "couldn't update agent config", "name", config.Name)
+	if config.Status.InfraEnvRef == nil {
+		config.Status.InfraEnvRef = &corev1.ObjectReference{Name: infraEnv.Name, Namespace: infraEnv.Namespace, Kind: "InfraEnv", APIVersion: infraEnv.APIVersion}
+		if err := r.Client.Status().Update(ctx, config); err != nil {
+			log.Error(err, "couldn't update agent config status", "name", config.Name)
 			return ctrl.Result{}, err
 		}
 	}

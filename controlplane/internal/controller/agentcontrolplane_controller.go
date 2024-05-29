@@ -120,7 +120,7 @@ func (r *AgentControlPlaneReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	}
 	// TODO: handle changes in pull-secret (for example)
 	// create clusterdeployment if not set
-	if acp.Spec.AgentConfigSpec.ClusterDeploymentRef == nil {
+	if acp.Status.ClusterDeploymentRef == nil {
 		log.Info("Creating clusterdeployment")
 		err, clusterDeployment := r.createClusterDeployment(ctx, acp, cluster.Name)
 		if err != nil {
@@ -134,13 +134,13 @@ func (r *AgentControlPlaneReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		}
 
 		if clusterDeployment != nil {
-			acp.Spec.AgentConfigSpec.ClusterDeploymentRef = &corev1.ObjectReference{
+			acp.Status.ClusterDeploymentRef = &corev1.ObjectReference{
 				Name:       clusterDeployment.Name,
 				Namespace:  clusterDeployment.Namespace,
 				Kind:       "ClusterDeployment",
 				APIVersion: hivev1.SchemeGroupVersion.String(),
 			}
-			if err = r.Client.Update(ctx, acp); err != nil {
+			if err = r.Client.Status().Update(ctx, acp); err != nil {
 				log.Error(rerr, "couldn't update AgentControlPlane", "name", acp.Name, "namespace", acp.Namespace)
 				return ctrl.Result{}, err
 			}
@@ -149,10 +149,10 @@ func (r *AgentControlPlaneReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	}
 	// Retrieve clusterdeployment
 	cd := &hivev1.ClusterDeployment{}
-	if err := r.Client.Get(ctx, types.NamespacedName{Namespace: acp.Spec.AgentConfigSpec.ClusterDeploymentRef.Namespace, Name: acp.Spec.AgentConfigSpec.ClusterDeploymentRef.Name}, cd); err != nil {
+	if err := r.Client.Get(ctx, types.NamespacedName{Namespace: acp.Status.ClusterDeploymentRef.Namespace, Name: acp.Status.ClusterDeploymentRef.Name}, cd); err != nil {
 		if apierrors.IsNotFound(err) {
 			// Cluster deployment no longer exists, unset reference and re-reconcile
-			acp.Spec.AgentConfigSpec.ClusterDeploymentRef = nil
+			acp.Status.ClusterDeploymentRef = nil
 			log.Info("Clusterdeployment doesn't exist, unset reference and reconcile again")
 			if err := r.Client.Update(ctx, acp); err != nil {
 				log.Error(err, "failed to updated agentcontrolplane to unreference clusterdeployment")

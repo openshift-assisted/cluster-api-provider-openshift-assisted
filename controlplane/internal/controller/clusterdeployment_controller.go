@@ -85,10 +85,10 @@ func (r *ClusterDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.Re
 }
 
 func IsAgentControlPlaneReferencingClusterDeployment(agentCP v1beta1.AgentControlPlane, clusterDeployment *hivev1.ClusterDeployment) bool {
-	return agentCP.Spec.AgentConfigSpec.ClusterDeploymentRef != nil &&
-		agentCP.Spec.AgentConfigSpec.ClusterDeploymentRef.GroupVersionKind().String() == hivev1.SchemeGroupVersion.WithKind("ClusterDeployment").String() &&
-		agentCP.Spec.AgentConfigSpec.ClusterDeploymentRef.Namespace == clusterDeployment.Namespace &&
-		agentCP.Spec.AgentConfigSpec.ClusterDeploymentRef.Name == clusterDeployment.Name
+	return agentCP.Status.ClusterDeploymentRef != nil &&
+		agentCP.Status.ClusterDeploymentRef.GroupVersionKind().String() == hivev1.SchemeGroupVersion.WithKind("ClusterDeployment").String() &&
+		agentCP.Status.ClusterDeploymentRef.Namespace == clusterDeployment.Namespace &&
+		agentCP.Status.ClusterDeploymentRef.Name == clusterDeployment.Name
 }
 
 func (r *ClusterDeploymentReconciler) ensureAgentClusterInstall(ctx context.Context, clusterDeployment *hivev1.ClusterDeployment, acp v1beta1.AgentControlPlane) (ctrl.Result, error) {
@@ -259,6 +259,7 @@ func computeAgentClusterInstall(clusterDeployment *hivev1.ClusterDeployment, acp
 		},
 		Spec: hiveext.AgentClusterInstallSpec{
 			ClusterDeploymentRef: corev1.LocalObjectReference{Name: clusterDeployment.Name},
+			PlatformType: hiveext.PlatformType(v1.NonePlatformType),
 			ProvisionRequirements: hiveext.ProvisionRequirements{
 				ControlPlaneAgents: int(acp.Spec.Replicas),
 				WorkerAgents:       workerReplicas,
@@ -266,26 +267,10 @@ func computeAgentClusterInstall(clusterDeployment *hivev1.ClusterDeployment, acp
 			SSHPublicKey: acp.Spec.AgentConfigSpec.SSHAuthorizedKey,
 			ImageSetRef:  &hivev1.ClusterImageSetReference{Name: imageSet.Name},
 			Networking: hiveext.Networking{
-				UserManagedNetworking: acp.Spec.AgentConfigSpec.UserManagedNetworking,
 				ClusterNetwork:        clusterNetwork,
 				ServiceNetwork:        serviceNetwork,
-				MachineNetwork:        acp.Spec.AgentConfigSpec.MachineNetwork,
 			},
 		},
-	}
-	if aci.Spec.Networking.UserManagedNetworking != nil && *aci.Spec.Networking.UserManagedNetworking {
-		aci.Spec.PlatformType = hiveext.PlatformType(v1.NonePlatformType)
-		return aci
-	}
-
-	// not user managed networking: need APIVIP
-	// TODO: make field mutually exclusive (usermanagednetworking and APIVIPS & INGRESSVIPS)
-	// TODO: for older openshift version use only singular, for newer can use plural
-	if len(acp.Spec.AgentConfigSpec.APIVIPs) > 0 {
-		aci.Spec.APIVIP = acp.Spec.AgentConfigSpec.APIVIPs[0]
-	}
-	if len(acp.Spec.AgentConfigSpec.IngressVIPs) > 0 {
-		aci.Spec.IngressVIP = acp.Spec.AgentConfigSpec.IngressVIPs[0]
 	}
 	return aci
 }

@@ -20,6 +20,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	aiv1beta1 "github.com/openshift/assisted-service/api/v1beta1"
 )
 
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
@@ -27,17 +28,63 @@ import (
 
 // AgentBootstrapConfigSpec defines the desired state of AgentBootstrapConfig
 type AgentBootstrapConfigSpec struct {
-	// Here we can add details to configure infraenv
-	// InfraEnvRef references the infra env to generate the ISO
-	InfraEnvRef      *corev1.ObjectReference      `json:"infraEnvRef,omitempty"`
+	// Below some fields that would map to the InfraEnv https://github.com/openshift/assisted-service/blob/5b9d5f9197c950750f0d57dc7900a60cef255171/api/v1beta1/infraenv_types.go#L48
+
+	// Proxy defines the proxy settings for agents and clusters that use the InfraEnv. If
+	// unset, the agents and clusters will not be configured to use a proxy.
+	// +optional
+	Proxy *aiv1beta1.Proxy `json:"proxy,omitempty"`
+
+	// PullSecretRef is the reference to the secret to use when pulling images.
 	PullSecretRef    *corev1.LocalObjectReference `json:"pullSecretRef,omitempty"`
+
+	// AdditionalNTPSources is a list of NTP sources (hostname or IP) to be added to all cluster
+	// hosts. They are added to any NTP sources that were configured through other means.
+	// +optional
+	AdditionalNTPSources []string `json:"additionalNTPSources,omitempty"`
+
+	// SSHAuthorizedKey is a SSH public keys that will be added to all agents for use in debugging.
+	// +optional
 	SSHAuthorizedKey string                       `json:"sshAuthorizedKey,omitempty"`
+
+	// NmstateConfigLabelSelector associates NMStateConfigs for hosts that are considered part
+	// of this installation environment.
+	// +optional
+	NMStateConfigLabelSelector metav1.LabelSelector `json:"nmStateConfigLabelSelector,omitempty"`
+
+	// CpuArchitecture specifies the target CPU architecture. Default is x86_64
+	// +kubebuilder:default=x86_64
+	// +optional
+	CpuArchitecture string `json:"cpuArchitecture,omitempty"`
+
+	// KernelArguments is the additional kernel arguments to be passed during boot time of the discovery image.
+	// Applicable for both iPXE, and ISO streaming from Image Service.
+	// +optional
+	KernelArguments []aiv1beta1.KernelArgument `json:"kernelArguments,omitempty"`
+
+	// PEM-encoded X.509 certificate bundle. Hosts discovered by this
+	// infra-env will trust the certificates in this bundle. Clusters formed
+	// from the hosts discovered by this infra-env will also trust the
+	// certificates in this bundle.
+	// +optional
+	AdditionalTrustBundle string `json:"additionalTrustBundle,omitempty"`
+
+	// OSImageVersion is the version of OS image to use when generating the InfraEnv.
+	// The version should refer to an OSImage specified in the AgentServiceConfig
+	// (i.e. OSImageVersion should equal to an OpenshiftVersion in OSImages list).
+	// Note: OSImageVersion can't be specified along with ClusterRef. 
+	// +optional
+	OSImageVersion string `json:"osImageVersion,omitempty"`
 }
 
 // AgentBootstrapConfigStatus defines the observed state of AgentBootstrapConfig
 type AgentBootstrapConfigStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
+	// InfraEnvRef references the infra env to generate the ISO
+	InfraEnvRef      *corev1.ObjectReference      `json:"infraEnvRef,omitempty"`
+	
+	// ISODownloadURL is the url for the live-iso to be downloaded from Assisted Installer
 	ISODownloadURL string `json:"isoDownloadURL,omitempty"`
 
 	// Ready indicates the BootstrapData field is ready to be consumed

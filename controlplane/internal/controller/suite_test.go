@@ -28,11 +28,16 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	fakeclient "sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	controlplanev1beta1 "github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1beta1"
+	hiveext "github.com/openshift/assisted-service/api/hiveextension/v1beta1"
+	hivev1 "github.com/openshift/hive/apis/hive/v1"
+	corev1 "k8s.io/api/core/v1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -41,6 +46,7 @@ import (
 
 var cfg *rest.Config
 var k8sClient client.Client
+var fakeClient client.Client
 var testEnv *envtest.Environment
 
 func TestControllers(t *testing.T) {
@@ -54,7 +60,7 @@ var _ = BeforeSuite(func() {
 
 	By("bootstrapping test environment")
 	testEnv = &envtest.Environment{
-		CRDDirectoryPaths:     []string{filepath.Join("..", "..", "..", "config", "crd", "bases")},
+		CRDDirectoryPaths:     []string{filepath.Join("..", "..", "config", "crd", "bases")},
 		ErrorIfCRDPathMissing: true,
 
 		// The BinaryAssetsDirectory is only required if you want to run the tests directly
@@ -74,13 +80,22 @@ var _ = BeforeSuite(func() {
 
 	err = controlplanev1beta1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
+	err = corev1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+	err = clusterv1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+	err = hivev1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+	err = hiveext.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
 
 	//+kubebuilder:scaffold:scheme
 
-	k8sClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
-	Expect(err).NotTo(HaveOccurred())
+	/* 	k8sClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
+	   	Expect(err).NotTo(HaveOccurred())
+	*/
+	k8sClient = fakeclient.NewClientBuilder().WithScheme(scheme.Scheme).WithStatusSubresource(&controlplanev1beta1.AgentControlPlane{}).Build()
 	Expect(k8sClient).NotTo(BeNil())
-
 })
 
 var _ = AfterSuite(func() {

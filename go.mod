@@ -5,6 +5,7 @@ go 1.22.0
 toolchain go1.22.2
 
 require (
+	github.com/golang/mock v1.6.0
 	github.com/metal3-io/baremetal-operator/apis v0.6.0
 	github.com/metal3-io/cluster-api-provider-metal3 v1.7.0
 	github.com/metal3-io/cluster-api-provider-metal3/api v1.7.0
@@ -30,6 +31,7 @@ require (
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/emicklei/go-restful/v3 v3.11.0 // indirect
+	github.com/evanphx/json-patch v5.7.0+incompatible // indirect
 	github.com/evanphx/json-patch/v5 v5.9.0 // indirect
 	github.com/fsnotify/fsnotify v1.7.0 // indirect
 	github.com/go-logr/logr v1.4.1 // indirect

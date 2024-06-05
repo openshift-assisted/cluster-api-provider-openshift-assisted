@@ -130,6 +130,11 @@ func (in *AgentBootstrapConfigStatus) DeepCopyInto(out *AgentBootstrapConfigStat
 		*out = new(v1.ObjectReference)
 		**out = **in
 	}
+	if in.AgentRef != nil {
+		in, out := &in.AgentRef, &out.AgentRef
+		*out = new(v1.LocalObjectReference)
+		**out = **in
+	}
 	if in.DataSecretName != nil {
 		in, out := &in.DataSecretName, &out.DataSecretName
 		*out = new(string)

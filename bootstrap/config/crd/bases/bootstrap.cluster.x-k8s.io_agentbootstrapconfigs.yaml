@@ -176,6 +176,18 @@ spec:
             description: AgentBootstrapConfigStatus defines the observed state of
               AgentBootstrapConfig
             properties:
+              agentRef:
+                description: AgentRef references the agent this agent bootstrap config
+                  has booted
+                properties:
+                  name:
+                    description: |-
+                      Name of the referent.
+                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                      TODO: Add other useful fields. apiVersion, kind, uid?
+                    type: string
+                type: object
+                x-kubernetes-map-type: atomic
               conditions:
                 description: Conditions defines current service state of the Agent
                   Bootstrap Config.

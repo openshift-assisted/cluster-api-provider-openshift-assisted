@@ -84,6 +84,9 @@ type AgentBootstrapConfigStatus struct {
 	// InfraEnvRef references the infra env to generate the ISO
 	InfraEnvRef *corev1.ObjectReference `json:"infraEnvRef,omitempty"`
 
+	// AgentRef references the agent this agent bootstrap config has booted
+	AgentRef *corev1.LocalObjectReference `json:"agentRef,omitempty"`
+
 	// ISODownloadURL is the url for the live-iso to be downloaded from Assisted Installer
 	ISODownloadURL string `json:"isoDownloadURL,omitempty"`
 

@@ -10,9 +10,11 @@ import (
 	metal3 "github.com/metal3-io/cluster-api-provider-metal3/api/v1beta1"
 	"github.com/metal3-io/cluster-api-provider-metal3/baremetal"
 	bootstrapv1alpha1 "github.com/openshift-assisted/cluster-api-agent/bootstrap/api/v1alpha1"
+	logutil "github.com/openshift-assisted/cluster-api-agent/util/log"
 	aiv1beta1 "github.com/openshift/assisted-service/api/v1beta1"
 	"github.com/openshift/assisted-service/models"
 	hivev1 "github.com/openshift/hive/apis/hive/v1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
@@ -53,15 +55,6 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	agentBootstrapConfigList := bootstrapv1alpha1.AgentBootstrapConfigList{}
-	if err := r.Client.List(ctx, &agentBootstrapConfigList, client.MatchingLabels{clusterv1.ClusterNameLabel: clusterName}); err != nil {
-		log.Error(err, "agentboostrapconfig not found for cluster", "cluster", clusterName)
-		return ctrl.Result{}, err
-	}
-	if len(agentBootstrapConfigList.Items) < 1 {
-		return ctrl.Result{}, fmt.Errorf("agentboostrapconfig not found for cluster %s", clusterName)
-	}
-
 	if agent.Status.Inventory.Interfaces == nil {
 		log.Info("agent doesn't have interfaces yet", "agent name", agent.Name)
 		return ctrl.Result{}, nil
@@ -82,6 +75,26 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	}
 
 	agent.Spec.NodeLabels = map[string]string{metal3ProviderIDLabelKey: getProviderID(bmh)}
+	if machine.Spec.Bootstrap.ConfigRef == nil {
+		log.V(logutil.TraceLevel).Info("Agent's machine not associated with agent bootstrap config")
+		return ctrl.Result{}, nil
+	}
+
+	config := &bootstrapv1alpha1.AgentBootstrapConfig{}
+	if err := r.Client.Get(ctx, client.ObjectKey{Name: machine.Spec.Bootstrap.ConfigRef.Name, Namespace: machine.Spec.Bootstrap.ConfigRef.Namespace}, config); err != nil {
+		log.V(logutil.TraceLevel).Info("Failed getting agent's agent bootstrap config")
+		return ctrl.Result{}, err
+	}
+
+	if config.Status.AgentRef == nil {
+		config.Status.AgentRef = &corev1.LocalObjectReference{Name: agent.Name}
+		// Set this agent as a ref on the agent bootstrap config
+		if err := r.Client.Status().Update(ctx, config); err != nil {
+			log.Error(err, "failed to set this agent as the agent ref on agent bootstrap config")
+			return ctrl.Result{}, err
+		}
+	}
+
 	role := models.HostRoleWorker
 	if _, ok := machine.Labels[clusterv1.MachineControlPlaneLabel]; ok {
 		role = models.HostRoleMaster

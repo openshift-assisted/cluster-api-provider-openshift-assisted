@@ -96,9 +96,6 @@ func (r *AgentBootstrapConfigReconciler) Reconcile(ctx context.Context, req ctrl
 	log := ctrl.LoggerFrom(ctx)
 
 	log.V(logutil.TraceLevel).Info("Reconciling AgentBootstrapConfig")
-	defer (func() {
-		log.V(logutil.TraceLevel).Info("Finished reconciling AgentBootstrapConfig")
-	})()
 
 	config := &bootstrapv1alpha1.AgentBootstrapConfig{}
 	if err := r.Client.Get(ctx, req.NamespacedName, config); err != nil {
@@ -167,10 +164,8 @@ func (r *AgentBootstrapConfigReconciler) Reconcile(ctx context.Context, req ctrl
 		return ctrl.Result{}, fmt.Errorf("cluster name label not found in config")
 	}
 
-	// Get the Machine associated with this agentbootstrapconfig
-
-	// TODO: change the way we get this, for now it has the same name but that may not be the case - we should change to fetch by spec's reference to this agentbootstrapconfig
-	machine, err := util.GetMachineByName(ctx, r.Client, config.Namespace, config.Name)
+	// Get the Machine that owns this agentbootstrapconfig
+	machine, err := util.GetOwnerMachine(ctx, r.Client, config.ObjectMeta)
 	if err != nil {
 		log.Error(err, "couldn't get machine associated with agentbootstrapconfig", "name", config.Name)
 		return ctrl.Result{}, err
@@ -410,9 +405,18 @@ func (r *AgentBootstrapConfigReconciler) handleDeletion(ctx context.Context, con
 		// Check if it's a control plane node and if that cluster is being deleted
 		if _, isControlPlane := config.Labels[clusterv1.MachineControlPlaneLabel]; isControlPlane && owner.GetDeletionTimestamp().IsZero() {
 			// Don't remove finalizer if the controlplane is not being deleted
-			err := fmt.Errorf("Agent bootstrap config belongs to control plane that's not being deleted")
+			err := fmt.Errorf("agent bootstrap config belongs to control plane that's not being deleted")
 			log.Error(err, "unable to delete agent bootstrap config")
 			return ctrl.Result{}, err
+		}
+
+		// Delete associated agent
+		if config.Status.AgentRef != nil {
+			if err := r.Client.Delete(ctx, &aiv1beta1.Agent{ObjectMeta: metav1.ObjectMeta{Name: config.Status.AgentRef.Name, Namespace: config.Namespace}}); err != nil && !apierrors.IsNotFound(err) {
+				log.Error(err, "failed to delete agent associated with this agent bootstrap config")
+				return ctrl.Result{}, err
+			}
+			config.Status.AgentRef = nil
 		}
 
 		// Remove finalizer to delete

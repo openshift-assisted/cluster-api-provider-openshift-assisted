@@ -24,7 +24,7 @@ import (
 	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/cluster-api/util/labels/format"
 
-	bootstrapv1beta1 "github.com/openshift-assisted/cluster-api-agent/bootstrap/api/v1beta1"
+	bootstrapv1alpha1 "github.com/openshift-assisted/cluster-api-agent/bootstrap/api/v1alpha1"
 	logutil "github.com/openshift-assisted/cluster-api-agent/util/log"
 
 	"github.com/openshift/hive/apis/hive/v1/agent"
@@ -44,13 +44,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
-	controlplanev1beta1 "github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1beta1"
+	controlplanev1alpha1 "github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1alpha1"
 	hivev1 "github.com/openshift/hive/apis/hive/v1"
 )
 
 const (
 	agentControlPlaneKind = "AgentControlPlane"
-	acpFinalizer          = "agentcontrolplane." + controlplanev1beta1.Group + "/deprovision"
+	acpFinalizer          = "agentcontrolplane." + controlplanev1alpha1.Group + "/deprovision"
 )
 
 // AgentControlPlaneReconciler reconciles a AgentControlPlane object
@@ -89,7 +89,7 @@ type AgentControlPlaneReconciler struct {
 func (r *AgentControlPlaneReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Result, rerr error) {
 	log := ctrl.LoggerFrom(ctx)
 
-	acp := &controlplanev1beta1.AgentControlPlane{}
+	acp := &controlplanev1alpha1.AgentControlPlane{}
 	if err := r.Client.Get(ctx, req.NamespacedName, acp); err != nil {
 		if apierrors.IsNotFound(err) {
 			return ctrl.Result{}, nil
@@ -212,7 +212,7 @@ func (r *AgentControlPlaneReconciler) Reconcile(ctx context.Context, req ctrl.Re
 // Deletes the ClusterDeployment (which deletes the AgentClusterInstall)
 // Machines, InfraMachines, and AgentBootstrapConfigs get auto-deleted when the ACP has a deletion timestamp - this deprovisions the BMH automatically
 // TODO: should we handle watching until all machines & agentbootstrapconfigs are deleted too?
-func (r *AgentControlPlaneReconciler) handleDeletion(ctx context.Context, acp *controlplanev1beta1.AgentControlPlane) (ctrl.Result, error) {
+func (r *AgentControlPlaneReconciler) handleDeletion(ctx context.Context, acp *controlplanev1alpha1.AgentControlPlane) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
 	if controllerutil.ContainsFinalizer(acp, acpFinalizer) {
 		// Delete cluster deployment
@@ -247,7 +247,7 @@ func (r *AgentControlPlaneReconciler) deleteClusterDeployment(ctx context.Contex
 	return r.Client.Delete(ctx, cd)
 }
 
-func (r *AgentControlPlaneReconciler) computeDesiredMachine(acp *controlplanev1beta1.AgentControlPlane, cluster *clusterv1.Cluster) (*clusterv1.Machine, error) {
+func (r *AgentControlPlaneReconciler) computeDesiredMachine(acp *controlplanev1alpha1.AgentControlPlane, cluster *clusterv1.Cluster) (*clusterv1.Machine, error) {
 	var machineName string
 	var machineUID types.UID
 	var version *string
@@ -268,7 +268,7 @@ func (r *AgentControlPlaneReconciler) computeDesiredMachine(acp *controlplanev1b
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to marshal cluster configuration")
 		}
-		annotations[controlplanev1beta1.AgentClusterConfigurationAnnotation] = string(clusterConfig)
+		annotations[controlplanev1alpha1.AgentClusterConfigurationAnnotation] = string(clusterConfig)
 	*/
 	// TODO: add label for role
 	// Construct the basic Machine.
@@ -283,7 +283,7 @@ func (r *AgentControlPlaneReconciler) computeDesiredMachine(acp *controlplanev1b
 			Namespace: acp.Namespace,
 			// Note: by setting the ownerRef on creation we signal to the Machine controller that this is not a stand-alone Machine.
 			OwnerReferences: []metav1.OwnerReference{
-				*metav1.NewControllerRef(acp, controlplanev1beta1.GroupVersion.WithKind(agentControlPlaneKind)),
+				*metav1.NewControllerRef(acp, controlplanev1alpha1.GroupVersion.WithKind(agentControlPlaneKind)),
 			},
 			Labels:      map[string]string{},
 			Annotations: map[string]string{},
@@ -319,7 +319,7 @@ func (r *AgentControlPlaneReconciler) computeDesiredMachine(acp *controlplanev1b
 	return desiredMachine, nil
 }
 
-func (r *AgentControlPlaneReconciler) createClusterDeployment(ctx context.Context, acp *controlplanev1beta1.AgentControlPlane, clusterName string) (error, *hivev1.ClusterDeployment) {
+func (r *AgentControlPlaneReconciler) createClusterDeployment(ctx context.Context, acp *controlplanev1alpha1.AgentControlPlane, clusterName string) (error, *hivev1.ClusterDeployment) {
 	var pullSecret *corev1.LocalObjectReference
 	if acp.Spec.AgentConfigSpec.PullSecretRef != nil {
 		pullSecret = acp.Spec.AgentConfigSpec.PullSecretRef
@@ -362,12 +362,12 @@ func (r *AgentControlPlaneReconciler) createClusterDeployment(ctx context.Contex
 func (r *AgentControlPlaneReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	//TODO: maybe enqueue for clusterdeployment owned by this ACP in case it gets deleted...?
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&controlplanev1beta1.AgentControlPlane{}).
+		For(&controlplanev1alpha1.AgentControlPlane{}).
 		Complete(r)
 }
 
 // ControlPlaneMachineLabelsForCluster returns a set of labels to add to a control plane machine for this specific cluster.
-func controlPlaneMachineLabelsForCluster(acp *controlplanev1beta1.AgentControlPlane, clusterName string) map[string]string {
+func controlPlaneMachineLabelsForCluster(acp *controlplanev1alpha1.AgentControlPlane, clusterName string) map[string]string {
 	labels := map[string]string{}
 
 	// Add the labels from the MachineTemplate.
@@ -384,7 +384,7 @@ func controlPlaneMachineLabelsForCluster(acp *controlplanev1beta1.AgentControlPl
 	return labels
 }
 
-func (r *AgentControlPlaneReconciler) cloneConfigsAndGenerateMachine(ctx context.Context, cluster *clusterv1.Cluster, acp *controlplanev1beta1.AgentControlPlane, bootstrapSpec *bootstrapv1beta1.AgentBootstrapConfigSpec) error {
+func (r *AgentControlPlaneReconciler) cloneConfigsAndGenerateMachine(ctx context.Context, cluster *clusterv1.Cluster, acp *controlplanev1alpha1.AgentControlPlane, bootstrapSpec *bootstrapv1alpha1.AgentBootstrapConfigSpec) error {
 	var errs []error
 
 	log := ctrl.LoggerFrom(ctx)
@@ -399,7 +399,7 @@ func (r *AgentControlPlaneReconciler) cloneConfigsAndGenerateMachine(ctx context
 	// Since the cloned resource should eventually have a controller ref for the Machine, we create an
 	// OwnerReference here without the Controller field set
 	infraCloneOwner := &metav1.OwnerReference{
-		APIVersion: controlplanev1beta1.GroupVersion.String(),
+		APIVersion: controlplanev1alpha1.GroupVersion.String(),
 		Kind:       agentControlPlaneKind,
 		Name:       acp.Name,
 		UID:        acp.UID,
@@ -418,7 +418,7 @@ func (r *AgentControlPlaneReconciler) cloneConfigsAndGenerateMachine(ctx context
 	})
 	if err != nil {
 		// Safe to return early here since no resources have been created yet.
-		conditions.MarkFalse(acp, controlplanev1beta1.MachinesCreatedCondition, controlplanev1beta1.InfrastructureTemplateCloningFailedReason,
+		conditions.MarkFalse(acp, controlplanev1alpha1.MachinesCreatedCondition, controlplanev1alpha1.InfrastructureTemplateCloningFailedReason,
 			clusterv1.ConditionSeverityError, err.Error())
 		return errors.Wrap(err, "failed to clone infrastructure template")
 	}
@@ -428,7 +428,7 @@ func (r *AgentControlPlaneReconciler) cloneConfigsAndGenerateMachine(ctx context
 	bootstrapRef, err := r.generateAgentBootstrapConfig(ctx, acp, cluster, bootstrapSpec, machine.Name)
 	if err != nil {
 		log.Info("Error generating control plane bootstrap config", "err", err)
-		conditions.MarkFalse(acp, controlplanev1beta1.MachinesCreatedCondition, controlplanev1beta1.BootstrapTemplateCloningFailedReason,
+		conditions.MarkFalse(acp, controlplanev1alpha1.MachinesCreatedCondition, controlplanev1alpha1.BootstrapTemplateCloningFailedReason,
 			clusterv1.ConditionSeverityError, err.Error())
 		errs = append(errs, errors.Wrap(err, "failed to generate bootstrap config"))
 	}
@@ -439,7 +439,7 @@ func (r *AgentControlPlaneReconciler) cloneConfigsAndGenerateMachine(ctx context
 		log.Info("Creating machine for cluster...", "cluster", cluster.Name)
 		if err := r.createMachine(ctx, acp, machine); err != nil {
 			log.Info("Error creating machine config", "err", err)
-			conditions.MarkFalse(acp, controlplanev1beta1.MachinesCreatedCondition, controlplanev1beta1.MachineGenerationFailedReason,
+			conditions.MarkFalse(acp, controlplanev1alpha1.MachinesCreatedCondition, controlplanev1alpha1.MachineGenerationFailedReason,
 				clusterv1.ConditionSeverityError, err.Error())
 			errs = append(errs, errors.Wrap(err, "failed to create Machine"))
 		}
@@ -457,7 +457,7 @@ func (r *AgentControlPlaneReconciler) cloneConfigsAndGenerateMachine(ctx context
 	return nil
 }
 
-func (r *AgentControlPlaneReconciler) createMachine(ctx context.Context, acp *controlplanev1beta1.AgentControlPlane, machine *clusterv1.Machine) error {
+func (r *AgentControlPlaneReconciler) createMachine(ctx context.Context, acp *controlplanev1alpha1.AgentControlPlane, machine *clusterv1.Machine) error {
 	if err := r.Client.Create(ctx, machine); err != nil {
 		return errors.Wrap(err, "failed to create Machine")
 	}
@@ -468,17 +468,17 @@ func (r *AgentControlPlaneReconciler) createMachine(ctx context.Context, acp *co
 	return nil
 }
 
-func (r *AgentControlPlaneReconciler) generateAgentBootstrapConfig(ctx context.Context, acp *controlplanev1beta1.AgentControlPlane, cluster *clusterv1.Cluster, spec *bootstrapv1beta1.AgentBootstrapConfigSpec, name string) (*corev1.ObjectReference, error) {
+func (r *AgentControlPlaneReconciler) generateAgentBootstrapConfig(ctx context.Context, acp *controlplanev1alpha1.AgentControlPlane, cluster *clusterv1.Cluster, spec *bootstrapv1alpha1.AgentBootstrapConfigSpec, name string) (*corev1.ObjectReference, error) {
 	// Create an owner reference without a controller reference because the owning controller is the machine controller
 	owner := metav1.OwnerReference{
-		APIVersion: controlplanev1beta1.GroupVersion.String(),
+		APIVersion: controlplanev1alpha1.GroupVersion.String(),
 		Kind:       agentControlPlaneKind,
 		Name:       acp.Name,
 		UID:        acp.UID,
 	}
 
 	spec.PullSecretRef = acp.Spec.AgentBootstrapConfigSpec.PullSecretRef
-	bootstrapConfig := &bootstrapv1beta1.AgentBootstrapConfig{
+	bootstrapConfig := &bootstrapv1alpha1.AgentBootstrapConfig{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:            name,
 			Namespace:       acp.Namespace,
@@ -495,7 +495,7 @@ func (r *AgentControlPlaneReconciler) generateAgentBootstrapConfig(ctx context.C
 	}
 
 	bootstrapRef := &corev1.ObjectReference{
-		APIVersion: bootstrapv1beta1.GroupVersion.String(),
+		APIVersion: bootstrapv1alpha1.GroupVersion.String(),
 		Kind:       "AgentBootstrapConfig",
 		Name:       bootstrapConfig.GetName(),
 		Namespace:  bootstrapConfig.GetNamespace(),

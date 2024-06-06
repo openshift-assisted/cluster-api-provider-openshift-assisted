@@ -14,7 +14,7 @@ spec:
     singular: agentbootstrapconfig
   scope: Namespaced
   versions:
-  - name: v1beta1
+  - name: v1alpha1
     schema:
       openAPIV3Schema:
         description: AgentBootstrapConfig is the Schema for the agentbootstrapconfigs

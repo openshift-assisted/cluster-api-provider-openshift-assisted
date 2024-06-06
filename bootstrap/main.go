@@ -36,14 +36,14 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	bmh_v1alpha1 "github.com/metal3-io/baremetal-operator/apis/metal3.io/v1alpha1"
+	metal3v1alpha1 "github.com/metal3-io/baremetal-operator/apis/metal3.io/v1alpha1"
 	metal3 "github.com/metal3-io/cluster-api-provider-metal3/api/v1beta1"
 	hiveext "github.com/openshift/assisted-service/api/hiveextension/v1beta1"
 	aiv1beta1 "github.com/openshift/assisted-service/api/v1beta1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 
-	bootstrapv1beta1 "github.com/openshift-assisted/cluster-api-agent/bootstrap/api/v1beta1"
-	controller "github.com/openshift-assisted/cluster-api-agent/bootstrap/internal/controller"
+	bootstrapv1alpha1 "github.com/openshift-assisted/cluster-api-agent/bootstrap/api/v1alpha1"
+	"github.com/openshift-assisted/cluster-api-agent/bootstrap/internal/controller"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -56,11 +56,11 @@ func init() {
 	utilruntime.Must(clusterv1.AddToScheme(scheme))
 	utilruntime.Must(metal3.AddToScheme(scheme))
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
-	utilruntime.Must(bootstrapv1beta1.AddToScheme(scheme))
+	utilruntime.Must(bootstrapv1alpha1.AddToScheme(scheme))
 	utilruntime.Must(aiv1beta1.AddToScheme(scheme))
 	utilruntime.Must(hivev1.AddToScheme(scheme))
 	utilruntime.Must(hiveext.AddToScheme(scheme))
-	utilruntime.Must(bmh_v1alpha1.AddToScheme(scheme))
+	utilruntime.Must(metal3v1alpha1.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
 }
 

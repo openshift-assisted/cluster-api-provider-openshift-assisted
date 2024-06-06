@@ -75,6 +75,8 @@ type AgentBootstrapConfigReconciler struct {
 // +kubebuilder:rbac:groups=agent-install.openshift.io,resources=agents,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=agent-install.openshift.io,resources=agents/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=metal3.io,resources=baremetalhosts,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=controlplane.cluster.x-k8s.io,resources=agentcontrolplanes,verbs=get;list;watch;
+//+kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machinedeployments;machinedeployments/status,verbs=get;list;watch;
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -317,19 +319,21 @@ func (r *AgentBootstrapConfigReconciler) setMetal3MachineImage(ctx context.Conte
 	return nil
 }
 func (r *AgentBootstrapConfigReconciler) getTypedMachineOwner(ctx context.Context, machine *clusterv1.Machine, obj client.Object) error {
-	// TODO: can we guess Kind and APIVersion before retrieving it?
+	log := ctrl.LoggerFrom(ctx)
 
+	// TODO: can we guess Kind and APIVersion before retrieving it?
 	for _, ownerRef := range machine.OwnerReferences {
 		err := r.Client.Get(ctx, types.NamespacedName{
 			Namespace: machine.Namespace,
 			Name:      ownerRef.Name,
 		}, obj)
-
-		if err == nil {
-			gvk := obj.GetObjectKind().GroupVersionKind()
-			if ownerRef.APIVersion == gvk.GroupVersion().String() && ownerRef.Kind == gvk.Kind {
-				return nil
-			}
+		if err != nil {
+			log.V(logutil.TraceLevel).Info(fmt.Sprintf("could not find %T", obj), "name", ownerRef.Name, "namespace", machine.Namespace)
+			continue
+		}
+		gvk := obj.GetObjectKind().GroupVersionKind()
+		if ownerRef.APIVersion == gvk.GroupVersion().String() && ownerRef.Kind == gvk.Kind {
+			return nil
 		}
 	}
 	return fmt.Errorf("couldn't find %T owner for machine", obj)
@@ -339,9 +343,6 @@ func (r *AgentBootstrapConfigReconciler) getInfrastructureRefKey(ctx context.Con
 	acp := v1beta12.AgentControlPlane{}
 	err := r.getTypedMachineOwner(ctx, machine, &acp)
 	if err != nil {
-		if true {
-			return types.NamespacedName{}, err
-		}
 		// Machine is not owned by ACP, check for MD
 		md := clusterv1.MachineDeployment{}
 		if err := r.getTypedMachineOwner(ctx, machine, &md); err != nil {

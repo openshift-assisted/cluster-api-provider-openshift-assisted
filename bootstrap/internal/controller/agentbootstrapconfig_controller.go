@@ -53,7 +53,7 @@ import (
 var liveIsoFormat string = "live-iso"
 
 const (
-	agentBootstrapConfigFinalizer = "agentbootstrapconfig." + bootstrapv1beta1.Group + "/deprovision"
+	agentBootstrapConfigFinalizer = "agentbootstrapconfig." + bootstrapv1alpha1.Group + "/deprovision"
 )
 
 // AgentBootstrapConfigReconciler reconciles a AgentBootstrapConfigSpec object

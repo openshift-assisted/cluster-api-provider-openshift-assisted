@@ -19,8 +19,9 @@ package main
 import (
 	"crypto/tls"
 	"flag"
-	controlplanev1alpha1 "github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1alpha1"
 	"os"
+
+	controlplanev1alpha1 "github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1alpha1"
 
 	hivev1 "github.com/openshift/hive/apis/hive/v1"
 

@@ -25,6 +25,8 @@ import (
 	"sigs.k8s.io/cluster-api/util/labels/format"
 
 	bootstrapv1beta1 "github.com/openshift-assisted/cluster-api-agent/bootstrap/api/v1beta1"
+	logutil "github.com/openshift-assisted/cluster-api-agent/util/log"
+
 	"github.com/openshift/hive/apis/hive/v1/agent"
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
@@ -36,7 +38,7 @@ import (
 	"sigs.k8s.io/cluster-api/util/annotations"
 
 	"k8s.io/apimachinery/pkg/runtime"
-	"sigs.k8s.io/cluster-api/util"
+	capiutil "sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/cluster-api/util/collections"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -95,12 +97,12 @@ func (r *AgentControlPlaneReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		return ctrl.Result{}, err
 	}
 	log.WithValues("AgentControlPlane Name", acp.Name, "AgentControlPlane Namespace", acp.Namespace)
-	log.V(5).Info("Started reconciling AgentControlPlane")
+	log.V(logutil.TraceLevel).Info("Started reconciling AgentControlPlane")
 	defer func() {
 		if rerr = r.Client.Status().Update(ctx, acp); rerr != nil {
 			log.Error(rerr, "couldn't update AgentControlPlane Status")
 		}
-		log.V(5).Info("Finished reconciling AgentControlPlane")
+		log.V(logutil.TraceLevel).Info("Finished reconciling AgentControlPlane")
 	}()
 
 	if acp.DeletionTimestamp != nil {
@@ -109,12 +111,12 @@ func (r *AgentControlPlaneReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	if !controllerutil.ContainsFinalizer(acp, acpFinalizer) {
 		controllerutil.AddFinalizer(acp, acpFinalizer)
 		if err := r.Client.Update(ctx, acp); err != nil {
-			log.V(5).Error(rerr, "couldn't update AgentControlPlane", "name", acp.Name, "namespace", acp.Namespace)
+			log.Error(rerr, "couldn't update AgentControlPlane", "name", acp.Name, "namespace", acp.Namespace)
 			return ctrl.Result{}, err
 		}
 	}
 
-	cluster, err := util.GetOwnerCluster(ctx, r.Client, acp.ObjectMeta)
+	cluster, err := capiutil.GetOwnerCluster(ctx, r.Client, acp.ObjectMeta)
 	if err != nil {
 		log.Error(err, "Failed to retrieve owner Cluster from the API Server")
 		return ctrl.Result{}, err
@@ -228,7 +230,7 @@ func (r *AgentControlPlaneReconciler) handleDeletion(ctx context.Context, acp *c
 			}
 		}
 	}
-	log.V(5).Info("ACP doesn't contain finalizer, allow deletion")
+	log.V(logutil.TraceLevel).Info("ACP doesn't contain finalizer, allow deletion")
 	return ctrl.Result{}, nil
 }
 
@@ -456,7 +458,6 @@ func (r *AgentControlPlaneReconciler) cloneConfigsAndGenerateMachine(ctx context
 }
 
 func (r *AgentControlPlaneReconciler) createMachine(ctx context.Context, acp *controlplanev1beta1.AgentControlPlane, machine *clusterv1.Machine) error {
-	// TODO : add cache everywhere
 	if err := r.Client.Create(ctx, machine); err != nil {
 		return errors.Wrap(err, "failed to create Machine")
 	}

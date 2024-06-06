@@ -18,6 +18,8 @@ package controller
 
 import (
 	"context"
+	"time"
+
 	"github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1beta1"
 	v1 "github.com/openshift/api/config/v1"
 	hiveext "github.com/openshift/assisted-service/api/hiveextension/v1beta1"
@@ -33,7 +35,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
-	"time"
 )
 
 const InstallConfigOverrides = aiv1beta1.Group + "/install-config-overrides"
@@ -262,7 +263,7 @@ func computeAgentClusterInstall(clusterDeployment *hivev1.ClusterDeployment, acp
 		},
 		Spec: hiveext.AgentClusterInstallSpec{
 			ClusterDeploymentRef: corev1.LocalObjectReference{Name: clusterDeployment.Name},
-			PlatformType: hiveext.PlatformType(v1.NonePlatformType),
+			PlatformType:         hiveext.PlatformType(v1.NonePlatformType),
 			ProvisionRequirements: hiveext.ProvisionRequirements{
 				ControlPlaneAgents: int(acp.Spec.Replicas),
 				WorkerAgents:       workerReplicas,
@@ -270,8 +271,8 @@ func computeAgentClusterInstall(clusterDeployment *hivev1.ClusterDeployment, acp
 			SSHPublicKey: acp.Spec.AgentConfigSpec.SSHAuthorizedKey,
 			ImageSetRef:  &hivev1.ClusterImageSetReference{Name: imageSet.Name},
 			Networking: hiveext.Networking{
-				ClusterNetwork:        clusterNetwork,
-				ServiceNetwork:        serviceNetwork,
+				ClusterNetwork: clusterNetwork,
+				ServiceNetwork: serviceNetwork,
 			},
 		},
 	}

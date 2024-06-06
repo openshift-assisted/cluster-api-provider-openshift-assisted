@@ -29,6 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	controlplanev1beta1 "github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1beta1"
+	testutils "github.com/openshift-assisted/cluster-api-agent/test/utils"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
@@ -81,7 +82,7 @@ var _ = Describe("AgentControlPlane Controller", func() {
 			cluster = &clusterv1.Cluster{}
 			err = k8sClient.Get(ctx, types.NamespacedName{Name: clusterName, Namespace: namespace}, cluster)
 			if err != nil && errors.IsNotFound(err) {
-				cluster = createCluster(clusterName, namespace)
+				cluster = testutils.NewCluster(clusterName, namespace)
 				err := k8sClient.Create(ctx, cluster)
 				Expect(err).NotTo(HaveOccurred())
 			}
@@ -168,25 +169,3 @@ var _ = Describe("AgentControlPlane Controller", func() {
 		})
 	})
 })
-
-func createCluster(clusterName, namespace string) *clusterv1.Cluster {
-	By("creating the owning cluster")
-	// Create cluster and have it own this agent control plane
-	cluster := &clusterv1.Cluster{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      clusterName,
-			Namespace: namespace,
-		},
-		Spec: clusterv1.ClusterSpec{
-			Paused: false,
-			ControlPlaneEndpoint: clusterv1.APIEndpoint{
-				Host: "example.com",
-				Port: 8080,
-			},
-		},
-		Status: clusterv1.ClusterStatus{
-			InfrastructureReady: true,
-		},
-	}
-	return cluster
-}

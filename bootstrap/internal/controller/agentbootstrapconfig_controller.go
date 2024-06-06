@@ -19,11 +19,14 @@ package controller
 import (
 	"context"
 	"fmt"
+	"time"
+
+	v1beta12 "github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1beta1"
 	"github.com/openshift/assisted-service/api/hiveextension/v1beta1"
 	aimodels "github.com/openshift/assisted-service/models"
 	"github.com/pkg/errors"
-	"time"
 
+	logutil "github.com/openshift-assisted/cluster-api-agent/util/log"
 	hivev1 "github.com/openshift/hive/apis/hive/v1"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	"sigs.k8s.io/cluster-api/util/conditions"
@@ -46,34 +49,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 )
 
-//TODO: Use caches
+var liveIsoFormat string = "live-iso"
 
 // AgentBootstrapConfigReconciler reconciles a AgentBootstrapConfigSpec object
 type AgentBootstrapConfigReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
-}
-
-func (r *AgentBootstrapConfigReconciler) getMachineTemplate(ctx context.Context, machineDeployment clusterv1.MachineDeployment) *metal3.Metal3MachineTemplate {
-	log := ctrl.LoggerFrom(ctx)
-	machineTemplateRef := machineDeployment.Spec.Template.Spec.InfrastructureRef
-	log.Info("machine template ref", "groupversionkind", machineTemplateRef.GroupVersionKind())
-	if machineTemplateRef.GroupVersionKind() == metal3.GroupVersion.WithKind("Metal3MachineTemplate") {
-		nsName := types.NamespacedName{
-			Name:      machineTemplateRef.Name,
-			Namespace: machineDeployment.Namespace,
-		}
-		machineTemplate := &metal3.Metal3MachineTemplate{}
-		if err := r.Client.Get(ctx, nsName, machineTemplate); err != nil {
-			if apierrors.IsNotFound(err) {
-				log.Info("machine template not found", "namespacedname", nsName)
-				return nil
-			}
-			return nil
-		}
-		return machineTemplate
-	}
-	return nil
 }
 
 // +kubebuilder:rbac:groups=extensions.hive.openshift.io,resources=agentclusterinstalls,verbs=get;list;watch;create;update;patch;delete
@@ -107,40 +88,23 @@ func (r *AgentBootstrapConfigReconciler) getMachineTemplate(ctx context.Context,
 func (r *AgentBootstrapConfigReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Result, rerr error) {
 
 	log := ctrl.LoggerFrom(ctx)
-
-	log.Info("Reconciling AgentBootstrapConfig")
-	defer (func() {
-		log.Info("Finished reconciling AgentBootstrapConfig")
-
-	})()
+	log.V(logutil.TraceLevel).Info("Reconciling AgentBootstrapConfig")
 
 	config := &bootstrapv1beta1.AgentBootstrapConfig{}
-	log.Info("Getting AgentBootstrapConfig", "namespacedname", req.NamespacedName)
 	if err := r.Client.Get(ctx, req.NamespacedName, config); err != nil {
 		if apierrors.IsNotFound(err) {
+			log.V(logutil.TraceLevel).Info("agentBootstrapConfig not found", "namespacedname", req.NamespacedName)
 			return ctrl.Result{}, nil
 		}
 		return ctrl.Result{}, err
 	}
+	log.WithValues("agentBootstrapConfig Name", config.Name, "agentBootstrapConfig Namespace", config.Namespace)
+
 	// Initialize the patch helper.
 	patchHelper, err := patch.NewHelper(config, r.Client)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	// Look up the owner of this agentbootstrapconfig if there is one
-	configOwner, err := bsutil.GetTypedConfigOwner(ctx, r.Client, config)
-	if apierrors.IsNotFound(err) {
-		// Could not find the owner yet, this is not an error and will rereconcile when the owner gets set.
-		return ctrl.Result{}, nil
-	}
-	if err != nil {
-		return ctrl.Result{}, errors.Wrapf(err, "failed to get owner")
-	}
-	if configOwner == nil {
-		return ctrl.Result{}, nil
-	}
-
-	log.Info("found config owner", "name", configOwner.GetName())
 
 	// Attempt to Patch the KubeadmConfig object and status after each reconciliation if no error occurs.
 	defer func() {
@@ -158,35 +122,28 @@ func (r *AgentBootstrapConfigReconciler) Reconcile(ctx context.Context, req ctrl
 		if err := patchHelper.Patch(ctx, config, patchOpts...); err != nil {
 			rerr = kerrors.NewAggregate([]error{rerr, err})
 		}
+		log.V(logutil.TraceLevel).Info("Finished reconciling AgentBootstrapConfig")
 	}()
+
+	// Look up the owner of this agentbootstrapconfig if there is one
+	configOwner, err := bsutil.GetTypedConfigOwner(ctx, r.Client, config)
+	if apierrors.IsNotFound(err) {
+		// Could not find the owner yet, this is not an error and will re-reconcile when the owner gets set.
+		log.V(logutil.InfoLevel).Info("config owner not found", "name", configOwner.GetName())
+		return ctrl.Result{}, nil
+	}
+	if err != nil {
+		return ctrl.Result{}, errors.Wrapf(err, "failed to get owner")
+	}
+	if configOwner == nil {
+		return ctrl.Result{}, nil
+	}
+
+	log.V(logutil.TraceLevel).Info("config owner found", "name", configOwner.GetName())
 
 	clusterName, ok := config.Labels[clusterv1.ClusterNameLabel]
 	if !ok {
 		return ctrl.Result{}, fmt.Errorf("cluster name label not found in config")
-	}
-	clusterDeployments := hivev1.ClusterDeploymentList{}
-	if err := r.Client.List(ctx, &clusterDeployments, client.MatchingLabels{clusterv1.ClusterNameLabel: clusterName}); err != nil {
-		return ctrl.Result{}, err
-	}
-	if len(clusterDeployments.Items) != 1 {
-		log.Info("found more or less than 1 cluster deployments. exactly one is needed", "cluster_name", clusterName)
-		// if no ClusterDeployment we should pause this machine?
-		return ctrl.Result{Requeue: true, RequeueAfter: 10 * time.Second}, nil
-	}
-
-	clusterDeployment := clusterDeployments.Items[0]
-	if clusterDeployment.Spec.ClusterInstallRef == nil {
-		log.Info("cluster deployment does not reference ACI", "name", clusterDeployment.Name, "namespace", clusterDeployment.Namespace)
-		return ctrl.Result{Requeue: true, RequeueAfter: 10 * time.Second}, nil
-	}
-	objKey := types.NamespacedName{
-		Namespace: clusterDeployment.Namespace,
-		Name:      clusterDeployment.Spec.ClusterInstallRef.Name,
-	}
-	aci := v1beta1.AgentClusterInstall{}
-	if err := r.Client.Get(ctx, objKey, &aci); err != nil {
-		log.Info("could not retrieve ACI", "name", objKey.Name, "namespace", objKey.Namespace)
-		return ctrl.Result{}, err
 	}
 
 	// Get the Machine associated with this agentbootstrapconfig
@@ -198,100 +155,233 @@ func (r *AgentBootstrapConfigReconciler) Reconcile(ctx context.Context, req ctrl
 		return ctrl.Result{}, err
 	}
 
+	clusterDeployment, err := r.getClusterDeployment(ctx, clusterName)
+	if err != nil {
+		log.V(logutil.InfoLevel).Info("could not retrieve ClusterDeployment... requeuing")
+		return ctrl.Result{Requeue: true}, nil
+	}
+
+	aci, err := r.getAgentClusterInstall(ctx, clusterDeployment)
+	if err != nil {
+		log.V(logutil.InfoLevel).Info("could not retrieve AgentClusterInstall... requeuing")
+		return ctrl.Result{Requeue: true}, nil
+	}
+
 	// if added worker after start install, will be treated as day2
 	if !util.IsControlPlaneMachine(machine) && !(aci.Status.DebugInfo.State == aimodels.ClusterStatusAddingHosts || aci.Status.DebugInfo.State == aimodels.ClusterStatusPendingForInput || aci.Status.DebugInfo.State == aimodels.ClusterStatusInsufficient || aci.Status.DebugInfo.State == "") {
-		log.Info("not controlplane machine and installation already started, requeuing")
+		log.V(logutil.DebugLevel).Info("not controlplane machine and installation already started, requeuing")
+
 		return ctrl.Result{Requeue: true, RequeueAfter: 60 * time.Second}, nil
 	}
 
-	// IF not installing yet or finished, can deal with the machine
-	// IF installing, requeue
-	infraEnvName, err := getInfraEnvName(config)
-	if err != nil {
-		log.Error(err, "couldn't get infraenv name for agentbootstrapconfig", "name", config.Name)
+	if err := r.ensureInfraEnv(ctx, config, clusterDeployment); err != nil {
 		return ctrl.Result{}, err
-	}
-	log.Info("computed infraEnvName", "name", infraEnvName)
-
-	if infraEnvName == "" {
-		log.Info("no infraenv name for agentbootstrapconfig", "name", config.Name)
-		return ctrl.Result{}, nil
-	}
-
-	// Query for InfraEnv based on name/namespace and set it if it exists or create it if it doesn't
-	infraEnv := &aiv1beta1.InfraEnv{}
-	if err := r.Client.Get(ctx, client.ObjectKey{Name: infraEnvName, Namespace: config.Namespace}, infraEnv); err != nil {
-		if !apierrors.IsNotFound(err) {
-			log.Error(err, "couldn't get infraenv for agentbootstrapconfig", "agentbootstrap config name", config.Name, "infra env name", infraEnv)
-			return ctrl.Result{}, err
-		}
-
-		infraEnv, err = r.createInfraEnv(ctx, config, infraEnvName, &clusterDeployment)
-		//TODO: make this more efficient
-		if !apierrors.IsAlreadyExists(err) {
-			log.Error(err, "couldn't create infraenv", "name", config.Name)
-			return ctrl.Result{}, err
-		}
-		log.Info("Created infra env", "name", infraEnv.Name, "namespace", infraEnv.Namespace)
-	}
-
-	// Set infraEnv if not already set
-	if config.Status.InfraEnvRef == nil {
-		config.Status.InfraEnvRef = &corev1.ObjectReference{Name: infraEnv.Name, Namespace: infraEnv.Namespace, Kind: "InfraEnv", APIVersion: infraEnv.APIVersion}
-		if err := r.Client.Status().Update(ctx, config); err != nil {
-			log.Error(err, "couldn't update agent config status", "name", config.Name)
-			return ctrl.Result{}, err
-		}
 	}
 
 	if config.Status.ISODownloadURL == "" {
 		return ctrl.Result{}, nil
 	}
 
-	// Get Metal3 Machine owned by this Machine that is related to this agentbootstrapconfig
-	metal3Machine := &metal3.Metal3Machine{}
-	if err := r.Client.Get(ctx, types.NamespacedName{Name: machine.Spec.InfrastructureRef.Name, Namespace: machine.Namespace}, metal3Machine); err != nil {
-		log.Error(err, "couldn't get metal3machine associated with machine and agentbootstrapconfig", "agentbootstrapconfig name", config.Name, "machine name", machine.Name)
+	if err := r.setMetal3MachineTemplateImage(ctx, config, machine); err != nil {
 		return ctrl.Result{}, err
 	}
 
-	// TODO: check if it's a control plane or worker
-	log.Info("Found metal3 machine owned by machine", "name", metal3Machine.Name, "namespace", metal3Machine.Namespace)
-	if metal3Machine.Spec.Image.URL == "" || metal3Machine.Spec.Image.URL != config.Status.ISODownloadURL {
-		// Change metal3 image url if it's empty or it doesn't match the agent bootstrap config iso download url
-		log.Info("adding ISO URL to metal3 machine because it's either empty or doesn't match the iso download URL", "original URL", metal3Machine.Spec.Image.URL, "new URL", config.Status.ISODownloadURL)
-		metal3Machine.Spec.Image.URL = config.Status.ISODownloadURL
-		if err := r.Client.Update(ctx, metal3Machine); err != nil {
-			log.Error(err, "couldn't update metal3 machine", "name", metal3Machine.Name, "namespace", metal3Machine.Namespace)
-			return ctrl.Result{}, err
-		}
-		log.Info("Added ISO URLs to metal3 machines", "machine", metal3Machine.Name, "namespace", metal3Machine.Namespace)
+	// if a metal3 machine booted before the template was updated, then we need to update it
+	if err := r.setMetal3MachineImage(ctx, config, machine); err != nil {
+		return ctrl.Result{}, err
 	}
 
-	// create secret
+	secret, err := r.createUserDataSecret(ctx, config)
+	if err != nil {
+		log.Error(err, "couldn't create user data secret", "name", config.Name)
+		return ctrl.Result{}, err
+	}
+
+	config.Status.Ready = true
+	config.Status.DataSecretName = &secret.Name
+	conditions.MarkTrue(config, bootstrapv1beta1.DataSecretAvailableCondition)
+	return ctrl.Result{}, rerr
+}
+
+func (r *AgentBootstrapConfigReconciler) ensureInfraEnv(ctx context.Context, config *bootstrapv1beta1.AgentBootstrapConfig, clusterDeployment *hivev1.ClusterDeployment) error {
+	log := ctrl.LoggerFrom(ctx)
+	infraEnvName, err := getInfraEnvName(config)
+	log.WithValues("AgentBootstrapConfig Name", config.Name, "AgentBootstrapConfig Namespace", config.Namespace, "InfraEnv Name", infraEnvName)
+
+	if err != nil {
+		log.Error(err, "couldn't get infraenv name for agentbootstrapconfig")
+		return err
+	}
+	log.V(logutil.DebugLevel).Info("computed infraEnvName", "name", infraEnvName)
+
+	if infraEnvName == "" {
+		log.V(logutil.DebugLevel).Info("no infraenv name for agentbootstrapconfig")
+		return fmt.Errorf("no infraenv name for agentbootstrapconfig")
+	}
+
+	// Query for InfraEnv based on name/namespace and set it if it exists or create it if it doesn't
+	infraEnv := &aiv1beta1.InfraEnv{}
+	if err := r.Client.Get(ctx, client.ObjectKey{Name: infraEnvName, Namespace: config.Namespace}, infraEnv); err != nil {
+		if !apierrors.IsNotFound(err) {
+			return err
+		}
+
+		infraEnv, err = r.createInfraEnv(ctx, config, infraEnvName, clusterDeployment)
+		//TODO: make this more efficient
+
+		if err != nil && !apierrors.IsAlreadyExists(err) {
+			return err
+		}
+		log.V(logutil.DebugLevel).Info("Created infra env", "name", infraEnv.Name, "namespace", infraEnv.Namespace)
+	}
+
+	// Set infraEnv if not already set
+	if config.Status.InfraEnvRef == nil {
+		config.Status.InfraEnvRef = &corev1.ObjectReference{Name: infraEnv.Name, Namespace: infraEnv.Namespace, Kind: "InfraEnv", APIVersion: infraEnv.APIVersion}
+	}
+	return nil
+}
+
+func (r *AgentBootstrapConfigReconciler) getAgentClusterInstall(ctx context.Context, clusterDeployment *hivev1.ClusterDeployment) (*v1beta1.AgentClusterInstall, error) {
+	if clusterDeployment.Spec.ClusterInstallRef == nil {
+		return nil, fmt.Errorf("cluster deployment does not reference ACI")
+	}
+	objKey := types.NamespacedName{
+		Namespace: clusterDeployment.Namespace,
+		Name:      clusterDeployment.Spec.ClusterInstallRef.Name,
+	}
+	aci := v1beta1.AgentClusterInstall{}
+	if err := r.Client.Get(ctx, objKey, &aci); err != nil {
+		return nil, err
+	}
+	return &aci, nil
+}
+
+func (r *AgentBootstrapConfigReconciler) getClusterDeployment(ctx context.Context, clusterName string) (*hivev1.ClusterDeployment, error) {
+	clusterDeployments := hivev1.ClusterDeploymentList{}
+	if err := r.Client.List(ctx, &clusterDeployments, client.MatchingLabels{clusterv1.ClusterNameLabel: clusterName}); err != nil {
+		return nil, err
+	}
+	if len(clusterDeployments.Items) != 1 {
+		return nil, fmt.Errorf("found more or less than 1 cluster deployments. exactly one is needed")
+	}
+
+	clusterDeployment := clusterDeployments.Items[0]
+	return &clusterDeployment, nil
+}
+
+func (r *AgentBootstrapConfigReconciler) createUserDataSecret(ctx context.Context, config *bootstrapv1beta1.AgentBootstrapConfig) (*corev1.Secret, error) {
 	secret := &corev1.Secret{}
 	if err := r.Client.Get(ctx, client.ObjectKey{Namespace: config.Namespace, Name: config.Name}, secret); err != nil {
 		if !apierrors.IsNotFound(err) {
-			log.Error(err, "couldn't get secret", "name", config.Name, "namespace", config.Namespace)
-			return ctrl.Result{}, err
+			return nil, err
 		}
 		secret.Name = config.Name
 		secret.Namespace = config.Namespace
 
 		if err := r.Client.Create(ctx, secret); err != nil {
-			log.Error(err, "couldn't create secret", "name", config.Name, "namespace", config.Namespace)
-			return ctrl.Result{}, err
+			return nil, err
 		}
 	}
-
-	config.Status.Ready = true
-	config.Status.DataSecretName = &config.Name
-	conditions.MarkTrue(config, bootstrapv1beta1.DataSecretAvailableCondition)
-	return ctrl.Result{}, rerr
+	return secret, nil
 }
 
-func (r *AgentBootstrapConfigReconciler) isReferencingACI(clusterDeployment *hivev1.ClusterDeployment) bool {
-	return clusterDeployment.Spec.ClusterInstallRef != nil
+func (r *AgentBootstrapConfigReconciler) setMetal3MachineImage(ctx context.Context, config *bootstrapv1beta1.AgentBootstrapConfig, machine *clusterv1.Machine) error {
+	log := ctrl.LoggerFrom(ctx)
+	m3MachineKey := types.NamespacedName{Name: machine.Spec.InfrastructureRef.Name, Namespace: machine.Spec.InfrastructureRef.Namespace}
+	log.WithValues("AgentBootstrapConfig Name", config.Name, "AgentBootstrapConfig Namespace", config.Namespace, "Metal3Machine Name", m3MachineKey.Name, "Metal3Machine Namespace", m3MachineKey.Namespace)
+
+	metal3Machine := &metal3.Metal3Machine{}
+	if err := r.Client.Get(ctx, m3MachineKey, metal3Machine); err != nil {
+		log.Error(err, "couldn't get metal3machine associated with machine and agentbootstrapconfig")
+		// no machine, no need to inject live iso
+		if !apierrors.IsNotFound(err) {
+			return err
+		}
+		return nil
+	}
+
+	log.V(logutil.TraceLevel).Info("Found metal3 machine owned by machine")
+	if metal3Machine.Spec.Image.URL == "" || metal3Machine.Spec.Image.URL != config.Status.ISODownloadURL {
+		log.WithValues("ISO", config.Status.ISODownloadURL)
+		log.V(logutil.DebugLevel).Info("adding ISO URL to metal3 machine")
+
+		metal3Machine.Spec.Image.URL = config.Status.ISODownloadURL
+		metal3Machine.Spec.Image.DiskFormat = &liveIsoFormat
+		if err := r.Client.Update(ctx, metal3Machine); err != nil {
+			log.Error(err, "couldn't update metal3 machine")
+			return err
+		}
+		log.V(logutil.TraceLevel).Info("Added ISO URLs to metal3 machines", "machine", metal3Machine.Name, "namespace", metal3Machine.Namespace)
+	}
+	return nil
+}
+func (r *AgentBootstrapConfigReconciler) getTypedMachineOwner(ctx context.Context, machine *clusterv1.Machine, obj client.Object) error {
+	// TODO: can we guess Kind and APIVersion before retrieving it?
+
+	for _, ownerRef := range machine.OwnerReferences {
+		err := r.Client.Get(ctx, types.NamespacedName{
+			Namespace: machine.Namespace,
+			Name:      ownerRef.Name,
+		}, obj)
+
+		if err == nil {
+			gvk := obj.GetObjectKind().GroupVersionKind()
+			if ownerRef.APIVersion == gvk.GroupVersion().String() && ownerRef.Kind == gvk.Kind {
+				return nil
+			}
+		}
+	}
+	return fmt.Errorf("couldn't find %T owner for machine", obj)
+}
+
+func (r *AgentBootstrapConfigReconciler) getInfrastructureRefKey(ctx context.Context, machine *clusterv1.Machine) (types.NamespacedName, error) {
+	acp := v1beta12.AgentControlPlane{}
+	err := r.getTypedMachineOwner(ctx, machine, &acp)
+	if err != nil {
+		if true {
+			return types.NamespacedName{}, err
+		}
+		// Machine is not owned by ACP, check for MD
+		md := clusterv1.MachineDeployment{}
+		if err := r.getTypedMachineOwner(ctx, machine, &md); err != nil {
+			return types.NamespacedName{}, fmt.Errorf("machine has neither acp nor md owner")
+		}
+		return types.NamespacedName{
+			Namespace: md.Spec.Template.Spec.InfrastructureRef.Namespace,
+			Name:      md.Spec.Template.Spec.InfrastructureRef.Name,
+		}, nil
+	}
+	return types.NamespacedName{
+		Namespace: acp.Spec.MachineTemplate.InfrastructureRef.Namespace,
+		Name:      acp.Spec.MachineTemplate.InfrastructureRef.Name,
+	}, nil
+}
+
+func (r *AgentBootstrapConfigReconciler) setMetal3MachineTemplateImage(ctx context.Context, config *bootstrapv1beta1.AgentBootstrapConfig, machine *clusterv1.Machine) error {
+	log := ctrl.LoggerFrom(ctx)
+	tplKey, err := r.getInfrastructureRefKey(ctx, machine)
+	log.WithValues("Metal3MachineTemplate Name", tplKey.Name, "Metal3MachineTemplate Namespace", tplKey.Namespace)
+
+	if err != nil {
+		return err
+	}
+	machineTpl := &metal3.Metal3MachineTemplate{}
+
+	if err := r.Client.Get(ctx, tplKey, machineTpl); err != nil {
+		log.Error(err, "couldn't find machine template")
+		return err
+	}
+
+	if machineTpl.Spec.Template.Spec.Image.URL != config.Status.ISODownloadURL || machineTpl.Spec.Template.Spec.Image.DiskFormat != &liveIsoFormat {
+		machineTpl.Spec.Template.Spec.Image.URL = config.Status.ISODownloadURL
+		machineTpl.Spec.Template.Spec.Image.DiskFormat = &liveIsoFormat
+		if err := r.Client.Update(ctx, machineTpl); err != nil {
+			log.Error(err, "couldn't update machine template")
+			return err
+		}
+	}
+	return nil
 }
 
 func getInfraEnvName(config *bootstrapv1beta1.AgentBootstrapConfig) (string, error) {
@@ -362,11 +452,10 @@ func (r *AgentBootstrapConfigReconciler) createInfraEnv(ctx context.Context, con
 		infraEnv.Labels[clusterv1.ClusterNameLabel] = clusterName
 	}
 
+	//TODO: create logic for placeholder pull secret
 	var pullSecret *corev1.LocalObjectReference
 	if config.Spec.PullSecretRef != nil {
 		pullSecret = config.Spec.PullSecretRef
-	} else {
-		//TODO: create logic for placeholder pull secret
 	}
 	infraEnv.Spec = aiv1beta1.InfraEnvSpec{
 		ClusterRef: &aiv1beta1.ClusterReference{
@@ -378,24 +467,3 @@ func (r *AgentBootstrapConfigReconciler) createInfraEnv(ctx context.Context, con
 	}
 	return infraEnv, r.Create(ctx, infraEnv)
 }
-
-/*
-func (r *AgentBootstrapConfigReconciler) getACIFromClusterDeployment(ctx context.Context, clusterDeployment *hivev1.ClusterDeployment) (*v1beta1.AgentClusterInstall, error) {
-	log := ctrl.LoggerFrom(ctx)
-
-	if !r.isReferencingACI(clusterDeployment) {
-		return nil, errors.Errorf("clusterDeployment not referencing agentClusterInstall")
-	}
-	aciNamespacedName := types.NamespacedName{
-		Name:      clusterDeployment.Spec.ClusterInstallRef.Name,
-		Namespace: clusterDeployment.Namespace,
-	}
-	aci := &v1beta1.AgentClusterInstall{}
-	err := r.Get(ctx, aciNamespacedName, aci)
-	if err != nil {
-		log.Info("error while getting agentClusterInstall", "error", err)
-		return nil, err
-	}
-	return aci, nil
-}
-*/

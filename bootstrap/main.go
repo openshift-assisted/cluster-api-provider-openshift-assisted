@@ -19,6 +19,7 @@ package main
 import (
 	"crypto/tls"
 	"flag"
+	controlplanev1alpha1 "github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1alpha1"
 	"os"
 
 	hivev1 "github.com/openshift/hive/apis/hive/v1"
@@ -57,6 +58,7 @@ func init() {
 	utilruntime.Must(metal3.AddToScheme(scheme))
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(bootstrapv1alpha1.AddToScheme(scheme))
+	utilruntime.Must(controlplanev1alpha1.AddToScheme(scheme))
 	utilruntime.Must(aiv1beta1.AddToScheme(scheme))
 	utilruntime.Must(hivev1.AddToScheme(scheme))
 	utilruntime.Must(hiveext.AddToScheme(scheme))

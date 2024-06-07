@@ -17,7 +17,7 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.14.0
   labels:
-    cluster.x-k8s.io/v1beta1: v1beta1
+    cluster.x-k8s.io/v1beta1: v1alpha1
   name: agentbootstrapconfigs.bootstrap.cluster.x-k8s.io
 spec:
   group: bootstrap.cluster.x-k8s.io
@@ -318,7 +318,7 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.14.0
   labels:
-    cluster.x-k8s.io/v1beta1: v1beta1
+    cluster.x-k8s.io/v1beta1: v1alpha1
   name: agentbootstrapconfigtemplates.bootstrap.cluster.x-k8s.io
 spec:
   group: bootstrap.cluster.x-k8s.io
@@ -676,6 +676,15 @@ rules:
 - apiGroups:
   - cluster.x-k8s.io
   resources:
+  - machinedeployments
+  - machinedeployments/status
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - cluster.x-k8s.io
+  resources:
   - machines
   - machines/status
   verbs:
@@ -685,6 +694,14 @@ rules:
   - list
   - patch
   - update
+  - watch
+- apiGroups:
+  - controlplane.cluster.x-k8s.io
+  resources:
+  - agentcontrolplanes
+  verbs:
+  - get
+  - list
   - watch
 - apiGroups:
   - extensions.hive.openshift.io
@@ -729,6 +746,19 @@ rules:
   resources:
   - metal3machines
   - metal3machines/status
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - infrastructure.cluster.x-k8s.io
+  resources:
+  - metal3machinetemplates
+  - metal3machinetemplates/status
   verbs:
   - create
   - delete

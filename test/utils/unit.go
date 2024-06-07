@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"github.com/metal3-io/baremetal-operator/apis/metal3.io/v1alpha1"
 	metal3 "github.com/metal3-io/cluster-api-provider-metal3/api/v1beta1"
 	controlplanev1alpha1 "github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1alpha1"
 	hiveext "github.com/openshift/assisted-service/api/hiveextension/v1beta1"
@@ -25,20 +26,23 @@ func NewAgentClusterInstall(name string, namespace string, ownerCluster string) 
 	}
 	return cd
 }
-
-func NewClusterDeployment(name string, namespace string, ownerCluster string) *hivev1.ClusterDeployment {
+func NewClusterDeployment(namespace, name string) *hivev1.ClusterDeployment {
 	cd := &hivev1.ClusterDeployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: namespace,
-			Labels: map[string]string{
-				clusterv1.ClusterNameLabel: name,
-			},
 		},
 		Spec: hivev1.ClusterDeploymentSpec{
 			ClusterName: name,
 			BaseDomain:  "example.com",
 		},
+	}
+	return cd
+}
+func NewClusterDeploymentWithOwnerCluster(namespace, name, ownerCluster string) *hivev1.ClusterDeployment {
+	cd := NewClusterDeployment(namespace, name)
+	cd.Labels = map[string]string{
+		clusterv1.ClusterNameLabel: ownerCluster,
 	}
 	return cd
 }
@@ -66,7 +70,7 @@ func NewCluster(clusterName, namespace string) *clusterv1.Cluster {
 
 func NewMachineWithInfraRef(machineName, namespace, clusterName string, acp *controlplanev1alpha1.AgentControlPlane, infraRef client.Object) *clusterv1.Machine {
 	infraRefGVK := infraRef.GetObjectKind().GroupVersionKind()
-	machine := NewMachine(namespace, machineName, clusterName, acp)
+	machine := NewMachineWithOwner(namespace, machineName, clusterName, acp)
 	machine.Spec.InfrastructureRef = corev1.ObjectReference{
 		APIVersion: infraRefGVK.GroupVersion().String(),
 		Kind:       infraRefGVK.Kind,
@@ -77,10 +81,8 @@ func NewMachineWithInfraRef(machineName, namespace, clusterName string, acp *con
 	return machine
 }
 
-func NewMachine(namespace, name, clusterName string, acp *controlplanev1alpha1.AgentControlPlane) *clusterv1.Machine {
-	gvk := acp.GetObjectKind().GroupVersionKind()
+func NewMachine(namespace, name, clusterName string) *clusterv1.Machine {
 	machine := &clusterv1.Machine{
-		//TODO: why is this necessary?
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "Machine",
 			APIVersion: clusterv1.GroupVersion.String(),
@@ -91,14 +93,19 @@ func NewMachine(namespace, name, clusterName string, acp *controlplanev1alpha1.A
 			Labels: map[string]string{
 				clusterv1.ClusterNameLabel: clusterName,
 			},
-			OwnerReferences: []metav1.OwnerReference{
-				{
-					APIVersion: gvk.GroupVersion().String(),
-					Kind:       gvk.Kind,
-					Name:       acp.Name,
-					UID:        acp.UID,
-				},
-			},
+		},
+	}
+	return machine
+}
+func NewMachineWithOwner(namespace, name, clusterName string, obj client.Object) *clusterv1.Machine {
+	gvk := obj.GetObjectKind().GroupVersionKind()
+	machine := NewMachine(namespace, name, clusterName)
+	machine.OwnerReferences = []metav1.OwnerReference{
+		{
+			APIVersion: gvk.GroupVersion().String(),
+			Kind:       gvk.Kind,
+			Name:       obj.GetName(),
+			UID:        obj.GetUID(),
 		},
 	}
 	return machine
@@ -162,6 +169,33 @@ func NewInfraEnv(namespace, name string) *v1beta1.InfraEnv {
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: namespace,
 			Name:      name,
+		},
+	}
+}
+
+func NewAgent(namespace, name string) *v1beta1.Agent {
+	return &v1beta1.Agent{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+		},
+	}
+}
+
+func NewAgentWithClusterDeploymentReference(namespace, name string, cd hivev1.ClusterDeployment) *v1beta1.Agent {
+	agent := NewAgent(namespace, name)
+	agent.Spec.ClusterDeploymentName = &v1beta1.ClusterReference{
+		Name:      cd.Name,
+		Namespace: cd.Namespace,
+	}
+	return agent
+}
+
+func NewBareMetalHost(namespace, name string) *v1alpha1.BareMetalHost {
+	return &v1alpha1.BareMetalHost{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
 		},
 	}
 }

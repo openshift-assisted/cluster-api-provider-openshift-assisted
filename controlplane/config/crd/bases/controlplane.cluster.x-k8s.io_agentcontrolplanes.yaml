@@ -59,7 +59,7 @@ spec:
       jsonPath: .spec.version
       name: Version
       type: string
-    name: v1beta1
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: AgentControlPlane is the Schema for the agentcontrolplanes API

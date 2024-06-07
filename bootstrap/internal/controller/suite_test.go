@@ -18,7 +18,7 @@ package controller
 
 import (
 	metal3 "github.com/metal3-io/cluster-api-provider-metal3/api/v1beta1"
-	controlplanev1beta1 "github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1beta1"
+	controlplanev1alpha1 "github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1alpha1"
 	hiveext "github.com/openshift/assisted-service/api/hiveextension/v1beta1"
 	aiv1beta1 "github.com/openshift/assisted-service/api/v1beta1"
 	hivev1 "github.com/openshift/hive/apis/hive/v1"
@@ -34,7 +34,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	bootstrapv1beta1 "github.com/openshift-assisted/cluster-api-agent/bootstrap/api/v1beta1"
+	bootstrapv1alpha1 "github.com/openshift-assisted/cluster-api-agent/bootstrap/api/v1alpha1"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -54,8 +54,8 @@ var _ = BeforeSuite(func() {
 
 	By("bootstrapping test environment")
 
-	utilruntime.Must(bootstrapv1beta1.AddToScheme(testScheme))
-	utilruntime.Must(controlplanev1beta1.AddToScheme(testScheme))
+	utilruntime.Must(bootstrapv1alpha1.AddToScheme(testScheme))
+	utilruntime.Must(controlplanev1alpha1.AddToScheme(testScheme))
 	utilruntime.Must(metal3.AddToScheme(testScheme))
 	utilruntime.Must(corev1.AddToScheme(testScheme))
 	utilruntime.Must(aiv1beta1.AddToScheme(testScheme))

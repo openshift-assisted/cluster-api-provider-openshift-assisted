@@ -17,7 +17,7 @@ limitations under the License.
 // Package v1beta1 contains API Schema definitions for the controlplane v1beta1 API group
 // +kubebuilder:object:generate=true
 // +groupName=controlplane.cluster.x-k8s.io
-package v1beta1
+package v1alpha1
 
 import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -26,7 +26,7 @@ import (
 
 const (
 	Group   string = "controlplane.cluster.x-k8s.io"
-	Version string = "v1beta1"
+	Version string = "v1alpha1"
 )
 
 var (

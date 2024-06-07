@@ -28,7 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	controlplanev1beta1 "github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1beta1"
+	controlplanev1alpha1 "github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1alpha1"
 	testutils "github.com/openshift-assisted/cluster-api-agent/test/utils"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -45,7 +45,7 @@ var _ = Describe("AgentControlPlane Controller", func() {
 		var (
 			ctx                  = context.Background()
 			typeNamespacedName   types.NamespacedName
-			agentcontrolplane    *controlplanev1beta1.AgentControlPlane
+			agentcontrolplane    *controlplanev1alpha1.AgentControlPlane
 			cluster              *clusterv1.Cluster
 			controllerReconciler *AgentControlPlaneReconciler
 			mockCtrl             *gomock.Controller
@@ -66,10 +66,10 @@ var _ = Describe("AgentControlPlane Controller", func() {
 			}
 
 			By("creating the custom resource for the Kind AgentControlPlane")
-			agentcontrolplane = &controlplanev1beta1.AgentControlPlane{}
+			agentcontrolplane = &controlplanev1alpha1.AgentControlPlane{}
 			err := k8sClient.Get(ctx, typeNamespacedName, agentcontrolplane)
 			if err != nil && errors.IsNotFound(err) {
-				resource := &controlplanev1beta1.AgentControlPlane{
+				resource := &controlplanev1alpha1.AgentControlPlane{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      agentControlPlaneName,
 						Namespace: namespace,
@@ -101,7 +101,7 @@ var _ = Describe("AgentControlPlane Controller", func() {
 
 		It("should successfully create a cluster deployment when a cluster owns this agent control plane", func() {
 			By("setting the cluster as the owner ref on the agent control plane")
-			agentControlPlane := &controlplanev1beta1.AgentControlPlane{}
+			agentControlPlane := &controlplanev1alpha1.AgentControlPlane{}
 			err := k8sClient.Get(ctx, typeNamespacedName, agentControlPlane)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -127,7 +127,7 @@ var _ = Describe("AgentControlPlane Controller", func() {
 
 		It("should add a finalizer to the agent control plane if it's not being deleted", func() {
 			By("setting the owner ref on the agent control plane")
-			agentControlPlane := &controlplanev1beta1.AgentControlPlane{}
+			agentControlPlane := &controlplanev1alpha1.AgentControlPlane{}
 			err := k8sClient.Get(ctx, typeNamespacedName, agentControlPlane)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -149,7 +149,7 @@ var _ = Describe("AgentControlPlane Controller", func() {
 			Expect(cd).NotTo(BeNil())
 
 			By("deleting the agent control plane")
-			agentControlPlane := &controlplanev1beta1.AgentControlPlane{}
+			agentControlPlane := &controlplanev1alpha1.AgentControlPlane{}
 			err = k8sClient.Get(ctx, typeNamespacedName, agentControlPlane)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(k8sClient.Delete(ctx, agentControlPlane)).To(Succeed())

@@ -22,8 +22,7 @@ import (
 
 	"github.com/pkg/errors"
 
-	"github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1beta1"
-	controlplanev1beta1 "github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1beta1"
+	controlplanev1alpha1 "github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1alpha1"
 	hiveext "github.com/openshift/assisted-service/api/hiveextension/v1beta1"
 	aimodels "github.com/openshift/assisted-service/models"
 	hivev1 "github.com/openshift/hive/apis/hive/v1"
@@ -133,7 +132,7 @@ func (r *AgentClusterInstallReconciler) Reconcile(ctx context.Context, req ctrl.
 	return ctrl.Result{}, nil
 }
 
-func (r *AgentClusterInstallReconciler) createKubeconfig(ctx context.Context, kubeconfigSecret *corev1.Secret, clusterName string, acp controlplanev1beta1.AgentControlPlane) error {
+func (r *AgentClusterInstallReconciler) createKubeconfig(ctx context.Context, kubeconfigSecret *corev1.Secret, clusterName string, acp controlplanev1alpha1.AgentControlPlane) error {
 	kubeconfig, ok := kubeconfigSecret.Data["kubeconfig"]
 	if !ok {
 		return errors.New("kubeconfig not found in secret")
@@ -142,7 +141,7 @@ func (r *AgentClusterInstallReconciler) createKubeconfig(ctx context.Context, ku
 	clusterNameKubeconfigSecret := GenerateSecretWithOwner(
 		client.ObjectKey{Name: clusterName, Namespace: acp.Namespace},
 		kubeconfig,
-		*metav1.NewControllerRef(&acp, controlplanev1beta1.GroupVersion.WithKind(agentControlPlaneKind)),
+		*metav1.NewControllerRef(&acp, controlplanev1alpha1.GroupVersion.WithKind(agentControlPlaneKind)),
 	)
 	if err := r.Client.Create(ctx, clusterNameKubeconfigSecret); err != nil {
 		if !apierrors.IsAlreadyExists(err) {
@@ -168,7 +167,7 @@ func (r *AgentClusterInstallReconciler) updateLabels(ctx context.Context, obj cl
 	return nil
 }
 
-func (r *AgentClusterInstallReconciler) getACIKubeconfig(ctx context.Context, aci *hiveext.AgentClusterInstall, agentCP controlplanev1beta1.AgentControlPlane) (*corev1.Secret, error) {
+func (r *AgentClusterInstallReconciler) getACIKubeconfig(ctx context.Context, aci *hiveext.AgentClusterInstall, agentCP controlplanev1alpha1.AgentControlPlane) (*corev1.Secret, error) {
 	secretName := aci.Spec.ClusterMetadata.AdminKubeconfigSecretRef.Name
 
 	// Get the kubeconfig secret and label with capi key pair cluster.x-k8s.io/cluster-name=<cluster name>
@@ -187,15 +186,15 @@ func isInstalled(aci *hiveext.AgentClusterInstall) bool {
 	return aci.Status.DebugInfo.State == aimodels.ClusterStatusAddingHosts
 }
 
-func (r *AgentClusterInstallReconciler) getAgentControlPlaneList(ctx context.Context, cd *hivev1.ClusterDeployment, aci *hiveext.AgentClusterInstall) (*controlplanev1beta1.AgentControlPlaneList, error) {
-	acpList := &v1beta1.AgentControlPlaneList{}
+func (r *AgentClusterInstallReconciler) getAgentControlPlaneList(ctx context.Context, cd *hivev1.ClusterDeployment, aci *hiveext.AgentClusterInstall) (*controlplanev1alpha1.AgentControlPlaneList, error) {
+	acpList := &controlplanev1alpha1.AgentControlPlaneList{}
 	if err := r.Client.List(ctx, acpList, client.InNamespace(aci.Namespace)); err != nil {
 		if apierrors.IsNotFound(err) {
 			return nil, nil
 		}
 		return nil, err
 	}
-	filteredACPList := &v1beta1.AgentControlPlaneList{}
+	filteredACPList := &controlplanev1alpha1.AgentControlPlaneList{}
 	for _, acp := range acpList.Items {
 		if referencesClusterDeployment(acp, cd) {
 			filteredACPList.Items = append(filteredACPList.Items, acp)
@@ -252,7 +251,7 @@ func GenerateSecretWithOwner(clusterName client.ObjectKey, data []byte, owner me
 	}
 }
 
-func referencesClusterDeployment(acp controlplanev1beta1.AgentControlPlane, cd *hivev1.ClusterDeployment) bool {
+func referencesClusterDeployment(acp controlplanev1alpha1.AgentControlPlane, cd *hivev1.ClusterDeployment) bool {
 	return acp.Status.ClusterDeploymentRef != nil && acp.Status.ClusterDeploymentRef.Name == cd.Name &&
 		acp.Status.ClusterDeploymentRef.Namespace == cd.Namespace
 }

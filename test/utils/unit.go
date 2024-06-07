@@ -2,7 +2,7 @@ package utils
 
 import (
 	metal3 "github.com/metal3-io/cluster-api-provider-metal3/api/v1beta1"
-	controlplanev1beta1 "github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1beta1"
+	controlplanev1alpha1 "github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1alpha1"
 	hiveext "github.com/openshift/assisted-service/api/hiveextension/v1beta1"
 	"github.com/openshift/assisted-service/api/v1beta1"
 	hivev1 "github.com/openshift/hive/apis/hive/v1"
@@ -64,7 +64,7 @@ func NewCluster(clusterName, namespace string) *clusterv1.Cluster {
 	return cluster
 }
 
-func NewMachineWithInfraRef(machineName, namespace, clusterName string, acp *controlplanev1beta1.AgentControlPlane, infraRef client.Object) *clusterv1.Machine {
+func NewMachineWithInfraRef(machineName, namespace, clusterName string, acp *controlplanev1alpha1.AgentControlPlane, infraRef client.Object) *clusterv1.Machine {
 	infraRefGVK := infraRef.GetObjectKind().GroupVersionKind()
 	machine := NewMachine(namespace, machineName, clusterName, acp)
 	machine.Spec.InfrastructureRef = corev1.ObjectReference{
@@ -77,7 +77,7 @@ func NewMachineWithInfraRef(machineName, namespace, clusterName string, acp *con
 	return machine
 }
 
-func NewMachine(namespace, name, clusterName string, acp *controlplanev1beta1.AgentControlPlane) *clusterv1.Machine {
+func NewMachine(namespace, name, clusterName string, acp *controlplanev1alpha1.AgentControlPlane) *clusterv1.Machine {
 	gvk := acp.GetObjectKind().GroupVersionKind()
 	machine := &clusterv1.Machine{
 		//TODO: why is this necessary?
@@ -119,19 +119,19 @@ func NewM3MachineTemplateWithImage(namespace, name, url, diskFormat string) *met
 	return m3Template
 }
 
-func NewAgentControlPlane(namespace, name string, m3Template *metal3.Metal3MachineTemplate) *controlplanev1beta1.AgentControlPlane {
+func NewAgentControlPlane(namespace, name string, m3Template *metal3.Metal3MachineTemplate) *controlplanev1alpha1.AgentControlPlane {
 
-	return &controlplanev1beta1.AgentControlPlane{
+	return &controlplanev1alpha1.AgentControlPlane{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "AgentControlPlane",
-			APIVersion: controlplanev1beta1.GroupVersion.String(),
+			APIVersion: controlplanev1alpha1.GroupVersion.String(),
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: namespace,
 		},
-		Spec: controlplanev1beta1.AgentControlPlaneSpec{
-			MachineTemplate: controlplanev1beta1.AgentControlPlaneMachineTemplate{
+		Spec: controlplanev1alpha1.AgentControlPlaneSpec{
+			MachineTemplate: controlplanev1alpha1.AgentControlPlaneMachineTemplate{
 				InfrastructureRef: corev1.ObjectReference{
 					Kind:       m3Template.Kind,
 					Namespace:  m3Template.Namespace,

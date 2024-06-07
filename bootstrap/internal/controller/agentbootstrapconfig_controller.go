@@ -21,7 +21,7 @@ import (
 	"fmt"
 	"time"
 
-	v1beta12 "github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1beta1"
+	controlplanev1alpha1 "github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1alpha1"
 	"github.com/openshift/assisted-service/api/hiveextension/v1beta1"
 	aimodels "github.com/openshift/assisted-service/models"
 	"github.com/pkg/errors"
@@ -37,7 +37,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	metal3 "github.com/metal3-io/cluster-api-provider-metal3/api/v1beta1"
-	bootstrapv1beta1 "github.com/openshift-assisted/cluster-api-agent/bootstrap/api/v1beta1"
+	bootstrapv1alpha1 "github.com/openshift-assisted/cluster-api-agent/bootstrap/api/v1alpha1"
 	aiv1beta1 "github.com/openshift/assisted-service/api/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -92,7 +92,7 @@ func (r *AgentBootstrapConfigReconciler) Reconcile(ctx context.Context, req ctrl
 	log := ctrl.LoggerFrom(ctx)
 	log.V(logutil.TraceLevel).Info("Reconciling AgentBootstrapConfig")
 
-	config := &bootstrapv1beta1.AgentBootstrapConfig{}
+	config := &bootstrapv1alpha1.AgentBootstrapConfig{}
 	if err := r.Client.Get(ctx, req.NamespacedName, config); err != nil {
 		if apierrors.IsNotFound(err) {
 			log.V(logutil.TraceLevel).Info("agentBootstrapConfig not found", "namespacedname", req.NamespacedName)
@@ -113,7 +113,7 @@ func (r *AgentBootstrapConfigReconciler) Reconcile(ctx context.Context, req ctrl
 		// always update the readyCondition; the summary is represented using the "1 of x completed" notation.
 		conditions.SetSummary(config,
 			conditions.WithConditions(
-				bootstrapv1beta1.DataSecretAvailableCondition,
+				bootstrapv1alpha1.DataSecretAvailableCondition,
 			),
 		)
 		// Patch ObservedGeneration only if the reconciliation completed successfully
@@ -201,11 +201,11 @@ func (r *AgentBootstrapConfigReconciler) Reconcile(ctx context.Context, req ctrl
 
 	config.Status.Ready = true
 	config.Status.DataSecretName = &secret.Name
-	conditions.MarkTrue(config, bootstrapv1beta1.DataSecretAvailableCondition)
+	conditions.MarkTrue(config, bootstrapv1alpha1.DataSecretAvailableCondition)
 	return ctrl.Result{}, rerr
 }
 
-func (r *AgentBootstrapConfigReconciler) ensureInfraEnv(ctx context.Context, config *bootstrapv1beta1.AgentBootstrapConfig, clusterDeployment *hivev1.ClusterDeployment) error {
+func (r *AgentBootstrapConfigReconciler) ensureInfraEnv(ctx context.Context, config *bootstrapv1alpha1.AgentBootstrapConfig, clusterDeployment *hivev1.ClusterDeployment) error {
 	log := ctrl.LoggerFrom(ctx)
 	infraEnvName, err := getInfraEnvName(config)
 	log.WithValues("AgentBootstrapConfig Name", config.Name, "AgentBootstrapConfig Namespace", config.Namespace, "InfraEnv Name", infraEnvName)
@@ -272,7 +272,7 @@ func (r *AgentBootstrapConfigReconciler) getClusterDeployment(ctx context.Contex
 	return &clusterDeployment, nil
 }
 
-func (r *AgentBootstrapConfigReconciler) createUserDataSecret(ctx context.Context, config *bootstrapv1beta1.AgentBootstrapConfig) (*corev1.Secret, error) {
+func (r *AgentBootstrapConfigReconciler) createUserDataSecret(ctx context.Context, config *bootstrapv1alpha1.AgentBootstrapConfig) (*corev1.Secret, error) {
 	secret := &corev1.Secret{}
 	if err := r.Client.Get(ctx, client.ObjectKey{Namespace: config.Namespace, Name: config.Name}, secret); err != nil {
 		if !apierrors.IsNotFound(err) {
@@ -288,7 +288,7 @@ func (r *AgentBootstrapConfigReconciler) createUserDataSecret(ctx context.Contex
 	return secret, nil
 }
 
-func (r *AgentBootstrapConfigReconciler) setMetal3MachineImage(ctx context.Context, config *bootstrapv1beta1.AgentBootstrapConfig, machine *clusterv1.Machine) error {
+func (r *AgentBootstrapConfigReconciler) setMetal3MachineImage(ctx context.Context, config *bootstrapv1alpha1.AgentBootstrapConfig, machine *clusterv1.Machine) error {
 	log := ctrl.LoggerFrom(ctx)
 	m3MachineKey := types.NamespacedName{Name: machine.Spec.InfrastructureRef.Name, Namespace: machine.Spec.InfrastructureRef.Namespace}
 	log.WithValues("AgentBootstrapConfig Name", config.Name, "AgentBootstrapConfig Namespace", config.Namespace, "Metal3Machine Name", m3MachineKey.Name, "Metal3Machine Namespace", m3MachineKey.Namespace)
@@ -340,7 +340,7 @@ func (r *AgentBootstrapConfigReconciler) getTypedMachineOwner(ctx context.Contex
 }
 
 func (r *AgentBootstrapConfigReconciler) getInfrastructureRefKey(ctx context.Context, machine *clusterv1.Machine) (types.NamespacedName, error) {
-	acp := v1beta12.AgentControlPlane{}
+	acp := controlplanev1alpha1.AgentControlPlane{}
 	err := r.getTypedMachineOwner(ctx, machine, &acp)
 	if err != nil {
 		// Machine is not owned by ACP, check for MD
@@ -359,7 +359,7 @@ func (r *AgentBootstrapConfigReconciler) getInfrastructureRefKey(ctx context.Con
 	}, nil
 }
 
-func (r *AgentBootstrapConfigReconciler) setMetal3MachineTemplateImage(ctx context.Context, config *bootstrapv1beta1.AgentBootstrapConfig, machine *clusterv1.Machine) error {
+func (r *AgentBootstrapConfigReconciler) setMetal3MachineTemplateImage(ctx context.Context, config *bootstrapv1alpha1.AgentBootstrapConfig, machine *clusterv1.Machine) error {
 	log := ctrl.LoggerFrom(ctx)
 	tplKey, err := r.getInfrastructureRefKey(ctx, machine)
 	log.WithValues("Metal3MachineTemplate Name", tplKey.Name, "Metal3MachineTemplate Namespace", tplKey.Namespace)
@@ -385,7 +385,7 @@ func (r *AgentBootstrapConfigReconciler) setMetal3MachineTemplateImage(ctx conte
 	return nil
 }
 
-func getInfraEnvName(config *bootstrapv1beta1.AgentBootstrapConfig) (string, error) {
+func getInfraEnvName(config *bootstrapv1alpha1.AgentBootstrapConfig) (string, error) {
 	// this should be based on Infra template instead
 	nameFormat := "%s-%s"
 
@@ -409,7 +409,7 @@ func getInfraEnvName(config *bootstrapv1beta1.AgentBootstrapConfig) (string, err
 // SetupWithManager sets up the controller with the Manager.
 func (r *AgentBootstrapConfigReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&bootstrapv1beta1.AgentBootstrapConfig{}).
+		For(&bootstrapv1alpha1.AgentBootstrapConfig{}).
 		Watches(
 			&clusterv1.Machine{},
 			handler.EnqueueRequestsFromMapFunc(r.FilterMachine),
@@ -430,20 +430,20 @@ func (r *AgentBootstrapConfigReconciler) FilterMachine(_ context.Context, o clie
 	}
 	// m.Spec.ClusterName
 
-	if m.Spec.Bootstrap.ConfigRef != nil && m.Spec.Bootstrap.ConfigRef.GroupVersionKind() == bootstrapv1beta1.GroupVersion.WithKind("AgentBootstrapConfigSpec") {
+	if m.Spec.Bootstrap.ConfigRef != nil && m.Spec.Bootstrap.ConfigRef.GroupVersionKind() == bootstrapv1alpha1.GroupVersion.WithKind("AgentBootstrapConfigSpec") {
 		name := client.ObjectKey{Namespace: m.Namespace, Name: m.Spec.Bootstrap.ConfigRef.Name}
 		result = append(result, ctrl.Request{NamespacedName: name})
 	}
 	return result
 }
 
-func (r *AgentBootstrapConfigReconciler) createInfraEnv(ctx context.Context, config *bootstrapv1beta1.AgentBootstrapConfig, infraEnvName string, clusterDeployment *hivev1.ClusterDeployment) (*aiv1beta1.InfraEnv, error) {
+func (r *AgentBootstrapConfigReconciler) createInfraEnv(ctx context.Context, config *bootstrapv1alpha1.AgentBootstrapConfig, infraEnvName string, clusterDeployment *hivev1.ClusterDeployment) (*aiv1beta1.InfraEnv, error) {
 	infraEnv := &aiv1beta1.InfraEnv{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      infraEnvName,
 			Namespace: config.Namespace,
 			Labels: map[string]string{
-				bootstrapv1beta1.AgentBootstrapConfigLabel: config.Name,
+				bootstrapv1alpha1.AgentBootstrapConfigLabel: config.Name,
 			},
 		},
 	}

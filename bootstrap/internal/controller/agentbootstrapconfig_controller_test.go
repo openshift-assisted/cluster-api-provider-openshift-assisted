@@ -33,7 +33,7 @@ import (
 	fakeclient "sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	bootstrapv1beta1 "github.com/openshift-assisted/cluster-api-agent/bootstrap/api/v1beta1"
+	bootstrapv1alpha1 "github.com/openshift-assisted/cluster-api-agent/bootstrap/api/v1alpha1"
 )
 
 const (
@@ -55,7 +55,7 @@ var _ = Describe("AgentBootstrapConfigSpec Controller", func() {
 
 		BeforeEach(func() {
 			k8sClient = fakeclient.NewClientBuilder().WithScheme(testScheme).
-				WithStatusSubresource(&bootstrapv1beta1.AgentBootstrapConfig{}).
+				WithStatusSubresource(&bootstrapv1alpha1.AgentBootstrapConfig{}).
 				Build()
 			Expect(k8sClient).NotTo(BeNil())
 
@@ -89,7 +89,7 @@ var _ = Describe("AgentBootstrapConfigSpec Controller", func() {
 				// This config has no owner, should exit before setting conditions
 				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(abc), abc)).To(Succeed())
 				condition := conditions.Get(abc,
-					bootstrapv1beta1.DataSecretAvailableCondition,
+					bootstrapv1alpha1.DataSecretAvailableCondition,
 				)
 				Expect(condition).To(BeNil())
 			})
@@ -115,7 +115,7 @@ var _ = Describe("AgentBootstrapConfigSpec Controller", func() {
 				// This config has no relevant owner, should exit before setting conditions
 				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(abc), abc)).To(Succeed())
 				condition := conditions.Get(abc,
-					bootstrapv1beta1.DataSecretAvailableCondition,
+					bootstrapv1alpha1.DataSecretAvailableCondition,
 				)
 				Expect(condition).To(BeNil())
 			})
@@ -137,7 +137,7 @@ var _ = Describe("AgentBootstrapConfigSpec Controller", func() {
 				// This config has no relevant owner, should exit before setting conditions
 				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(abc), abc)).To(Succeed())
 				condition := conditions.Get(abc,
-					bootstrapv1beta1.DataSecretAvailableCondition,
+					bootstrapv1alpha1.DataSecretAvailableCondition,
 				)
 				Expect(condition).To(BeNil())
 			})
@@ -155,7 +155,7 @@ var _ = Describe("AgentBootstrapConfigSpec Controller", func() {
 				Expect(result.Requeue).To(BeTrue())
 				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(abc), abc)).To(Succeed())
 				Expect(conditions.Get(abc,
-					bootstrapv1beta1.DataSecretAvailableCondition,
+					bootstrapv1alpha1.DataSecretAvailableCondition,
 				)).To(BeNil())
 			})
 		})
@@ -173,7 +173,7 @@ var _ = Describe("AgentBootstrapConfigSpec Controller", func() {
 				Expect(result.Requeue).To(BeTrue())
 				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(abc), abc)).To(Succeed())
 				Expect(conditions.Get(abc,
-					bootstrapv1beta1.DataSecretAvailableCondition,
+					bootstrapv1alpha1.DataSecretAvailableCondition,
 				)).To(BeNil())
 			})
 		})
@@ -188,7 +188,7 @@ var _ = Describe("AgentBootstrapConfigSpec Controller", func() {
 				Expect(err).NotTo(HaveOccurred())
 				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(abc), abc)).To(Succeed())
 				Expect(conditions.Get(abc,
-					bootstrapv1beta1.DataSecretAvailableCondition,
+					bootstrapv1alpha1.DataSecretAvailableCondition,
 				)).To(BeNil())
 				assertInfraEnvWithEmptyISOURL(ctx, k8sClient, abc)
 			})
@@ -252,15 +252,15 @@ func assertISOURLOnM3Machine(ctx context.Context, k8sClient client.Client, expec
 	Expect(m3Machine.Spec.Image.URL).To(Equal(expectedISODownloadURL))
 	Expect(m3Machine.Spec.Image.DiskFormat).To(Equal(&expectedDiskFormat))
 }
-func assertBootstrapReady(abc *bootstrapv1beta1.AgentBootstrapConfig) {
-	Expect(conditions.IsTrue(abc, bootstrapv1beta1.DataSecretAvailableCondition)).To(BeTrue())
+func assertBootstrapReady(abc *bootstrapv1alpha1.AgentBootstrapConfig) {
+	Expect(conditions.IsTrue(abc, bootstrapv1alpha1.DataSecretAvailableCondition)).To(BeTrue())
 	Expect(abc.Status.Ready).To(BeTrue())
 	Expect(*abc.Status.DataSecretName).NotTo(BeNil())
 }
 
-func assertInfraEnvWithEmptyISOURL(ctx context.Context, k8sClient client.Client, abc *bootstrapv1beta1.AgentBootstrapConfig) {
+func assertInfraEnvWithEmptyISOURL(ctx context.Context, k8sClient client.Client, abc *bootstrapv1alpha1.AgentBootstrapConfig) {
 	infraEnvList := &v1beta1.InfraEnvList{}
-	Expect(k8sClient.List(ctx, infraEnvList, client.MatchingLabels{bootstrapv1beta1.AgentBootstrapConfigLabel: abcName})).To(Succeed())
+	Expect(k8sClient.List(ctx, infraEnvList, client.MatchingLabels{bootstrapv1alpha1.AgentBootstrapConfigLabel: abcName})).To(Succeed())
 	Expect(len(infraEnvList.Items)).To(Equal(1))
 	infraEnv := infraEnvList.Items[0]
 	Expect(abc.Status.InfraEnvRef).ToNot(BeNil())
@@ -280,7 +280,7 @@ func mockControlPlaneInitialization(ctx context.Context, k8sClient client.Client
 	crossReferenceACIAndCD(ctx, k8sClient, aci, cd)
 }
 
-func setupControlPlaneAgentBootstrapConfigWithMetal3Machine(ctx context.Context, k8sClient client.Client) *bootstrapv1beta1.AgentBootstrapConfig {
+func setupControlPlaneAgentBootstrapConfigWithMetal3Machine(ctx context.Context, k8sClient client.Client) *bootstrapv1alpha1.AgentBootstrapConfig {
 	abc := setupControlPlaneAgentBootstrapConfig(ctx, k8sClient)
 	m3Machine := testutils.NewMetal3Machine(namespace, metal3MachineName)
 	Expect(k8sClient.Create(ctx, m3Machine)).To(Succeed())
@@ -301,7 +301,7 @@ func setupControlPlaneAgentBootstrapConfigWithMetal3Machine(ctx context.Context,
 	return abc
 }
 
-func setupControlPlaneAgentBootstrapConfig(ctx context.Context, k8sClient client.Client) *bootstrapv1beta1.AgentBootstrapConfig {
+func setupControlPlaneAgentBootstrapConfig(ctx context.Context, k8sClient client.Client) *bootstrapv1alpha1.AgentBootstrapConfig {
 	cluster := testutils.NewCluster(clusterName, namespace)
 	Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
 
@@ -322,7 +322,7 @@ func setupControlPlaneAgentBootstrapConfig(ctx context.Context, k8sClient client
 	return abc
 }
 
-func NewAgentBootstrapConfigWithOwner(namespace, name, clusterName string, owner client.Object) *bootstrapv1beta1.AgentBootstrapConfig {
+func NewAgentBootstrapConfigWithOwner(namespace, name, clusterName string, owner client.Object) *bootstrapv1alpha1.AgentBootstrapConfig {
 	ownerGVK := owner.GetObjectKind().GroupVersionKind()
 	ownerRefs := []metav1.OwnerReference{
 		{
@@ -337,8 +337,8 @@ func NewAgentBootstrapConfigWithOwner(namespace, name, clusterName string, owner
 	return abc
 }
 
-func NewAgentBootstrapConfig(namespace, name, clusterName string) *bootstrapv1beta1.AgentBootstrapConfig {
-	return &bootstrapv1beta1.AgentBootstrapConfig{
+func NewAgentBootstrapConfig(namespace, name, clusterName string) *bootstrapv1alpha1.AgentBootstrapConfig {
+	return &bootstrapv1alpha1.AgentBootstrapConfig{
 		ObjectMeta: metav1.ObjectMeta{
 			Labels: map[string]string{
 				clusterv1.ClusterNameLabel:         clusterName,

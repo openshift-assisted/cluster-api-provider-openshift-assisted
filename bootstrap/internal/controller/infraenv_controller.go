@@ -18,7 +18,6 @@ package controller
 
 import (
 	"context"
-
 	bootstrapv1alpha1 "github.com/openshift-assisted/cluster-api-agent/bootstrap/api/v1alpha1"
 	aiv1beta1 "github.com/openshift/assisted-service/api/v1beta1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -71,6 +70,7 @@ func (r *InfraEnvReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		log.Info("failed to list agentbootstrapconfigs for infraenv", "namespace/name", infraEnv.Name)
 		return ctrl.Result{}, err
 	}
+
 	log.Info("Found AgentBootstrapConfig for InfraEnv", "infra_env_name", infraEnv.Name, "agent_bootstrap_config_count", len(agentBootstrapConfigs.Items))
 
 	for _, agentBootstrapConfig := range agentBootstrapConfigs.Items {

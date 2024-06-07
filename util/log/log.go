@@ -1,7 +1,7 @@
 package log
 
 const (
-	InfoLevel  = 3
-	DebugLevel = 4
-	TraceLevel = 5
+	InfoLevel  = 0
+	DebugLevel = 0
+	TraceLevel = 0
 )

@@ -7,9 +7,9 @@ import (
 	"time"
 
 	metal3v1alpha1 "github.com/metal3-io/baremetal-operator/apis/metal3.io/v1alpha1"
-	bootstrapv1alpha1 "github.com/metal3-io/cluster-api-provider-metal3/api/v1beta1"
+	metal3 "github.com/metal3-io/cluster-api-provider-metal3/api/v1beta1"
 	"github.com/metal3-io/cluster-api-provider-metal3/baremetal"
-	"github.com/openshift-assisted/cluster-api-agent/bootstrap/api/v1alpha1"
+	bootstrapv1alpha1 "github.com/openshift-assisted/cluster-api-agent/bootstrap/api/v1alpha1"
 	aiv1beta1 "github.com/openshift/assisted-service/api/v1beta1"
 	"github.com/openshift/assisted-service/models"
 	hivev1 "github.com/openshift/hive/apis/hive/v1"
@@ -53,7 +53,7 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	agentBootstrapConfigList := v1alpha1.AgentBootstrapConfigList{}
+	agentBootstrapConfigList := bootstrapv1alpha1.AgentBootstrapConfigList{}
 	if err := r.Client.List(ctx, &agentBootstrapConfigList, client.MatchingLabels{clusterv1.ClusterNameLabel: clusterName}); err != nil {
 		log.Error(err, "agentboostrapconfig not found for cluster", "cluster", clusterName)
 		return ctrl.Result{}, err
@@ -151,7 +151,7 @@ func (r *AgentReconciler) getMachineFromBMH(ctx context.Context, bmh *metal3v1al
 	return r.getMachineFromMetal3Machine(ctx, m3machine)
 }
 
-func (r *AgentReconciler) getMachineFromMetal3Machine(ctx context.Context, m3machine *bootstrapv1alpha1.Metal3Machine) (*clusterv1.Machine, error) {
+func (r *AgentReconciler) getMachineFromMetal3Machine(ctx context.Context, m3machine *metal3.Metal3Machine) (*clusterv1.Machine, error) {
 	log := ctrl.LoggerFrom(ctx)
 
 	machine := clusterv1.Machine{}
@@ -172,8 +172,8 @@ func (r *AgentReconciler) getMachineFromMetal3Machine(ctx context.Context, m3mac
 	return nil, fmt.Errorf("no machine found for metal3machine %s/%s", m3machine.Namespace, m3machine.Name)
 }
 
-func (r *AgentReconciler) getMetal3MachineFromBMH(ctx context.Context, bmh *metal3v1alpha1.BareMetalHost) (*bootstrapv1alpha1.Metal3Machine, error) {
-	ml := bootstrapv1alpha1.Metal3MachineList{}
+func (r *AgentReconciler) getMetal3MachineFromBMH(ctx context.Context, bmh *metal3v1alpha1.BareMetalHost) (*metal3.Metal3Machine, error) {
+	ml := metal3.Metal3MachineList{}
 	if err := r.Client.List(ctx, &ml); err != nil {
 		return nil, err
 	}

@@ -37,9 +37,12 @@ import (
 )
 
 const (
+	agentName                 = "test-agent"
 	abcName                   = "test-resource"
+	bmhName                   = "test-bmh"
 	namespace                 = "test-namespace"
 	clusterName               = "test-cluster"
+	clusterDeploymentName     = "test-clusterdeployment"
 	machineName               = "test-resource"
 	metal3MachineName         = "test-m3machine"
 	acpName                   = "test-controlplane"
@@ -162,7 +165,7 @@ var _ = Describe("AgentBootstrapConfigSpec Controller", func() {
 		When("ClusterDeployment is created but AgentClusterInstall is not", func() {
 			It("should requeue the request without errors", func() {
 				abc := setupControlPlaneAgentBootstrapConfig(ctx, k8sClient)
-				cd := testutils.NewClusterDeployment(clusterName, namespace, clusterName)
+				cd := testutils.NewClusterDeploymentWithOwnerCluster(namespace, clusterName, clusterName)
 				Expect(k8sClient.Create(ctx, cd)).To(Succeed())
 				// but not ACI
 
@@ -271,7 +274,7 @@ func assertInfraEnvWithEmptyISOURL(ctx context.Context, k8sClient client.Client,
 
 // mock controlplane provider generating ACI and CD
 func mockControlPlaneInitialization(ctx context.Context, k8sClient client.Client) {
-	cd := testutils.NewClusterDeployment(clusterName, namespace, clusterName)
+	cd := testutils.NewClusterDeploymentWithOwnerCluster(namespace, clusterName, clusterName)
 	Expect(k8sClient.Create(ctx, cd)).To(Succeed())
 
 	aci := testutils.NewAgentClusterInstall(clusterName, namespace, clusterName)
@@ -313,7 +316,7 @@ func setupControlPlaneAgentBootstrapConfig(ctx context.Context, k8sClient client
 	Expect(k8sClient.Create(ctx, acp)).Should(Succeed())
 	Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(acp), acp)).To(Succeed())
 
-	machine := testutils.NewMachine(namespace, machineName, clusterName, acp)
+	machine := testutils.NewMachineWithOwner(namespace, machineName, clusterName, acp)
 	Expect(k8sClient.Create(ctx, machine)).To(Succeed())
 	Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(machine), machine)).To(Succeed())
 

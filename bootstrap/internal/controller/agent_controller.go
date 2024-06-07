@@ -49,7 +49,7 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	}
 
 	clusterName, err := r.getClusterName(ctx, agent)
-	if err != nil {
+	if err != nil || clusterName == "" {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
@@ -58,9 +58,13 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		log.Error(err, "agentboostrapconfig not found for cluster", "cluster", clusterName)
 		return ctrl.Result{}, err
 	}
+	if len(agentBootstrapConfigList.Items) < 1 {
+		return ctrl.Result{}, fmt.Errorf("agentboostrapconfig not found for cluster %s", clusterName)
+	}
+
 	if agent.Status.Inventory.Interfaces == nil {
 		log.Info("agent doesn't have interfaces yet", "agent name", agent.Name)
-		return ctrl.Result{RequeueAfter: retryAfter}, nil
+		return ctrl.Result{}, nil
 	}
 
 	bmh, err := r.getBMHFromAgent(ctx, agent)
@@ -71,13 +75,13 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	if bmh == nil {
 		return ctrl.Result{RequeueAfter: retryAfter}, nil
 	}
-	agent.Spec.NodeLabels = map[string]string{metal3ProviderIDLabelKey: getProviderID(bmh)}
-
 	machine, err := r.getMachineFromBMH(ctx, bmh)
 	if err != nil {
 		log.Error(err, "can't get bmhs for agent", "cluster", bmh)
 		return ctrl.Result{}, err
 	}
+
+	agent.Spec.NodeLabels = map[string]string{metal3ProviderIDLabelKey: getProviderID(bmh)}
 	role := models.HostRoleWorker
 	if _, ok := machine.Labels[clusterv1.MachineControlPlaneLabel]; ok {
 		role = models.HostRoleMaster
@@ -100,6 +104,9 @@ func getProviderID(bmh *metal3v1alpha1.BareMetalHost) string {
 }
 
 func (r *AgentReconciler) getClusterName(ctx context.Context, agent *aiv1beta1.Agent) (string, error) {
+	if agent.Spec.ClusterDeploymentName == nil {
+		return "", nil
+	}
 	// if we find an agent, we must ensure it is controlled by our provider
 	clusterDeploymentKey := client.ObjectKey{
 		Namespace: agent.Spec.ClusterDeploymentName.Namespace,
@@ -151,7 +158,7 @@ func (r *AgentReconciler) getMachineFromMetal3Machine(ctx context.Context, m3mac
 	for _, ref := range m3machine.OwnerReferences {
 		log.Info("comparing owner to machine", "refKind", ref.Kind, "refAPIVersion", ref.APIVersion, "machineKind", machine.Kind, "machineAPIversion", machine.APIVersion)
 		// TODO: set it as constant
-		if ref.Kind == "Machine" && ref.APIVersion == "cluster.x-k8s.io/v1beta1" {
+		if ref.Kind == "Machine" && ref.APIVersion == clusterv1.GroupVersion.String() {
 			if err := r.Client.Get(ctx, types.NamespacedName{
 				Namespace: m3machine.Namespace,
 				Name:      ref.Name,

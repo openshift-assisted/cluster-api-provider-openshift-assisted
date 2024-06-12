@@ -17,6 +17,7 @@ COPY ${PROVIDER}/main.go ${PROVIDER}/main.go
 COPY bootstrap/api/ bootstrap/api/
 COPY controlplane/api/ controlplane/api/
 COPY util util
+COPY assistedinstaller assistedinstaller
 COPY ${PROVIDER}/internal/controller/ ${PROVIDER}/internal/controller/
 
 # Build

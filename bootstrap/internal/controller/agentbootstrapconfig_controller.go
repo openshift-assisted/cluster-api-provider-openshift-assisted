@@ -19,7 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
-	"github.com/openshift-assisted/cluster-api-agent/bootstrap/internal/assistedinstaller"
+	"github.com/openshift-assisted/cluster-api-agent/assistedinstaller"
 	"time"
 
 	controlplanev1alpha1 "github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1alpha1"

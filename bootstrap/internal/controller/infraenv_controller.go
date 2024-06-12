@@ -64,7 +64,7 @@ func (r *InfraEnvReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 	log.Info("InfraEnv corresponding has image URL available.", "infra_env_name", infraEnv.Name)
 
-	//TODO: list all agentbootstrapconfig that ref this infraenv
+	// TODO: list all agentbootstrapconfig that ref this infraenv
 	agentBootstrapConfigs := &bootstrapv1alpha1.AgentBootstrapConfigList{}
 	if err := r.Client.List(ctx, agentBootstrapConfigs, client.MatchingLabels{clusterv1.ClusterNameLabel: clusterName}); err != nil {
 		log.Info("failed to list agentbootstrapconfigs for infraenv", "namespace/name", infraEnv.Name)

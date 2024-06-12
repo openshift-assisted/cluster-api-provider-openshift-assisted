@@ -123,6 +123,44 @@ var _ = Describe("InfraEnv Controller", func() {
 				Expect(err.Error()).To(Equal("clusterdeployment test-clusterdeployment does not belong to a CAPI cluster"))
 			})
 		})
+		When("an Agent resource with a valid CAPI-controlled ClusterDeployment reference but machine has no ABC reference", func() {
+			It("should return error", func() {
+				cd := testutils.NewClusterDeployment(namespace, clusterDeploymentName)
+				cd.Labels = map[string]string{
+					clusterv1.ClusterNameLabel: clusterName,
+				}
+				Expect(k8sClient.Create(ctx, cd)).To(Succeed())
+
+				agent := testutils.NewAgentWithClusterDeploymentReference(namespace, agentName, *cd)
+				agent.Status.Inventory.Interfaces = []v1beta1.HostInterface{
+					{
+						Name:       "dummy",
+						MacAddress: agentInterfaceMACAddress,
+					},
+				}
+
+				Expect(k8sClient.Create(ctx, agent)).To(Succeed())
+				bmh := testutils.NewBareMetalHost(namespace, bmhName)
+				bmh.Spec.BootMACAddress = agentInterfaceMACAddress
+				Expect(k8sClient.Create(ctx, bmh))
+
+				m3machine := testutils.NewMetal3Machine(namespace, metal3MachineName)
+				m3machine.Annotations = map[string]string{
+					baremetal.HostAnnotation: strings.Join([]string{namespace, bmhName}, "/"),
+				}
+
+				machine := testutils.NewMachine(namespace, machineName, clusterName)
+				Expect(controllerutil.SetOwnerReference(machine, m3machine, testScheme)).To(Succeed())
+				Expect(k8sClient.Create(ctx, m3machine))
+				Expect(k8sClient.Create(ctx, machine))
+
+				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: client.ObjectKeyFromObject(agent),
+				})
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(Equal("machine test-namespace/test-resource does not have any bootstrap config ref"))
+			})
+		})
 		When("an Agent resource with a valid CAPI-controlled ClusterDeployment reference but no ABCs", func() {
 			It("should return error", func() {
 				cd := testutils.NewClusterDeployment(namespace, clusterDeploymentName)
@@ -132,13 +170,37 @@ var _ = Describe("InfraEnv Controller", func() {
 				Expect(k8sClient.Create(ctx, cd)).To(Succeed())
 
 				agent := testutils.NewAgentWithClusterDeploymentReference(namespace, agentName, *cd)
+				agent.Status.Inventory.Interfaces = []v1beta1.HostInterface{
+					{
+						Name:       "dummy",
+						MacAddress: agentInterfaceMACAddress,
+					},
+				}
+
 				Expect(k8sClient.Create(ctx, agent)).To(Succeed())
+				bmh := testutils.NewBareMetalHost(namespace, bmhName)
+				bmh.Spec.BootMACAddress = agentInterfaceMACAddress
+				Expect(k8sClient.Create(ctx, bmh))
+
+				m3machine := testutils.NewMetal3Machine(namespace, metal3MachineName)
+				m3machine.Annotations = map[string]string{
+					baremetal.HostAnnotation: strings.Join([]string{namespace, bmhName}, "/"),
+				}
+
+				machine := testutils.NewMachine(namespace, machineName, clusterName)
+				machine.Spec.Bootstrap.ConfigRef = &corev1.ObjectReference{
+					Name:      abcName,
+					Namespace: namespace,
+				}
+				Expect(controllerutil.SetOwnerReference(machine, m3machine, testScheme)).To(Succeed())
+				Expect(k8sClient.Create(ctx, m3machine))
+				Expect(k8sClient.Create(ctx, machine))
 
 				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
 					NamespacedName: client.ObjectKeyFromObject(agent),
 				})
 				Expect(err).To(HaveOccurred())
-				Expect(err.Error()).To(Equal("agentboostrapconfig not found for cluster test-cluster"))
+				Expect(err.Error()).To(Equal("agentbootstrapconfigs.bootstrap.cluster.x-k8s.io \"test-resource\" not found"))
 			})
 		})
 		When("an Agent resource with a valid CAPI-controlled ClusterDeployment with ABCs, but no reported interface yet", func() {
@@ -335,6 +397,10 @@ var _ = Describe("InfraEnv Controller", func() {
 					baremetal.HostAnnotation: strings.Join([]string{namespace, bmhName}, "/"),
 				}
 				machine := testutils.NewMachine(namespace, machineName, clusterName)
+				machine.Spec.Bootstrap.ConfigRef = &corev1.ObjectReference{
+					Name:      abc.Name,
+					Namespace: abc.Namespace,
+				}
 				Expect(controllerutil.SetOwnerReference(machine, m3machine, testScheme)).To(Succeed())
 				Expect(k8sClient.Create(ctx, m3machine))
 				Expect(k8sClient.Create(ctx, machine))
@@ -379,7 +445,10 @@ var _ = Describe("InfraEnv Controller", func() {
 				}
 				machine := testutils.NewMachine(namespace, machineName, clusterName)
 				machine.Labels[clusterv1.MachineControlPlaneLabel] = "control-plane"
-
+				machine.Spec.Bootstrap.ConfigRef = &corev1.ObjectReference{
+					Name:      abc.Name,
+					Namespace: abc.Namespace,
+				}
 				Expect(controllerutil.SetOwnerReference(machine, m3machine, testScheme)).To(Succeed())
 				Expect(k8sClient.Create(ctx, m3machine))
 				Expect(k8sClient.Create(ctx, machine))

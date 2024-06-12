@@ -154,10 +154,6 @@ func (r *AgentBootstrapConfigReconciler) Reconcile(ctx context.Context, req ctrl
 
 	if !controllerutil.ContainsFinalizer(config, agentBootstrapConfigFinalizer) {
 		controllerutil.AddFinalizer(config, agentBootstrapConfigFinalizer)
-		if err := r.Client.Update(ctx, config); err != nil {
-			log.Error(rerr, "couldn't update Agent Bootstrap Config")
-			return ctrl.Result{}, err
-		}
 	}
 	clusterName, ok := config.Labels[clusterv1.ClusterNameLabel]
 	if !ok {
@@ -332,6 +328,7 @@ func (r *AgentBootstrapConfigReconciler) setMetal3MachineImage(ctx context.Conte
 	}
 	return nil
 }
+
 func (r *AgentBootstrapConfigReconciler) getTypedMachineOwner(ctx context.Context, machine *clusterv1.Machine, obj client.Object) error {
 	log := ctrl.LoggerFrom(ctx)
 
@@ -401,6 +398,7 @@ func (r *AgentBootstrapConfigReconciler) setMetal3MachineTemplateImage(ctx conte
 
 func (r *AgentBootstrapConfigReconciler) handleDeletion(ctx context.Context, config *bootstrapv1alpha1.AgentBootstrapConfig, owner *bsutil.ConfigOwner) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
+	log.WithValues("name", config.Name, "namespace", config.Namespace)
 	if controllerutil.ContainsFinalizer(config, agentBootstrapConfigFinalizer) {
 		// Check if it's a control plane node and if that cluster is being deleted
 		if _, isControlPlane := config.Labels[clusterv1.MachineControlPlaneLabel]; isControlPlane && owner.GetDeletionTimestamp().IsZero() {
@@ -418,14 +416,7 @@ func (r *AgentBootstrapConfigReconciler) handleDeletion(ctx context.Context, con
 			}
 			config.Status.AgentRef = nil
 		}
-
-		// Remove finalizer to delete
-		if controllerutil.RemoveFinalizer(config, agentBootstrapConfigFinalizer) {
-			if err := r.Client.Update(ctx, config); err != nil {
-				log.Error(err, "failed removing the AgentBootstrapConfig finalizer")
-				return ctrl.Result{}, err
-			}
-		}
+		controllerutil.RemoveFinalizer(config, agentBootstrapConfigFinalizer)
 	}
 	return ctrl.Result{}, nil
 }

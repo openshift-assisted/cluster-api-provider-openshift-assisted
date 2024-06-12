@@ -77,7 +77,7 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	agent.Spec.NodeLabels = map[string]string{metal3ProviderIDLabelKey: getProviderID(bmh)}
 	if machine.Spec.Bootstrap.ConfigRef == nil {
 		log.V(logutil.TraceLevel).Info("Agent's machine not associated with agent bootstrap config")
-		return ctrl.Result{}, nil
+		return ctrl.Result{}, fmt.Errorf("machine %s/%s does not have any bootstrap config ref", machine.Namespace, machine.Name)
 	}
 
 	config := &bootstrapv1alpha1.AgentBootstrapConfig{}

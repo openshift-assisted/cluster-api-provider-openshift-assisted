@@ -274,6 +274,7 @@ func computeAgentClusterInstall(clusterDeployment *hivev1.ClusterDeployment, acp
 				ClusterNetwork: clusterNetwork,
 				ServiceNetwork: serviceNetwork,
 			},
+			ManifestsConfigMapRefs: acp.Spec.AgentConfigSpec.ManifestsConfigMapRefs,
 		},
 	}
 	return aci

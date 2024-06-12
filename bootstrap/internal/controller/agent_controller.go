@@ -2,10 +2,12 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
 
+	config_types "github.com/coreos/ignition/v2/config/v3_1/types"
 	metal3v1alpha1 "github.com/metal3-io/baremetal-operator/apis/metal3.io/v1alpha1"
 	metal3 "github.com/metal3-io/cluster-api-provider-metal3/api/v1beta1"
 	"github.com/metal3-io/cluster-api-provider-metal3/baremetal"
@@ -89,8 +91,14 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	log.Info("setting role to agent", "role", role)
 	// TODO: skip if installing
 
+	ignitionConfigOverrides, err := r.getIgnitionConfigOverride()
+	if err != nil {
+		log.Error(err, "failed getting ignition config overrides for agent")
+		return ctrl.Result{}, err
+	}
+
 	agent.Spec.Role = role
-	agent.Spec.IgnitionConfigOverrides = getIngitionConfigOverride()
+	agent.Spec.IgnitionConfigOverrides = ignitionConfigOverrides
 	agent.Spec.Approved = true
 	if err := r.Client.Update(ctx, agent); err != nil {
 		log.Error(err, "couldn't update agent", "name", agent.Name, "namespace", agent.Namespace)
@@ -124,23 +132,41 @@ func (r *AgentReconciler) getClusterName(ctx context.Context, agent *aiv1beta1.A
 	return clusterName, nil
 }
 
-func getIngitionConfigOverride() string {
-	ignition := `{
-				"ignition": { "version": "3.1.0" },
-				"storage": {
-                  "files": [
-					  {
-		                "path": "/run/cluster-api/bootstrap-success.complete",
-				        "mode": 420,
-				        "contents": {
-							"source": "data:text/plain;charset=utf-8;base64,c3VjY2Vzcw=="
-						}
-				      }
-			      ]
-				}
+func (r *AgentReconciler) getIgnitionConfigOverride() (string, error) {
+	capiSuccessFile := createIgnitionFile("/run/cluster-api/bootstrap-success.complete", "root", "data:text/plain;charset=utf-8;base64,c3VjY2Vzcw==", 420, true)
+	config := config_types.Config{
+		Ignition: config_types.Ignition{
+			Version: "3.1.0",
+		},
+		Storage: config_types.Storage{
+			Files: []config_types.File{
+				capiSuccessFile,
+			},
+		},
+	}
+
+	ignition, err := json.Marshal(config)
+	if err != nil {
+		return "", err
+	}
+	return string(ignition), nil
 }
-`
-	return ignition
+
+func createIgnitionFile(path, user, content string, mode int, overwrite bool) config_types.File {
+	return config_types.File{
+		Node: config_types.Node{
+			Path:      path,
+			Overwrite: &overwrite,
+			User:      config_types.NodeUser{Name: &user},
+		},
+		FileEmbedded1: config_types.FileEmbedded1{
+			Append: []config_types.Resource{},
+			Contents: config_types.Resource{
+				Source: &content,
+			},
+			Mode: &mode,
+		},
+	}
 }
 
 func (r *AgentReconciler) getMachineFromBMH(ctx context.Context, bmh *metal3v1alpha1.BareMetalHost) (*clusterv1.Machine, error) {

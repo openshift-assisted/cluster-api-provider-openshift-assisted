@@ -37,17 +37,48 @@ import (
 )
 
 const (
-	agentName                 = "test-agent"
-	abcName                   = "test-resource"
-	bmhName                   = "test-bmh"
-	namespace                 = "test-namespace"
-	clusterName               = "test-cluster"
-	clusterDeploymentName     = "test-clusterdeployment"
-	machineName               = "test-resource"
-	metal3MachineName         = "test-m3machine"
-	acpName                   = "test-controlplane"
-	metal3MachineTemplateName = "test-m3machinetemplate"
-	infraEnvName              = "test-infraenv"
+	agentName                        = "test-agent"
+	abcName                          = "test-resource"
+	bmhName                          = "test-bmh"
+	namespace                        = "test-namespace"
+	clusterName                      = "test-cluster"
+	clusterDeploymentName            = "test-clusterdeployment"
+	machineName                      = "test-resource"
+	metal3MachineName                = "test-m3machine"
+	acpName                          = "test-controlplane"
+	metal3MachineTemplateName        = "test-m3machinetemplate"
+	infraEnvName                     = "test-infraenv"
+	testCert                  string = `-----BEGIN CERTIFICATE-----
+MIIFPjCCAyagAwIBAgIUBCE1YX2zJ0R/3NURq2XQaciEuVQwDQYJKoZIhvcNAQEL
+BQAwFjEUMBIGA1UEAwwLZXhhbXBsZS5jb20wHhcNMjIxMTI3MjM0MjAyWhcNMzIx
+MTI0MjM0MjAyWjAWMRQwEgYDVQQDDAtleGFtcGxlLmNvbTCCAiIwDQYJKoZIhvcN
+AQEBBQADggIPADCCAgoCggIBAKY589W+Xifs9SfxofBI1r1/NKsMUVPvg3ZtDIPQ
+EeNKf5OgtSOVFcoEmkS7ZWNTIu4Kd1WBf/rG+F5lm/aTTa3j720Q+fS+gsveGQPz
+7taUpU/TjHHzoCqjjhaYMr4gIJ3jkpTXUWG5/vka/oNykSxkGCuZw1gyXHNujA8L
+DJYY8VNUHPl5MmXGaT++6yEN4WdB2f7R/MmEaH6KnGo/LjhMeiVmDsIxHZ/xW9OR
+izPklnUi78NfZJSxiknoV6CnQShNijLEq6nQowYQ1lQuNWs6sTM28I0BYWk+gDUz
+NOWkVqSHFRMzGmpqYJs7JQiv0g33VN/92dwdP/kZc9sAYRqDaI6hplOZrD/OEsbG
+lmN90x/o42wotJeBDN1hHlJ1JeRjR1Vk8XUfOmaTuOPzooKIM0h9K6Ah6u3lRQtE
+n68yxn0sGD8yw6EydS5FD9zzvA6rgXBSsvpMFjk/N/FmnIzD4YinLEiflfub1O0M
+9thEOX9IaOh00U2eGsRa/MOJcCZ5TUOgxVlv15ATUPHo1MW8QkmYOVx4BoM/Bw0J
+0HibIU8VUw2AV1tupRdQma7Qg5gyjdx2doth78IG5+LkX95fSyz60Kf9l1xBQHNA
+kVyzkXlx8jmdm53CeFvHVOrVrLuA2Dk+t21TNL1uFGgQ0iLxItCf1O6F6B78QqhI
+YLOdAgMBAAGjgYMwgYAwHQYDVR0OBBYEFE6DFh3+wGzA8dOYBTL9Z0CyxLJ/MB8G
+A1UdIwQYMBaAFE6DFh3+wGzA8dOYBTL9Z0CyxLJ/MA8GA1UdEwEB/wQFMAMBAf8w
+LQYDVR0RBCYwJIILZXhhbXBsZS5jb22CD3d3dy5leGFtcGxlLm5ldIcECgAAATAN
+BgkqhkiG9w0BAQsFAAOCAgEAoj+elkYHrek6DoqOvEFZZtRp6bPvof61/VJ3kP7x
+HZXp5yVxvGOHt61YRziGLpsFbuiDczk0V61ZdozHUOtZ0sWB4VeyO1pAjfd/JwDI
+CK6olfkSO78WFQfdG4lNoSM9dQJyEIEZ1sbvuUL3RHDBd9oEKue+vsstlM9ahdoq
+fpTTFq4ENGCAIDvaqKIlpjKsAMrsTO47CKPVh2HUpugfVGKeBRsW1KAXFoC2INS5
+7BY3h60jFFW6bz0v+FnzW96Mt2VNW+i/REX6fBaR4m/QfG81rA2EEmhxCGrany+N
+6DUkwiJxcqBMH9jA2yVnF7BgwG2C3geBqXTTlvVQJD8GOktkvgLjlHcYqO1pI7B3
+wP9F9ZF+w39jXwGMGBg8+/aQz1RjP2bOb18n7d0bc4/pbbkVAmE4sq4qMneFZAVE
+uj9S2Jna3ut08ZP05Ych5vCGX4VJ8gNNgrJju2PJVBl8NNyDfHKeHfWSOR9uOMjT
+vqK6iRD9xqu/oLJyrlAuOL8ZxRpeqjxF/g8NYYV/fvv8apaX58ua9qYAFQVGf590
+mmjOozzn9VBqKenVmfwzen5v78CBSgS4Hd72Qp42rLCNgqI8gyQa2qZzaNjLP/wI
+pBpFC21fkybGYPkislPQ3EI69ZGRafWDBjlFFTS3YkDM98tqTZD+JG4STY+ivHhK
+gmY=
+-----END CERTIFICATE-----`
 )
 
 var _ = Describe("AgentBootstrapConfigSpec Controller", func() {
@@ -193,6 +224,7 @@ var _ = Describe("AgentBootstrapConfigSpec Controller", func() {
 				Expect(conditions.Get(abc,
 					bootstrapv1alpha1.DataSecretAvailableCondition,
 				)).To(BeNil())
+
 				assertInfraEnvWithEmptyISOURL(ctx, k8sClient, abc)
 			})
 		})
@@ -267,9 +299,22 @@ func assertInfraEnvWithEmptyISOURL(ctx context.Context, k8sClient client.Client,
 	Expect(len(infraEnvList.Items)).To(Equal(1))
 	infraEnv := infraEnvList.Items[0]
 	Expect(abc.Status.InfraEnvRef).ToNot(BeNil())
-	Expect(infraEnv.Name).To(Equal(abc.Status.InfraEnvRef.Name))
+
+	assertInfraEnvSpecs(infraEnv, abc)
+
 	Expect(infraEnv.Status.ISODownloadURL).To(Equal(""))
 	Expect(abc.Status.ISODownloadURL).To(Equal(""))
+}
+
+func assertInfraEnvSpecs(infraEnv v1beta1.InfraEnv, abc *bootstrapv1alpha1.AgentBootstrapConfig) {
+	Expect(infraEnv.Name).To(Equal(abc.Status.InfraEnvRef.Name))
+	Expect(infraEnv.Spec.Proxy).To(Equal(abc.Spec.Proxy))
+	Expect(infraEnv.Spec.AdditionalNTPSources).To(Equal(abc.Spec.AdditionalNTPSources))
+	Expect(infraEnv.Spec.NMStateConfigLabelSelector).To(Equal(abc.Spec.NMStateConfigLabelSelector))
+	Expect(infraEnv.Spec.CpuArchitecture).To(Equal(abc.Spec.CpuArchitecture))
+	Expect(infraEnv.Spec.KernelArguments).To(Equal(abc.Spec.KernelArguments))
+	Expect(infraEnv.Spec.AdditionalTrustBundle).To(Equal(abc.Spec.AdditionalTrustBundle))
+	Expect(infraEnv.Spec.OSImageVersion).To(Equal(abc.Spec.OSImageVersion))
 }
 
 // mock controlplane provider generating ACI and CD
@@ -321,6 +366,33 @@ func setupControlPlaneAgentBootstrapConfig(ctx context.Context, k8sClient client
 	Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(machine), machine)).To(Succeed())
 
 	abc := NewAgentBootstrapConfigWithOwner(namespace, abcName, clusterName, machine)
+	abc.Spec.Proxy = &v1beta1.Proxy{
+		HTTPProxy:  "http://myproxy.com",
+		HTTPSProxy: "https://myproxy.com",
+		NoProxy:    "example.com,redhat.com",
+	}
+	abc.Spec.AdditionalNTPSources = []string{
+		"192.168.1.3",
+		"myntpservice.com",
+	}
+	abc.Spec.NMStateConfigLabelSelector = metav1.LabelSelector{
+		MatchLabels: map[string]string{
+			"mylabel": "myvalue",
+		},
+	}
+	abc.Spec.CpuArchitecture = "x86"
+	abc.Spec.KernelArguments = []v1beta1.KernelArgument{
+		{
+			Operation: "append",
+			Value:     "p1",
+		},
+		{
+			Operation: "append",
+			Value:     `p2="this is an argument"`,
+		},
+	}
+	abc.Spec.AdditionalTrustBundle = testCert
+	abc.Spec.OSImageVersion = "4.14.0"
 	Expect(k8sClient.Create(ctx, abc)).To(Succeed())
 	return abc
 }

@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"github.com/openshift-assisted/cluster-api-agent/bootstrap/internal/assistedinstaller"
 	"time"
 
 	controlplanev1alpha1 "github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1alpha1"
@@ -26,7 +27,9 @@ import (
 	aimodels "github.com/openshift/assisted-service/models"
 	"github.com/pkg/errors"
 
+	util "github.com/openshift-assisted/cluster-api-agent/util"
 	logutil "github.com/openshift-assisted/cluster-api-agent/util/log"
+
 	hivev1 "github.com/openshift/hive/apis/hive/v1"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	"sigs.k8s.io/cluster-api/util/conditions"
@@ -45,7 +48,7 @@ import (
 	types "k8s.io/apimachinery/pkg/types"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	bsutil "sigs.k8s.io/cluster-api/bootstrap/util"
-	"sigs.k8s.io/cluster-api/util"
+	capiutil "sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 )
@@ -161,7 +164,7 @@ func (r *AgentBootstrapConfigReconciler) Reconcile(ctx context.Context, req ctrl
 	}
 
 	// Get the Machine that owns this agentbootstrapconfig
-	machine, err := util.GetOwnerMachine(ctx, r.Client, config.ObjectMeta)
+	machine, err := capiutil.GetOwnerMachine(ctx, r.Client, config.ObjectMeta)
 	if err != nil {
 		log.Error(err, "couldn't get machine associated with agentbootstrapconfig", "name", config.Name)
 		return ctrl.Result{}, err
@@ -180,7 +183,7 @@ func (r *AgentBootstrapConfigReconciler) Reconcile(ctx context.Context, req ctrl
 	}
 
 	// if added worker after start install, will be treated as day2
-	if !util.IsControlPlaneMachine(machine) && !(aci.Status.DebugInfo.State == aimodels.ClusterStatusAddingHosts || aci.Status.DebugInfo.State == aimodels.ClusterStatusPendingForInput || aci.Status.DebugInfo.State == aimodels.ClusterStatusInsufficient || aci.Status.DebugInfo.State == "") {
+	if !capiutil.IsControlPlaneMachine(machine) && !(aci.Status.DebugInfo.State == aimodels.ClusterStatusAddingHosts || aci.Status.DebugInfo.State == aimodels.ClusterStatusPendingForInput || aci.Status.DebugInfo.State == aimodels.ClusterStatusInsufficient || aci.Status.DebugInfo.State == "") {
 		log.V(logutil.DebugLevel).Info("not controlplane machine and installation already started, requeuing")
 
 		return ctrl.Result{Requeue: true, RequeueAfter: 60 * time.Second}, nil
@@ -231,21 +234,12 @@ func (r *AgentBootstrapConfigReconciler) ensureInfraEnv(ctx context.Context, con
 		return fmt.Errorf("no infraenv name for agentbootstrapconfig")
 	}
 
-	// Query for InfraEnv based on name/namespace and set it if it exists or create it if it doesn't
-	infraEnv := &aiv1beta1.InfraEnv{}
-	if err := r.Client.Get(ctx, client.ObjectKey{Name: infraEnvName, Namespace: config.Namespace}, infraEnv); err != nil {
-		if !apierrors.IsNotFound(err) {
-			return err
-		}
-
-		infraEnv, err = r.createInfraEnv(ctx, config, infraEnvName, clusterDeployment)
-		//TODO: make this more efficient
-
-		if err != nil && !apierrors.IsAlreadyExists(err) {
-			return err
-		}
-		log.V(logutil.DebugLevel).Info("Created infra env", "name", infraEnv.Name, "namespace", infraEnv.Namespace)
+	infraEnv := assistedinstaller.GetInfraEnvFromConfig(infraEnvName, config, clusterDeployment)
+	err = r.Create(ctx, infraEnv)
+	if err != nil && !apierrors.IsAlreadyExists(err) {
+		return err
 	}
+	log.V(logutil.DebugLevel).Info("Created infra env", "name", infraEnv.Name, "namespace", infraEnv.Namespace)
 
 	// Set infraEnv if not already set
 	if config.Status.InfraEnvRef == nil {
@@ -329,34 +323,13 @@ func (r *AgentBootstrapConfigReconciler) setMetal3MachineImage(ctx context.Conte
 	return nil
 }
 
-func (r *AgentBootstrapConfigReconciler) getTypedMachineOwner(ctx context.Context, machine *clusterv1.Machine, obj client.Object) error {
-	log := ctrl.LoggerFrom(ctx)
-
-	// TODO: can we guess Kind and APIVersion before retrieving it?
-	for _, ownerRef := range machine.OwnerReferences {
-		err := r.Client.Get(ctx, types.NamespacedName{
-			Namespace: machine.Namespace,
-			Name:      ownerRef.Name,
-		}, obj)
-		if err != nil {
-			log.V(logutil.TraceLevel).Info(fmt.Sprintf("could not find %T", obj), "name", ownerRef.Name, "namespace", machine.Namespace)
-			continue
-		}
-		gvk := obj.GetObjectKind().GroupVersionKind()
-		if ownerRef.APIVersion == gvk.GroupVersion().String() && ownerRef.Kind == gvk.Kind {
-			return nil
-		}
-	}
-	return fmt.Errorf("couldn't find %T owner for machine", obj)
-}
-
 func (r *AgentBootstrapConfigReconciler) getInfrastructureRefKey(ctx context.Context, machine *clusterv1.Machine) (types.NamespacedName, error) {
 	acp := controlplanev1alpha1.AgentControlPlane{}
-	err := r.getTypedMachineOwner(ctx, machine, &acp)
+	err := util.GetTypedOwner(ctx, r.Client, machine, &acp)
 	if err != nil {
 		// Machine is not owned by ACP, check for MD
 		md := clusterv1.MachineDeployment{}
-		if err := r.getTypedMachineOwner(ctx, machine, &md); err != nil {
+		if err := util.GetTypedOwner(ctx, r.Client, machine, &md); err != nil {
 			return types.NamespacedName{}, fmt.Errorf("machine has neither acp nor md owner")
 		}
 		return types.NamespacedName{
@@ -471,36 +444,4 @@ func (r *AgentBootstrapConfigReconciler) FilterMachine(_ context.Context, o clie
 		result = append(result, ctrl.Request{NamespacedName: name})
 	}
 	return result
-}
-
-func (r *AgentBootstrapConfigReconciler) createInfraEnv(ctx context.Context, config *bootstrapv1alpha1.AgentBootstrapConfig, infraEnvName string, clusterDeployment *hivev1.ClusterDeployment) (*aiv1beta1.InfraEnv, error) {
-	infraEnv := &aiv1beta1.InfraEnv{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      infraEnvName,
-			Namespace: config.Namespace,
-			Labels: map[string]string{
-				bootstrapv1alpha1.AgentBootstrapConfigLabel: config.Name,
-			},
-		},
-	}
-
-	clusterName, ok := config.Labels[clusterv1.ClusterNameLabel]
-	if ok {
-		infraEnv.Labels[clusterv1.ClusterNameLabel] = clusterName
-	}
-
-	//TODO: create logic for placeholder pull secret
-	var pullSecret *corev1.LocalObjectReference
-	if config.Spec.PullSecretRef != nil {
-		pullSecret = config.Spec.PullSecretRef
-	}
-	infraEnv.Spec = aiv1beta1.InfraEnvSpec{
-		ClusterRef: &aiv1beta1.ClusterReference{
-			Name:      clusterDeployment.Name,
-			Namespace: clusterDeployment.Namespace,
-		},
-		PullSecretRef:    pullSecret,
-		SSHAuthorizedKey: config.Spec.SSHAuthorizedKey,
-	}
-	return infraEnv, r.Create(ctx, infraEnv)
 }

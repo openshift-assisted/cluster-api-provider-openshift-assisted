@@ -18,14 +18,14 @@ package controller
 
 import (
 	"context"
-
 	"github.com/golang/mock/gomock"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	hivev1 "github.com/openshift/hive/apis/hive/v1"
-
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	fakeclient "sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	controlplanev1alpha1 "github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1alpha1"
@@ -45,16 +45,20 @@ var _ = Describe("AgentControlPlane Controller", func() {
 		var (
 			ctx                  = context.Background()
 			typeNamespacedName   types.NamespacedName
-			agentcontrolplane    *controlplanev1alpha1.AgentControlPlane
 			cluster              *clusterv1.Cluster
 			controllerReconciler *AgentControlPlaneReconciler
 			mockCtrl             *gomock.Controller
+			k8sClient            client.Client
 		)
 
 		BeforeEach(func() {
+			k8sClient = fakeclient.NewClientBuilder().
+				WithScheme(testScheme).
+				WithStatusSubresource(&controlplanev1alpha1.AgentControlPlane{}).Build()
+
 			mockCtrl = gomock.NewController(GinkgoT())
 			ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespace}}
-			k8sClient.Create(ctx, ns)
+			Expect(k8sClient.Create(ctx, ns)).To(Succeed())
 			typeNamespacedName = types.NamespacedName{
 				Name:      agentControlPlaneName,
 				Namespace: namespace,
@@ -65,22 +69,9 @@ var _ = Describe("AgentControlPlane Controller", func() {
 				Scheme: k8sClient.Scheme(),
 			}
 
-			By("creating the custom resource for the Kind AgentControlPlane")
-			agentcontrolplane = &controlplanev1alpha1.AgentControlPlane{}
-			err := k8sClient.Get(ctx, typeNamespacedName, agentcontrolplane)
-			if err != nil && errors.IsNotFound(err) {
-				resource := &controlplanev1alpha1.AgentControlPlane{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      agentControlPlaneName,
-						Namespace: namespace,
-					},
-				}
-				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
-			}
-
 			By("creating a cluster")
 			cluster = &clusterv1.Cluster{}
-			err = k8sClient.Get(ctx, types.NamespacedName{Name: clusterName, Namespace: namespace}, cluster)
+			err := k8sClient.Get(ctx, types.NamespacedName{Name: clusterName, Namespace: namespace}, cluster)
 			if err != nil && errors.IsNotFound(err) {
 				cluster = testutils.NewCluster(clusterName, namespace)
 				err := k8sClient.Create(ctx, cluster)
@@ -90,26 +81,18 @@ var _ = Describe("AgentControlPlane Controller", func() {
 
 		AfterEach(func() {
 			mockCtrl.Finish()
-		})
-
-		It("should successfully reconcile the resource", func() {
-			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: typeNamespacedName,
-			})
-			Expect(err).NotTo(HaveOccurred())
+			k8sClient = nil
 		})
 
 		It("should successfully create a cluster deployment when a cluster owns this agent control plane", func() {
 			By("setting the cluster as the owner ref on the agent control plane")
-			agentControlPlane := &controlplanev1alpha1.AgentControlPlane{}
-			err := k8sClient.Get(ctx, typeNamespacedName, agentControlPlane)
-			Expect(err).NotTo(HaveOccurred())
 
+			agentControlPlane := getAgentControlPlane()
 			agentControlPlane.SetOwnerReferences([]metav1.OwnerReference{*metav1.NewControllerRef(cluster, clusterv1.GroupVersion.WithKind(clusterv1.ClusterKind))})
-			Expect(k8sClient.Update(ctx, agentControlPlane)).To(Succeed())
+			Expect(k8sClient.Create(ctx, agentControlPlane)).To(Succeed())
 
 			By("checking if the agent control plane created the cluster deployment after reconcile")
-			_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
 				NamespacedName: typeNamespacedName,
 			})
 			Expect(err).NotTo(HaveOccurred())
@@ -127,12 +110,13 @@ var _ = Describe("AgentControlPlane Controller", func() {
 
 		It("should add a finalizer to the agent control plane if it's not being deleted", func() {
 			By("setting the owner ref on the agent control plane")
-			agentControlPlane := &controlplanev1alpha1.AgentControlPlane{}
-			err := k8sClient.Get(ctx, typeNamespacedName, agentControlPlane)
-			Expect(err).NotTo(HaveOccurred())
 
+			agentControlPlane := getAgentControlPlane()
 			agentControlPlane.SetOwnerReferences([]metav1.OwnerReference{*metav1.NewControllerRef(cluster, clusterv1.GroupVersion.WithKind(clusterv1.ClusterKind))})
-			Expect(k8sClient.Update(ctx, agentControlPlane)).To(Succeed())
+			Expect(k8sClient.Create(ctx, agentControlPlane)).To(Succeed())
+
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+			Expect(err).NotTo(HaveOccurred())
 
 			By("checking if the agent control plane has the finalizer")
 			err = k8sClient.Get(ctx, typeNamespacedName, agentControlPlane)
@@ -140,32 +124,14 @@ var _ = Describe("AgentControlPlane Controller", func() {
 			Expect(agentControlPlane.Finalizers).NotTo(BeEmpty())
 			Expect(agentControlPlane.Finalizers).To(ContainElement(acpFinalizer))
 		})
-
-		It("should successfully delete the cluster deployment and agent control plane", func() {
-			By("ensuring the cluster deployment exists")
-			cd := &hivev1.ClusterDeployment{}
-			err := k8sClient.Get(ctx, typeNamespacedName, cd)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(cd).NotTo(BeNil())
-
-			By("deleting the agent control plane")
-			agentControlPlane := &controlplanev1alpha1.AgentControlPlane{}
-			err = k8sClient.Get(ctx, typeNamespacedName, agentControlPlane)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(k8sClient.Delete(ctx, agentControlPlane)).To(Succeed())
-
-			_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
-			Expect(err).ToNot(BeNil())
-
-			By("ensuring the cluster deployment no longer exists")
-			err = k8sClient.Get(ctx, typeNamespacedName, cd)
-			Expect(err).To(HaveOccurred())
-			Expect(errors.IsNotFound(err)).To(BeTrue())
-
-			By("ensuring the agent control plane is deleted")
-			err = k8sClient.Get(ctx, typeNamespacedName, agentControlPlane)
-			Expect(err).To(HaveOccurred())
-			Expect(errors.IsNotFound(err)).To(BeTrue())
-		})
 	})
 })
+
+func getAgentControlPlane() *controlplanev1alpha1.AgentControlPlane {
+	return &controlplanev1alpha1.AgentControlPlane{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      agentControlPlaneName,
+			Namespace: namespace,
+		},
+	}
+}

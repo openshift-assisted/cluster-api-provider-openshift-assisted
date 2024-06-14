@@ -20,7 +20,9 @@ import (
 	"context"
 	"github.com/openshift-assisted/cluster-api-agent/assistedinstaller"
 	"github.com/openshift-assisted/cluster-api-agent/util"
+	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/client-go/tools/reference"
+	"sigs.k8s.io/cluster-api/util/patch"
 	"time"
 
 	bootstrapv1alpha1 "github.com/openshift-assisted/cluster-api-agent/bootstrap/api/v1alpha1"
@@ -97,24 +99,36 @@ func (r *AgentControlPlaneReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		}
 		return ctrl.Result{}, err
 	}
+
 	log.WithValues("AgentControlPlane Name", acp.Name, "AgentControlPlane Namespace", acp.Namespace)
 	log.V(logutil.TraceLevel).Info("Started reconciling AgentControlPlane")
+
+	// Initialize the patch helper.
+	patchHelper, err := patch.NewHelper(acp, r.Client)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	// Attempt to Patch the AgentControlPlane object and status after each reconciliation if no error occurs.
 	defer func() {
-		if rerr = r.Client.Status().Update(ctx, acp); rerr != nil {
-			log.Error(rerr, "couldn't update AgentControlPlane Status")
+		// Patch ObservedGeneration only if the reconciliation completed successfully
+		patchOpts := []patch.Option{}
+		if rerr == nil {
+			patchOpts = append(patchOpts, patch.WithStatusObservedGeneration{})
 		}
+		if err := patchHelper.Patch(ctx, acp, patchOpts...); err != nil {
+			rerr = kerrors.NewAggregate([]error{rerr, err})
+		}
+
 		log.V(logutil.TraceLevel).Info("Finished reconciling AgentControlPlane")
 	}()
 
 	if acp.DeletionTimestamp != nil {
 		return r.handleDeletion(ctx, acp)
 	}
+
 	if !controllerutil.ContainsFinalizer(acp, acpFinalizer) {
 		controllerutil.AddFinalizer(acp, acpFinalizer)
-		if err := r.Client.Update(ctx, acp); err != nil {
-			log.Error(rerr, "couldn't update AgentControlPlane", "name", acp.Name, "namespace", acp.Namespace)
-			return ctrl.Result{}, err
-		}
 	}
 
 	cluster, err := capiutil.GetOwnerCluster(ctx, r.Client, acp.ObjectMeta)
@@ -215,23 +229,22 @@ func (r *AgentControlPlaneReconciler) Reconcile(ctx context.Context, req ctrl.Re
 // TODO: should we handle watching until all machines & agentbootstrapconfigs are deleted too?
 func (r *AgentControlPlaneReconciler) handleDeletion(ctx context.Context, acp *controlplanev1alpha1.AgentControlPlane) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
-	if controllerutil.ContainsFinalizer(acp, acpFinalizer) {
-		// Delete cluster deployment
-		if err := r.deleteClusterDeployment(ctx, acp.Status.ClusterDeploymentRef); err != nil && !apierrors.IsNotFound(err) {
-			log.Error(err, "failed deleting cluster deployment for ACP")
-			return ctrl.Result{}, err
-		}
-		log.Info("ACP's clusterdeployment is deleted")
-		acp.Status.ClusterDeploymentRef = nil
 
-		if controllerutil.RemoveFinalizer(acp, acpFinalizer) {
-			if err := r.Client.Update(ctx, acp); err != nil {
-				log.Error(err, "failed updating the ACP finalizer")
-				return ctrl.Result{}, err
-			}
-		}
+	if !controllerutil.ContainsFinalizer(acp, acpFinalizer) {
+		log.V(logutil.TraceLevel).Info("ACP doesn't contain finalizer, allow deletion")
+		return ctrl.Result{}, nil
 	}
-	log.V(logutil.TraceLevel).Info("ACP doesn't contain finalizer, allow deletion")
+
+	// Delete cluster deployment
+	if err := r.deleteClusterDeployment(ctx, acp.Status.ClusterDeploymentRef); err != nil && !apierrors.IsNotFound(err) {
+		log.Error(err, "failed deleting cluster deployment for ACP")
+		return ctrl.Result{}, err
+	}
+	log.Info("ACP's clusterdeployment is deleted")
+	acp.Status.ClusterDeploymentRef = nil
+
+	// will be updated in the deferred function
+	controllerutil.RemoveFinalizer(acp, acpFinalizer)
 	return ctrl.Result{}, nil
 }
 

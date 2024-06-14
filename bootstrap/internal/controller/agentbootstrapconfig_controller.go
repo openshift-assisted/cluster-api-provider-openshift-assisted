@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/openshift-assisted/cluster-api-agent/assistedinstaller"
+	"k8s.io/client-go/tools/reference"
 	"time"
 
 	controlplanev1alpha1 "github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1alpha1"
@@ -243,7 +244,11 @@ func (r *AgentBootstrapConfigReconciler) ensureInfraEnv(ctx context.Context, con
 
 	// Set infraEnv if not already set
 	if config.Status.InfraEnvRef == nil {
-		config.Status.InfraEnvRef = &corev1.ObjectReference{Name: infraEnv.Name, Namespace: infraEnv.Namespace, Kind: "InfraEnv", APIVersion: infraEnv.APIVersion}
+		ref, err := reference.GetReference(r.Scheme, infraEnv)
+		if err != nil {
+			return err
+		}
+		config.Status.InfraEnvRef = ref
 	}
 	return nil
 }

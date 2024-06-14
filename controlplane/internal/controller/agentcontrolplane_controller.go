@@ -18,16 +18,16 @@ package controller
 
 import (
 	"context"
+	"github.com/openshift-assisted/cluster-api-agent/assistedinstaller"
+	"github.com/openshift-assisted/cluster-api-agent/util"
+	"k8s.io/client-go/tools/reference"
 	"time"
-
-	"sigs.k8s.io/cluster-api/controllers/external"
-	"sigs.k8s.io/cluster-api/util/conditions"
-	"sigs.k8s.io/cluster-api/util/labels/format"
 
 	bootstrapv1alpha1 "github.com/openshift-assisted/cluster-api-agent/bootstrap/api/v1alpha1"
 	logutil "github.com/openshift-assisted/cluster-api-agent/util/log"
+	"sigs.k8s.io/cluster-api/controllers/external"
+	"sigs.k8s.io/cluster-api/util/conditions"
 
-	"github.com/openshift/hive/apis/hive/v1/agent"
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -140,8 +140,8 @@ func (r *AgentControlPlaneReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	// create clusterdeployment if not set
 	if acp.Status.ClusterDeploymentRef == nil {
 		log.Info("Creating clusterdeployment")
-		err, clusterDeployment := r.createClusterDeployment(ctx, acp, cluster.Name)
-		if err != nil && !apierrors.IsAlreadyExists(err) {
+		clusterDeployment := assistedinstaller.GetClusterDeploymentFromConfig(acp, cluster.Name)
+		if err := r.Create(ctx, clusterDeployment); err != nil && !apierrors.IsAlreadyExists(err) {
 			log.Error(
 				err,
 				"couldn't create clusterDeployment",
@@ -152,12 +152,12 @@ func (r *AgentControlPlaneReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		}
 
 		if clusterDeployment != nil {
-			acp.Status.ClusterDeploymentRef = &corev1.ObjectReference{
-				Name:       clusterDeployment.Name,
-				Namespace:  clusterDeployment.Namespace,
-				Kind:       "ClusterDeployment",
-				APIVersion: hivev1.SchemeGroupVersion.String(),
+			ref, err := reference.GetReference(r.Scheme, clusterDeployment)
+			if err != nil {
+				log.Error(err, "could not create reference to clusterDeployment")
+				return
 			}
+			acp.Status.ClusterDeploymentRef = ref
 			log.Info("Added clusterdeployment ref")
 		}
 	}
@@ -300,7 +300,7 @@ func (r *AgentControlPlaneReconciler) computeDesiredMachine(acp *controlplanev1a
 	// When we update an existing Machine will we update the fields on the existing Machine (in-place mutate).
 
 	// Set labels
-	desiredMachine.Labels = controlPlaneMachineLabelsForCluster(acp, cluster.Name)
+	desiredMachine.Labels = util.ControlPlaneMachineLabelsForCluster(acp, cluster.Name)
 
 	// Set annotations
 	// Add the annotations from the MachineTemplate.
@@ -320,69 +320,12 @@ func (r *AgentControlPlaneReconciler) computeDesiredMachine(acp *controlplanev1a
 	return desiredMachine, nil
 }
 
-func (r *AgentControlPlaneReconciler) createClusterDeployment(ctx context.Context, acp *controlplanev1alpha1.AgentControlPlane, clusterName string) (error, *hivev1.ClusterDeployment) {
-	var pullSecret *corev1.LocalObjectReference
-	if acp.Spec.AgentConfigSpec.PullSecretRef != nil {
-		pullSecret = acp.Spec.AgentConfigSpec.PullSecretRef
-	}
-	//TODO: create logic for placeholder pull secret
-
-	// Get cluster clusterName instead of reference to ACP clusterName
-	clusterDeployment := &hivev1.ClusterDeployment{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      acp.Name,
-			Namespace: acp.Namespace,
-			Labels:    controlPlaneMachineLabelsForCluster(acp, clusterName),
-		},
-		Spec: hivev1.ClusterDeploymentSpec{
-			ClusterName: clusterName,
-			BaseDomain:  acp.Spec.AgentConfigSpec.BaseDomain,
-			Platform: hivev1.Platform{
-				AgentBareMetal: &agent.BareMetalPlatform{
-					//AgentSelector: metav1.LabelSelector{}, // TODO: What label should we select?
-				},
-			},
-			//PreserveOnDelete: True, // TODO take from CR
-			//ControlPlaneConfig: hivev1.ControlPlaneConfigSpec{}, //
-			//Ingress: ( []hivev1.ClusterIngress)
-			//CertificateBundles: ([]hivev1.CertificateBundleSpec)
-			// ManageDNS: bool,
-			//ClusterMetadata: *hivev1.ClusterMetadata.
-			Installed: false,
-			// Provisioning: *hivev1.Provisioning
-			//ClusterInstallRef: // reference to AgentClusterInstall  *ClusterInstallLocalReference
-			// ClusterPoolRef *ClusterPoolReference `json:"clusterPoolRef,omitempty"`,
-			// ClusterPoolRef *ClusterPoolReference `json:"clusterPoolRef,omitempty"`
-			PullSecretRef: pullSecret,
-		},
-	}
-	return r.Create(ctx, clusterDeployment), clusterDeployment
-}
-
 // SetupWithManager sets up the controller with the Manager.
 func (r *AgentControlPlaneReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	//TODO: maybe enqueue for clusterdeployment owned by this ACP in case it gets deleted...?
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&controlplanev1alpha1.AgentControlPlane{}).
 		Complete(r)
-}
-
-// ControlPlaneMachineLabelsForCluster returns a set of labels to add to a control plane machine for this specific cluster.
-func controlPlaneMachineLabelsForCluster(acp *controlplanev1alpha1.AgentControlPlane, clusterName string) map[string]string {
-	labels := map[string]string{}
-
-	// Add the labels from the MachineTemplate.
-	// Note: we intentionally don't use the map directly to ensure we don't modify the map in KCP.
-	for k, v := range acp.Spec.MachineTemplate.ObjectMeta.Labels {
-		labels[k] = v
-	}
-
-	// Always force these labels over the ones coming from the spec.
-	labels[clusterv1.ClusterNameLabel] = clusterName
-	labels[clusterv1.MachineControlPlaneLabel] = ""
-	// Note: MustFormatValue is used here as the label value can be a hash if the control plane name is longer than 63 characters.
-	labels[clusterv1.MachineControlPlaneNameLabel] = format.MustFormatValue(acp.Name)
-	return labels
 }
 
 func (r *AgentControlPlaneReconciler) cloneConfigsAndGenerateMachine(ctx context.Context, cluster *clusterv1.Cluster, acp *controlplanev1alpha1.AgentControlPlane, bootstrapSpec *bootstrapv1alpha1.AgentBootstrapConfigSpec) error {
@@ -414,7 +357,7 @@ func (r *AgentControlPlaneReconciler) cloneConfigsAndGenerateMachine(ctx context
 		Name:        machine.Name,
 		OwnerRef:    infraCloneOwner,
 		ClusterName: cluster.Name,
-		Labels:      controlPlaneMachineLabelsForCluster(acp, cluster.Name),
+		Labels:      util.ControlPlaneMachineLabelsForCluster(acp, cluster.Name),
 		Annotations: acp.Spec.MachineTemplate.ObjectMeta.Annotations,
 	})
 	if err != nil {
@@ -483,25 +426,16 @@ func (r *AgentControlPlaneReconciler) generateAgentBootstrapConfig(ctx context.C
 		ObjectMeta: metav1.ObjectMeta{
 			Name:            name,
 			Namespace:       acp.Namespace,
-			Labels:          controlPlaneMachineLabelsForCluster(acp, cluster.Name),
+			Labels:          util.ControlPlaneMachineLabelsForCluster(acp, cluster.Name),
 			Annotations:     acp.Spec.MachineTemplate.ObjectMeta.Annotations,
 			OwnerReferences: []metav1.OwnerReference{owner},
 		},
 		Spec: *spec,
 	}
-	//bootstrapConfig.Spec.PullSecretRef = acp.Spec.AgentBootstrapConfigSpec.PullSecretRef
 
 	if err := r.Client.Create(ctx, bootstrapConfig); err != nil {
 		return nil, errors.Wrap(err, "Failed to create bootstrap configuration")
 	}
 
-	bootstrapRef := &corev1.ObjectReference{
-		APIVersion: bootstrapv1alpha1.GroupVersion.String(),
-		Kind:       "AgentBootstrapConfig",
-		Name:       bootstrapConfig.GetName(),
-		Namespace:  bootstrapConfig.GetNamespace(),
-		UID:        bootstrapConfig.GetUID(),
-	}
-
-	return bootstrapRef, nil
+	return reference.GetReference(r.Scheme, bootstrapConfig)
 }

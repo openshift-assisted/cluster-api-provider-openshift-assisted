@@ -2,6 +2,9 @@ package util
 
 import (
 	"context"
+	controlplanev1alpha1 "github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1alpha1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	"sigs.k8s.io/cluster-api/util/labels/format"
 
 	"fmt"
 	logutil "github.com/openshift-assisted/cluster-api-agent/util/log"
@@ -29,4 +32,22 @@ func GetTypedOwner(ctx context.Context, k8sClient client.Client, obj client.Obje
 		}
 	}
 	return fmt.Errorf("couldn't find %T owner for %T", owner, obj)
+}
+
+// ControlPlaneMachineLabelsForCluster returns a set of labels to add to a control plane machine for this specific cluster.
+func ControlPlaneMachineLabelsForCluster(acp *controlplanev1alpha1.AgentControlPlane, clusterName string) map[string]string {
+	labels := map[string]string{}
+
+	// Add the labels from the MachineTemplate.
+	// Note: we intentionally don't use the map directly to ensure we don't modify the map in KCP.
+	for k, v := range acp.Spec.MachineTemplate.ObjectMeta.Labels {
+		labels[k] = v
+	}
+
+	// Always force these labels over the ones coming from the spec.
+	labels[clusterv1.ClusterNameLabel] = clusterName
+	labels[clusterv1.MachineControlPlaneLabel] = ""
+	// Note: MustFormatValue is used here as the label value can be a hash if the control plane name is longer than 63 characters.
+	labels[clusterv1.MachineControlPlaneNameLabel] = format.MustFormatValue(acp.Name)
+	return labels
 }

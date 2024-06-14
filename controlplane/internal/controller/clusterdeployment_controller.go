@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"github.com/openshift-assisted/cluster-api-agent/util"
 	"time"
 
 	"github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1alpha1"
@@ -31,7 +32,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
-	"sigs.k8s.io/cluster-api/util"
+	capiutil "sigs.k8s.io/cluster-api/util"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -101,7 +102,7 @@ func (r *ClusterDeploymentReconciler) ensureAgentClusterInstall(ctx context.Cont
 	log := ctrl.LoggerFrom(ctx)
 	log.Info("No agentcontrolplane is referenced by ClusterDeployment", "name", clusterDeployment.Name, "namespace", clusterDeployment.Namespace)
 
-	cluster, err := util.GetOwnerCluster(ctx, r.Client, acp.ObjectMeta)
+	cluster, err := capiutil.GetOwnerCluster(ctx, r.Client, acp.ObjectMeta)
 	if err != nil {
 		log.Error(err, "failed to retrieve owner Cluster from the API Server", "agentcontrolplane name", acp.Name, "agentcontrolplane namespace", acp.Namespace)
 		return ctrl.Result{}, err
@@ -233,7 +234,7 @@ func (r *ClusterDeploymentReconciler) computeAgentClusterInstall(ctx context.Con
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      clusterDeployment.Name,
 			Namespace: clusterDeployment.Namespace,
-			Labels:    controlPlaneMachineLabelsForCluster(&acp, clusterDeployment.Labels[clusterv1.ClusterNameLabel]),
+			Labels:    util.ControlPlaneMachineLabelsForCluster(&acp, clusterDeployment.Labels[clusterv1.ClusterNameLabel]),
 			OwnerReferences: []metav1.OwnerReference{
 				*metav1.NewControllerRef(&acp, v1alpha1.GroupVersion.WithKind(agentControlPlaneKind)),
 			},

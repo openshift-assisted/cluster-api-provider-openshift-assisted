@@ -246,8 +246,11 @@ func (r *ClusterDeploymentReconciler) computeAgentClusterInstall(ctx context.Con
 				ControlPlaneAgents: int(acp.Spec.Replicas),
 				WorkerAgents:       workerReplicas,
 			},
-			SSHPublicKey: acp.Spec.AgentConfigSpec.SSHAuthorizedKey,
-			ImageSetRef:  &hivev1.ClusterImageSetReference{Name: imageSet.Name},
+			DiskEncryption:     acp.Spec.AgentConfigSpec.DiskEncryption,
+			MastersSchedulable: acp.Spec.AgentConfigSpec.MastersSchedulable,
+			Proxy:              acp.Spec.AgentConfigSpec.Proxy,
+			SSHPublicKey:       acp.Spec.AgentConfigSpec.SSHAuthorizedKey,
+			ImageSetRef:        &hivev1.ClusterImageSetReference{Name: imageSet.Name},
 			Networking: hiveext.Networking{
 				ClusterNetwork: clusterNetwork,
 				ServiceNetwork: serviceNetwork,

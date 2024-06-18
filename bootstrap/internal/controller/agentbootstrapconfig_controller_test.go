@@ -357,7 +357,7 @@ func setupControlPlaneAgentBootstrapConfig(ctx context.Context, k8sClient client
 	Expect(k8sClient.Create(ctx, m3Template)).To(Succeed())
 	Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(m3Template), m3Template)).To(Succeed())
 
-	acp := testutils.NewAgentControlPlane(namespace, acpName, m3Template)
+	acp := testutils.NewAgentControlPlaneWithMachineTemplate(namespace, acpName, m3Template)
 	Expect(k8sClient.Create(ctx, acp)).Should(Succeed())
 	Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(acp), acp)).To(Succeed())
 

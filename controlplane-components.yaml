@@ -1028,7 +1028,7 @@ spec:
         - --leader-elect
         command:
         - /manager
-        image: quay.io/edge-infrastructure/openshift-capi-agent-controlplane:latest
+        image: quay.io/rh_ee_rpiccoli/openshift-capi-agent-controlplane:latest
         imagePullPolicy: Always
         livenessProbe:
           httpGet:

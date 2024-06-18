@@ -970,7 +970,7 @@ spec:
         - --leader-elect
         command:
         - /manager
-        image: quay.io/edge-infrastructure/openshift-capi-agent-bootstrap:latest
+        image: quay.io/rh_ee_rpiccoli/openshift-capi-agent-bootstrap:latest
         imagePullPolicy: Always
         livenessProbe:
           httpGet:

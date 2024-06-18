@@ -37,8 +37,12 @@ func NewClusterDeployment(namespace, name string) *hivev1.ClusterDeployment {
 			BaseDomain:  "example.com",
 		},
 	}
+
+	cd.Kind = "ClusterDeployment"
+	cd.APIVersion = hivev1.SchemeGroupVersion.String()
 	return cd
 }
+
 func NewClusterDeploymentWithOwnerCluster(namespace, name, ownerCluster string) *hivev1.ClusterDeployment {
 	cd := NewClusterDeployment(namespace, name)
 	cd.Labels = map[string]string{
@@ -126,8 +130,7 @@ func NewM3MachineTemplateWithImage(namespace, name, url, diskFormat string) *met
 	return m3Template
 }
 
-func NewAgentControlPlane(namespace, name string, m3Template *metal3.Metal3MachineTemplate) *controlplanev1alpha1.AgentControlPlane {
-
+func NewAgentControlPlane(namespace, name string) *controlplanev1alpha1.AgentControlPlane {
 	return &controlplanev1alpha1.AgentControlPlane{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "AgentControlPlane",
@@ -137,18 +140,19 @@ func NewAgentControlPlane(namespace, name string, m3Template *metal3.Metal3Machi
 			Name:      name,
 			Namespace: namespace,
 		},
-		Spec: controlplanev1alpha1.AgentControlPlaneSpec{
-			MachineTemplate: controlplanev1alpha1.AgentControlPlaneMachineTemplate{
-				InfrastructureRef: corev1.ObjectReference{
-					Kind:       m3Template.Kind,
-					Namespace:  m3Template.Namespace,
-					Name:       m3Template.Name,
-					UID:        m3Template.UID,
-					APIVersion: m3Template.APIVersion,
-				},
-			},
-		},
 	}
+}
+
+func NewAgentControlPlaneWithMachineTemplate(namespace, name string, m3Template *metal3.Metal3MachineTemplate) *controlplanev1alpha1.AgentControlPlane {
+	acp := NewAgentControlPlane(namespace, name)
+	acp.Spec.MachineTemplate.InfrastructureRef = corev1.ObjectReference{
+		Kind:       m3Template.Kind,
+		Namespace:  m3Template.Namespace,
+		Name:       m3Template.Name,
+		UID:        m3Template.UID,
+		APIVersion: m3Template.APIVersion,
+	}
+	return acp
 }
 
 func NewMetal3Machine(namespace, name string) *metal3.Metal3Machine {

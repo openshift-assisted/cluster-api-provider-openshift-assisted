@@ -21,34 +21,32 @@ import (
 	"time"
 
 	"github.com/openshift-assisted/cluster-api-agent/assistedinstaller"
-	"github.com/openshift-assisted/cluster-api-agent/util"
-	kerrors "k8s.io/apimachinery/pkg/util/errors"
-	"k8s.io/client-go/tools/reference"
-	"sigs.k8s.io/cluster-api/util/patch"
-
 	bootstrapv1alpha1 "github.com/openshift-assisted/cluster-api-agent/bootstrap/api/v1alpha1"
+	controlplanev1alpha1 "github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1alpha1"
+	"github.com/openshift-assisted/cluster-api-agent/util"
 	logutil "github.com/openshift-assisted/cluster-api-agent/util/log"
-	"sigs.k8s.io/cluster-api/controllers/external"
-	"sigs.k8s.io/cluster-api/util/conditions"
+	hivev1 "github.com/openshift/hive/apis/hive/v1"
 
 	"github.com/pkg/errors"
+
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apiserver/pkg/storage/names"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
-	"sigs.k8s.io/cluster-api/util/annotations"
-
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	kerrors "k8s.io/apimachinery/pkg/util/errors"
+	"k8s.io/apiserver/pkg/storage/names"
+	"k8s.io/client-go/tools/reference"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	"sigs.k8s.io/cluster-api/controllers/external"
 	capiutil "sigs.k8s.io/cluster-api/util"
+	"sigs.k8s.io/cluster-api/util/annotations"
 	"sigs.k8s.io/cluster-api/util/collections"
+	"sigs.k8s.io/cluster-api/util/conditions"
+	"sigs.k8s.io/cluster-api/util/patch"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-
-	controlplanev1alpha1 "github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1alpha1"
-	hivev1 "github.com/openshift/hive/apis/hive/v1"
 )
 
 const (
@@ -84,13 +82,6 @@ type AgentControlPlaneReconciler struct {
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
-// TODO(user): Modify the Reconcile function to compare the state specified by
-// the AgentControlPlane object against the actual cluster state, and then
-// perform operations to make the cluster state reflect the state specified by
-// the user.
-//
-// For more details, check Reconcile and its Result here:
-// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.17.2/pkg/reconcile
 func (r *AgentControlPlaneReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Result, rerr error) {
 	log := ctrl.LoggerFrom(ctx)
 
@@ -153,45 +144,15 @@ func (r *AgentControlPlaneReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	}
 
 	if err := r.ensurePullSecret(ctx, acp); err != nil {
+		log.Error(err, "failed to ensure a pull secret exists")
 		return ctrl.Result{}, err
 	}
 
-	// create clusterdeployment if not set
-	if acp.Status.ClusterDeploymentRef == nil {
-		log.V(logutil.TraceLevel).Info("Creating clusterdeployment")
-		clusterDeployment := assistedinstaller.GetClusterDeploymentFromConfig(acp, cluster.Name)
-		if err := r.Create(ctx, clusterDeployment); err != nil && !apierrors.IsAlreadyExists(err) {
-			log.Error(
-				err,
-				"couldn't create clusterDeployment",
-				"name", clusterDeployment.Name,
-				"namespace", clusterDeployment.Namespace,
-			)
-			return ctrl.Result{}, err
-		}
-
-		if clusterDeployment != nil {
-			ref, err := reference.GetReference(r.Scheme, clusterDeployment)
-			if err != nil {
-				log.Error(err, "could not create reference to clusterDeployment")
-				return
-			}
-			acp.Status.ClusterDeploymentRef = ref
-			return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 20}, nil
-		}
-	}
-	// Retrieve clusterdeployment
-	cd := &hivev1.ClusterDeployment{}
-	if err := r.Client.Get(ctx, types.NamespacedName{Namespace: acp.Status.ClusterDeploymentRef.Namespace, Name: acp.Status.ClusterDeploymentRef.Name}, cd); err != nil {
-		if apierrors.IsNotFound(err) {
-			// Cluster deployment no longer exists, unset reference and re-reconcile
-			acp.Status.ClusterDeploymentRef = nil
-			log.Info("Clusterdeployment doesn't exist, unset reference and reconcile again")
-			return ctrl.Result{Requeue: true, RequeueAfter: 10 * time.Second}, nil
-		}
+	if err := r.ensureClusterDeployment(ctx, acp); err != nil {
+		log.Error(err, "failed to ensure a ClusterDeployment exists")
+		return ctrl.Result{}, err
 	}
 
-	// Retrieve actually labeled machines instead
 	machines, err := collections.GetFilteredMachinesForCluster(ctx, r.Client, cluster, collections.OwnedMachines(acp))
 	if err != nil {
 		log.Error(err, "couldn't get machines for AgentControlPlane", "name", acp.Name, "namespace", acp.Namespace)
@@ -214,9 +175,8 @@ func (r *AgentControlPlaneReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	if machinesToCreate > 0 {
 		for i := 0; i < int(machinesToCreate); i++ {
 			bootstrapSpec := acp.Spec.AgentBootstrapConfigSpec.DeepCopy()
-			bootstrapSpec.PullSecretRef = acp.Spec.AgentBootstrapConfigSpec.PullSecretRef.DeepCopy()
 			if err := r.cloneConfigsAndGenerateMachine(ctx, cluster, acp, bootstrapSpec); err != nil {
-				log.Info("Error cloning configs", "err", err)
+				log.Error(err, "failed cloning Machines and AgentBootstrapConfigs")
 			}
 		}
 	}
@@ -266,7 +226,6 @@ func (r *AgentControlPlaneReconciler) computeDesiredMachine(acp *controlplanev1a
 	var version *string
 	annotations := map[string]string{
 		"bmac.agent-install.openshift.io/role": "master",
-		"foo":                                  "bar",
 	}
 
 	// Creating a new machine
@@ -340,18 +299,45 @@ func (r *AgentControlPlaneReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
+func (r *AgentControlPlaneReconciler) ensureClusterDeployment(ctx context.Context, acp *controlplanev1alpha1.AgentControlPlane) error {
+	if acp.Status.ClusterDeploymentRef == nil {
+		clusterDeployment := assistedinstaller.GetClusterDeploymentFromConfig(acp, acp.Spec.AgentConfigSpec.ClusterName)
+		if err := r.Create(ctx, clusterDeployment); err != nil && !apierrors.IsAlreadyExists(err) {
+			return err
+		}
+		ref, err := reference.GetReference(r.Scheme, clusterDeployment)
+		if err != nil {
+			return err
+		}
+		acp.Status.ClusterDeploymentRef = ref
+		return nil
+	}
+
+	// Retrieve clusterdeployment
+	cd := &hivev1.ClusterDeployment{}
+	if err := r.Client.Get(ctx, types.NamespacedName{Namespace: acp.Status.ClusterDeploymentRef.Namespace, Name: acp.Status.ClusterDeploymentRef.Name}, cd); err != nil {
+		if apierrors.IsNotFound(err) {
+			// Cluster deployment no longer exists, unset reference and re-reconcile
+			acp.Status.ClusterDeploymentRef = nil
+			return nil
+		}
+		return err
+	}
+	return nil
+}
+
 func (r *AgentControlPlaneReconciler) cloneConfigsAndGenerateMachine(ctx context.Context, cluster *clusterv1.Cluster, acp *controlplanev1alpha1.AgentControlPlane, bootstrapSpec *bootstrapv1alpha1.AgentBootstrapConfigSpec) error {
 	var errs []error
 
 	log := ctrl.LoggerFrom(ctx)
-	log.Info("Computing desired machines for cluster", "cluster", cluster.Name)
-	log.Info("Bootstrap spec", "pull secret ref", bootstrapSpec.PullSecretRef)
+
 	// Compute desired Machine
 	machine, err := r.computeDesiredMachine(acp, cluster)
 	if err != nil {
 		return errors.Wrap(err, "failed to create Machine: failed to compute desired Machine")
 	}
 
+	controllerutil.SetOwnerReference(acp, machine, r.Scheme)
 	// Since the cloned resource should eventually have a controller ref for the Machine, we create an
 	// OwnerReference here without the Controller field set
 	infraCloneOwner := &metav1.OwnerReference{
@@ -379,16 +365,14 @@ func (r *AgentControlPlaneReconciler) cloneConfigsAndGenerateMachine(ctx context
 		return errors.Wrap(err, "failed to clone infrastructure template")
 	}
 	machine.Spec.InfrastructureRef = *infraRef
-	log.Info("Generating control plane bootstrap config for cluster", "cluster", cluster.Name)
 	// Clone the bootstrap configuration
 	bootstrapRef, err := r.generateAgentBootstrapConfig(ctx, acp, cluster, bootstrapSpec, machine.Name)
 	if err != nil {
-		log.Info("Error generating control plane bootstrap config", "err", err)
+		log.Error(err, "failed generating control plane bootstrap config")
 		conditions.MarkFalse(acp, controlplanev1alpha1.MachinesCreatedCondition, controlplanev1alpha1.BootstrapTemplateCloningFailedReason,
 			clusterv1.ConditionSeverityError, err.Error())
 		errs = append(errs, errors.Wrap(err, "failed to generate bootstrap config"))
 	}
-	log.Info("Checking errors", "cluster", cluster.Name, "errors", len(errs))
 	// Only proceed to generating the Machine if we haven't encountered an error
 	if len(errs) == 0 {
 		machine.Spec.Bootstrap.ConfigRef = bootstrapRef

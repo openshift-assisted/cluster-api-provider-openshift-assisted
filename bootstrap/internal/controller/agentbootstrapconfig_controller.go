@@ -66,36 +66,20 @@ type AgentBootstrapConfigReconciler struct {
 	Scheme *runtime.Scheme
 }
 
-// +kubebuilder:rbac:groups=extensions.hive.openshift.io,resources=agentclusterinstalls,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=extensions.hive.openshift.io,resources=agentclusterinstalls/status,verbs=get
-// +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=metal3machines,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=agent-install.openshift.io,resources=agents,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=agent-install.openshift.io,resources=agents/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=hive.openshift.io,resources=clusterdeployments,verbs=get;list;watch
-// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machines;machines/status,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=metal3machines;metal3machines/status,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=metal3machinetemplates;metal3machinetemplates/status,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=bootstrap.cluster.x-k8s.io,resources=agentbootstrapconfigs,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=bootstrap.cluster.x-k8s.io,resources=agentbootstrapconfigs/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=bootstrap.cluster.x-k8s.io,resources=agentbootstrapconfigs/finalizers,verbs=update
-// +kubebuilder:rbac:groups=agent-install.openshift.io,resources=infraenvs,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=agent-install.openshift.io,resources=infraenvs/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=agent-install.openshift.io,resources=agents,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=agent-install.openshift.io,resources=agents/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=metal3.io,resources=baremetalhosts,verbs=get;list;watch;update;patch
-// +kubebuilder:rbac:groups=controlplane.cluster.x-k8s.io,resources=agentcontrolplanes,verbs=get;list;watch;
-// +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machinedeployments;machinedeployments/status,verbs=get;list;watch;
+// +kubebuilder:rbac:groups=agent-install.openshift.io,resources=agents,verbs=delete
+// +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=metal3machines;metal3machinetemplates,verbs=get;update
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;create
+// +kubebuilder:rbac:groups=hive.openshift.io,resources=clusterdeployments,verbs=list;watch
+// +kubebuilder:rbac:groups=extensions.hive.openshift.io,resources=agentclusterinstalls;agentclusterinstalls/status,verbs=get;list
+// +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machines,verbs=get;watch
+// +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusters,verbs=get;list;watch
+// +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machinedeployments;machinedeployments/status,verbs=get
+// +kubebuilder:rbac:groups=controlplane.cluster.x-k8s.io,resources=agentcontrolplanes,verbs=get
 
-// Reconcile is part of the main kubernetes reconciliation loop which aims to
-// move the current state of the cluster closer to the desired state.
-// TODO(user): Modify the Reconcile function to compare the state specified by
-// the AgentBootstrapConfigSpec object against the actual cluster state, and then
-// perform operations to make the cluster state reflect the state specified by
-// the user.
-//
-// For more details, check Reconcile and its Result here:
-// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.17.2/pkg/reconcile
+// Reconciles AgentBootstrapConfig
 func (r *AgentBootstrapConfigReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Result, rerr error) {
 	log := ctrl.LoggerFrom(ctx)
 
@@ -117,7 +101,7 @@ func (r *AgentBootstrapConfigReconciler) Reconcile(ctx context.Context, req ctrl
 		return ctrl.Result{}, err
 	}
 
-	// Attempt to Patch the KubeadmConfig object and status after each reconciliation if no error occurs.
+	// Attempt to Patch the AgentBootstrapConfig object and status after each reconciliation if no error occurs.
 	defer func() {
 		// always update the readyCondition; the summary is represented using the "1 of x completed" notation.
 		conditions.SetSummary(config,
@@ -125,6 +109,7 @@ func (r *AgentBootstrapConfigReconciler) Reconcile(ctx context.Context, req ctrl
 				bootstrapv1alpha1.DataSecretAvailableCondition,
 			),
 		)
+
 		// Patch ObservedGeneration only if the reconciliation completed successfully
 		patchOpts := []patch.Option{}
 		if rerr == nil {
@@ -159,11 +144,28 @@ func (r *AgentBootstrapConfigReconciler) Reconcile(ctx context.Context, req ctrl
 	if !controllerutil.ContainsFinalizer(config, agentBootstrapConfigFinalizer) {
 		controllerutil.AddFinalizer(config, agentBootstrapConfigFinalizer)
 	}
-	clusterName, ok := config.Labels[clusterv1.ClusterNameLabel]
-	if !ok {
-		return ctrl.Result{}, fmt.Errorf("cluster name label not found in config")
+
+	cluster, err := capiutil.GetClusterByName(ctx, r.Client, configOwner.GetNamespace(), configOwner.ClusterName())
+	if err != nil {
+		if errors.Cause(err) == capiutil.ErrNoCluster {
+			log.V(logutil.TraceLevel).Info(fmt.Sprintf("%s does not belong to a cluster yet, waiting until it's part of a cluster", configOwner.GetKind()))
+			return ctrl.Result{}, nil
+		}
+
+		if apierrors.IsNotFound(err) {
+			log.V(logutil.TraceLevel).Info("Cluster does not exist yet, waiting until it is created")
+			return ctrl.Result{}, nil
+		}
+		log.Error(err, "Could not get cluster with metadata")
+		return ctrl.Result{}, err
 	}
 
+	if !cluster.Status.InfrastructureReady {
+		log.V(logutil.TraceLevel).Info("Cluster infrastructure is not read, waiting")
+		conditions.MarkFalse(config, bootstrapv1alpha1.DataSecretAvailableCondition, bootstrapv1alpha1.WaitingForClusterInfrastructureReason, clusterv1.ConditionSeverityInfo, "")
+
+		return ctrl.Result{}, nil
+	}
 	// Get the Machine that owns this agentbootstrapconfig
 	machine, err := capiutil.GetOwnerMachine(ctx, r.Client, config.ObjectMeta)
 	if err != nil {
@@ -171,45 +173,53 @@ func (r *AgentBootstrapConfigReconciler) Reconcile(ctx context.Context, req ctrl
 		return ctrl.Result{}, err
 	}
 
-	clusterDeployment, err := r.getClusterDeployment(ctx, clusterName)
+	clusterDeployment, err := r.getClusterDeployment(ctx, cluster.GetName())
 	if err != nil {
-		log.V(logutil.InfoLevel).Info("could not retrieve ClusterDeployment... requeuing")
+		log.V(logutil.InfoLevel).Info("could not retrieve ClusterDeployment... requeuing", "cluster", cluster.GetName())
+		conditions.MarkFalse(config, bootstrapv1alpha1.DataSecretAvailableCondition, bootstrapv1alpha1.WaitingForAssistedInstallerReason, clusterv1.ConditionSeverityInfo, "")
 		return ctrl.Result{Requeue: true}, nil
 	}
 
 	aci, err := r.getAgentClusterInstall(ctx, clusterDeployment)
 	if err != nil {
 		log.V(logutil.InfoLevel).Info("could not retrieve AgentClusterInstall... requeuing")
+		conditions.MarkFalse(config, bootstrapv1alpha1.DataSecretAvailableCondition, bootstrapv1alpha1.WaitingForAssistedInstallerReason, clusterv1.ConditionSeverityInfo, "")
 		return ctrl.Result{Requeue: true}, nil
 	}
 
 	// if added worker after start install, will be treated as day2
 	if !capiutil.IsControlPlaneMachine(machine) && !(aci.Status.DebugInfo.State == aimodels.ClusterStatusAddingHosts || aci.Status.DebugInfo.State == aimodels.ClusterStatusPendingForInput || aci.Status.DebugInfo.State == aimodels.ClusterStatusInsufficient || aci.Status.DebugInfo.State == "") {
 		log.V(logutil.DebugLevel).Info("not controlplane machine and installation already started, requeuing")
-
+		conditions.MarkFalse(config, bootstrapv1alpha1.DataSecretAvailableCondition, bootstrapv1alpha1.WaitingForInstallCompleteReason, clusterv1.ConditionSeverityInfo, "")
 		return ctrl.Result{Requeue: true, RequeueAfter: 60 * time.Second}, nil
 	}
 
 	if err := r.ensureInfraEnv(ctx, config, clusterDeployment); err != nil {
+		conditions.MarkFalse(config, bootstrapv1alpha1.DataSecretAvailableCondition, bootstrapv1alpha1.InfraEnvFailedReason, clusterv1.ConditionSeverityWarning, "")
 		return ctrl.Result{}, err
 	}
 
 	if config.Status.ISODownloadURL == "" {
+		conditions.MarkFalse(config, bootstrapv1alpha1.DataSecretAvailableCondition, bootstrapv1alpha1.WaitingForLiveISOURLReason, clusterv1.ConditionSeverityInfo, "")
 		return ctrl.Result{}, nil
 	}
 
 	if err := r.setMetal3MachineTemplateImage(ctx, config, machine); err != nil {
+		conditions.MarkFalse(config, bootstrapv1alpha1.DataSecretAvailableCondition, bootstrapv1alpha1.PropagatingLiveISOURLFailedReason, clusterv1.ConditionSeverityWarning, "")
 		return ctrl.Result{}, err
 	}
 
 	// if a metal3 machine booted before the template was updated, then we need to update it
 	if err := r.setMetal3MachineImage(ctx, config, machine); err != nil {
+		conditions.MarkFalse(config, bootstrapv1alpha1.DataSecretAvailableCondition, bootstrapv1alpha1.PropagatingLiveISOURLFailedReason, clusterv1.ConditionSeverityWarning, "")
 		return ctrl.Result{}, err
 	}
 
+	log.Info("debug", "ns", config.Namespace)
 	secret, err := r.createUserDataSecret(ctx, config)
 	if err != nil {
 		log.Error(err, "couldn't create user data secret", "name", config.Name)
+		conditions.MarkFalse(config, bootstrapv1alpha1.DataSecretAvailableCondition, bootstrapv1alpha1.CreatingSecretFailedReason, clusterv1.ConditionSeverityWarning, "")
 		return ctrl.Result{}, err
 	}
 
@@ -219,6 +229,7 @@ func (r *AgentBootstrapConfigReconciler) Reconcile(ctx context.Context, req ctrl
 	return ctrl.Result{}, rerr
 }
 
+// Ensures InfraEnv exists
 func (r *AgentBootstrapConfigReconciler) ensureInfraEnv(ctx context.Context, config *bootstrapv1alpha1.AgentBootstrapConfig, clusterDeployment *hivev1.ClusterDeployment) error {
 	log := ctrl.LoggerFrom(ctx)
 	infraEnvName, err := getInfraEnvName(config)
@@ -253,6 +264,7 @@ func (r *AgentBootstrapConfigReconciler) ensureInfraEnv(ctx context.Context, con
 	return nil
 }
 
+// Retrieve AgentClusterInstall by ClusterDeployment.Spec.ClusterInstallRef
 func (r *AgentBootstrapConfigReconciler) getAgentClusterInstall(ctx context.Context, clusterDeployment *hivev1.ClusterDeployment) (*v1beta1.AgentClusterInstall, error) {
 	if clusterDeployment.Spec.ClusterInstallRef == nil {
 		return nil, fmt.Errorf("cluster deployment does not reference ACI")
@@ -268,6 +280,7 @@ func (r *AgentBootstrapConfigReconciler) getAgentClusterInstall(ctx context.Cont
 	return &aci, nil
 }
 
+// Retrieve ClusterDeployment by cluster name label
 func (r *AgentBootstrapConfigReconciler) getClusterDeployment(ctx context.Context, clusterName string) (*hivev1.ClusterDeployment, error) {
 	clusterDeployments := hivev1.ClusterDeploymentList{}
 	if err := r.Client.List(ctx, &clusterDeployments, client.MatchingLabels{clusterv1.ClusterNameLabel: clusterName}); err != nil {
@@ -281,6 +294,7 @@ func (r *AgentBootstrapConfigReconciler) getClusterDeployment(ctx context.Contex
 	return &clusterDeployment, nil
 }
 
+// Creates UserData secret
 func (r *AgentBootstrapConfigReconciler) createUserDataSecret(ctx context.Context, config *bootstrapv1alpha1.AgentBootstrapConfig) (*corev1.Secret, error) {
 	secret := &corev1.Secret{}
 	if err := r.Client.Get(ctx, client.ObjectKey{Namespace: config.Namespace, Name: config.Name}, secret); err != nil {
@@ -289,6 +303,9 @@ func (r *AgentBootstrapConfigReconciler) createUserDataSecret(ctx context.Contex
 		}
 		secret.Name = config.Name
 		secret.Namespace = config.Namespace
+		if err := controllerutil.SetOwnerReference(config, secret, r.Scheme); err != nil {
+			return nil, err
+		}
 
 		if err := r.Client.Create(ctx, secret); err != nil {
 			return nil, err
@@ -297,6 +314,7 @@ func (r *AgentBootstrapConfigReconciler) createUserDataSecret(ctx context.Contex
 	return secret, nil
 }
 
+// Overrides image reference by setting the LiveISO present on the AgentBootstrapConfig.Status.ISODownloadURL
 func (r *AgentBootstrapConfigReconciler) setMetal3MachineImage(ctx context.Context, config *bootstrapv1alpha1.AgentBootstrapConfig, machine *clusterv1.Machine) error {
 	log := ctrl.LoggerFrom(ctx)
 	m3MachineKey := types.NamespacedName{Name: machine.Spec.InfrastructureRef.Name, Namespace: machine.Spec.InfrastructureRef.Namespace}
@@ -328,6 +346,7 @@ func (r *AgentBootstrapConfigReconciler) setMetal3MachineImage(ctx context.Conte
 	return nil
 }
 
+// Retrieves InfrastructureRefKey
 func (r *AgentBootstrapConfigReconciler) getInfrastructureRefKey(ctx context.Context, machine *clusterv1.Machine) (types.NamespacedName, error) {
 	acp := controlplanev1alpha1.AgentControlPlane{}
 	err := util.GetTypedOwner(ctx, r.Client, machine, &acp)
@@ -348,6 +367,7 @@ func (r *AgentBootstrapConfigReconciler) getInfrastructureRefKey(ctx context.Con
 	}, nil
 }
 
+// Overrides image reference by setting the LiveISO present on the AgentBootstrapConfig.Status.ISODownloadURL
 func (r *AgentBootstrapConfigReconciler) setMetal3MachineTemplateImage(ctx context.Context, config *bootstrapv1alpha1.AgentBootstrapConfig, machine *clusterv1.Machine) error {
 	log := ctrl.LoggerFrom(ctx)
 	tplKey, err := r.getInfrastructureRefKey(ctx, machine)
@@ -374,6 +394,7 @@ func (r *AgentBootstrapConfigReconciler) setMetal3MachineTemplateImage(ctx conte
 	return nil
 }
 
+// Deletes child resources (Agent) and removes finalizer
 func (r *AgentBootstrapConfigReconciler) handleDeletion(ctx context.Context, config *bootstrapv1alpha1.AgentBootstrapConfig, owner *bsutil.ConfigOwner) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
 	log.WithValues("name", config.Name, "namespace", config.Namespace)
@@ -399,6 +420,7 @@ func (r *AgentBootstrapConfigReconciler) handleDeletion(ctx context.Context, con
 	return ctrl.Result{}, nil
 }
 
+// Generate InfraEnvName
 func getInfraEnvName(config *bootstrapv1alpha1.AgentBootstrapConfig) (string, error) {
 	// this should be based on Infra template instead
 	nameFormat := "%s-%s"

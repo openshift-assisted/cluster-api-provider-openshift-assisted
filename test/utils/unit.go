@@ -98,6 +98,9 @@ func NewMachine(namespace, name, clusterName string) *clusterv1.Machine {
 				clusterv1.ClusterNameLabel: clusterName,
 			},
 		},
+		Spec: clusterv1.MachineSpec{
+			ClusterName: clusterName,
+		},
 	}
 	return machine
 }

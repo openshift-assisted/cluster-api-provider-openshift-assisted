@@ -148,7 +148,7 @@ func (r *AgentControlPlaneReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		return ctrl.Result{}, err
 	}
 
-	if err := r.ensureClusterDeployment(ctx, acp); err != nil {
+	if err := r.ensureClusterDeployment(ctx, acp, cluster.Name); err != nil {
 		log.Error(err, "failed to ensure a ClusterDeployment exists")
 		return ctrl.Result{}, err
 	}
@@ -299,9 +299,9 @@ func (r *AgentControlPlaneReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-func (r *AgentControlPlaneReconciler) ensureClusterDeployment(ctx context.Context, acp *controlplanev1alpha1.AgentControlPlane) error {
+func (r *AgentControlPlaneReconciler) ensureClusterDeployment(ctx context.Context, acp *controlplanev1alpha1.AgentControlPlane, clusterName string) error {
 	if acp.Status.ClusterDeploymentRef == nil {
-		clusterDeployment := assistedinstaller.GetClusterDeploymentFromConfig(acp, acp.Spec.AgentConfigSpec.ClusterName)
+		clusterDeployment := assistedinstaller.GetClusterDeploymentFromConfig(acp, clusterName)
 		if err := r.Create(ctx, clusterDeployment); err != nil && !apierrors.IsAlreadyExists(err) {
 			return err
 		}

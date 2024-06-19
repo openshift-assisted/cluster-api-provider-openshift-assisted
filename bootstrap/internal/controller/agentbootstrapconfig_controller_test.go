@@ -154,43 +154,22 @@ var _ = Describe("AgentBootstrapConfigSpec Controller", func() {
 				Expect(condition).To(BeNil())
 			})
 		})
-		When("AgentBootstrapConfig has no cluster label", func() {
-			It("should error when AgentBootstrapConfig has no cluster label", func() {
-				abc := setupControlPlaneAgentBootstrapConfig(ctx, k8sClient)
-				mockControlPlaneInitialization(ctx, k8sClient)
-				// remove cluster label
-				delete(abc.Labels, clusterv1.ClusterNameLabel)
-				Expect(k8sClient.Update(ctx, abc)).To(Succeed())
-
-				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-					NamespacedName: client.ObjectKeyFromObject(abc),
-				})
-				Expect(err).To(HaveOccurred())
-				Expect(err.Error()).To(Equal("cluster name label not found in config"))
-
-				// This config has no relevant owner, should exit before setting conditions
-				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(abc), abc)).To(Succeed())
-				condition := conditions.Get(abc,
-					bootstrapv1alpha1.DataSecretAvailableCondition,
-				)
-				Expect(condition).To(BeNil())
-			})
-		})
 		When("ClusterDeployment and AgentClusterInstall are not created yet", func() {
-			It("should requeue the request without errors", func() {
+			It("should wait with no error", func() {
 				// Given
 				abc := setupControlPlaneAgentBootstrapConfig(ctx, k8sClient)
 				// and AgentControlPlane provider did not create CD and ACI
 
-				result, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
 					NamespacedName: client.ObjectKeyFromObject(abc),
 				})
 				Expect(err).NotTo(HaveOccurred())
-				Expect(result.Requeue).To(BeTrue())
 				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(abc), abc)).To(Succeed())
-				Expect(conditions.Get(abc,
+				dataSecretReadyCondition := conditions.Get(abc,
 					bootstrapv1alpha1.DataSecretAvailableCondition,
-				)).To(BeNil())
+				)
+				Expect(dataSecretReadyCondition).NotTo(BeNil())
+				Expect(dataSecretReadyCondition.Reason).To(Equal(bootstrapv1alpha1.WaitingForAssistedInstallerReason))
 			})
 		})
 		When("ClusterDeployment is created but AgentClusterInstall is not", func() {
@@ -206,9 +185,11 @@ var _ = Describe("AgentBootstrapConfigSpec Controller", func() {
 				Expect(err).NotTo(HaveOccurred())
 				Expect(result.Requeue).To(BeTrue())
 				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(abc), abc)).To(Succeed())
-				Expect(conditions.Get(abc,
+				dataSecretReadyCondition := conditions.Get(abc,
 					bootstrapv1alpha1.DataSecretAvailableCondition,
-				)).To(BeNil())
+				)
+				Expect(dataSecretReadyCondition).NotTo(BeNil())
+				Expect(dataSecretReadyCondition.Reason).To(Equal(bootstrapv1alpha1.WaitingForAssistedInstallerReason))
 			})
 		})
 		When("ClusterDeployment and AgentClusterInstall are already created", func() {
@@ -221,9 +202,11 @@ var _ = Describe("AgentBootstrapConfigSpec Controller", func() {
 				})
 				Expect(err).NotTo(HaveOccurred())
 				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(abc), abc)).To(Succeed())
-				Expect(conditions.Get(abc,
+				dataSecretReadyCondition := conditions.Get(abc,
 					bootstrapv1alpha1.DataSecretAvailableCondition,
-				)).To(BeNil())
+				)
+				Expect(dataSecretReadyCondition).NotTo(BeNil())
+				Expect(dataSecretReadyCondition.Reason).To(Equal(bootstrapv1alpha1.WaitingForLiveISOURLReason))
 
 				assertInfraEnvWithEmptyISOURL(ctx, k8sClient, abc)
 			})
@@ -265,10 +248,13 @@ var _ = Describe("AgentBootstrapConfigSpec Controller", func() {
 					NamespacedName: client.ObjectKeyFromObject(abc),
 				})
 				Expect(err).NotTo(HaveOccurred())
+
 				assertISOURLOnM3Template(ctx, k8sClient, expectedISODownloadURL, expectedDiskFormat)
 				assertISOURLOnM3Machine(ctx, k8sClient, expectedISODownloadURL, expectedDiskFormat)
+
 				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(abc), abc)).To(Succeed())
 				assertBootstrapReady(abc)
+
 			})
 		})
 	})

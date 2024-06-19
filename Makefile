@@ -52,11 +52,13 @@ help: ## Display this help.
 
 .PHONY: manifests
 manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
-	cd $(PROVIDER) && $(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="./..." output:crd:artifacts:config=./config/crd/bases
+	cd bootstrap && $(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="./..." output:crd:artifacts:config=./config/crd/bases
+	cd controlplane && $(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="./..." output:crd:artifacts:config=./config/crd/bases
 
 .PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
-	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./$(PROVIDER)/..."
+	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./bootstrap/..."
+	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./controlplane/..."
 
 .PHONY: fmt
 fmt: ## Run go fmt against code.
@@ -138,13 +140,13 @@ docker-buildx: ## Build and push docker image for the manager for cross-platform
 	- $(CONTAINER_TOOL) buildx rm project-v3-builder
 	rm Dockerfile.cross
 
-.PHONY: build-installer-all
-build-installer-all:
-	$(MAKE) build-installer PROVIDER=bootstrap
-	$(MAKE) build-installer PROVIDER=controlplane
-
 .PHONY: build-installer
-build-installer: manifests generate kustomize ## Generate a consolidated YAML with CRDs and deployment.
+build-installer:
+	$(MAKE) build-installer-provider PROVIDER=bootstrap
+	$(MAKE) build-installer-provider PROVIDER=controlplane
+
+.PHONY: build-installer-provider
+build-installer-provider:: manifests generate kustomize ## Generate a consolidated YAML with CRDs and deployment.
 	mkdir -p dist
 	cd $(PROVIDER)/config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
 	$(KUSTOMIZE) build $(PROVIDER)/config/default > dist/$(PROVIDER)_install.yaml

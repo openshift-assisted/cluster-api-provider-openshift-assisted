@@ -294,6 +294,7 @@ func assertInfraEnvWithEmptyISOURL(ctx context.Context, k8sClient client.Client,
 
 func assertInfraEnvSpecs(infraEnv v1beta1.InfraEnv, abc *bootstrapv1alpha1.AgentBootstrapConfig) {
 	Expect(infraEnv.Name).To(Equal(abc.Status.InfraEnvRef.Name))
+	Expect(infraEnv.Spec.PullSecretRef).To(Equal(abc.Spec.PullSecretRef))
 	Expect(infraEnv.Spec.Proxy).To(Equal(abc.Spec.Proxy))
 	Expect(infraEnv.Spec.AdditionalNTPSources).To(Equal(abc.Spec.AdditionalNTPSources))
 	Expect(infraEnv.Spec.NMStateConfigLabelSelector).To(Equal(abc.Spec.NMStateConfigLabelSelector))
@@ -352,6 +353,7 @@ func setupControlPlaneAgentBootstrapConfig(ctx context.Context, k8sClient client
 	Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(machine), machine)).To(Succeed())
 
 	abc := NewAgentBootstrapConfigWithOwner(namespace, abcName, clusterName, machine)
+	abc.Spec.PullSecretRef = &corev1.LocalObjectReference{Name: "my-pullsecret"}
 	abc.Spec.Proxy = &v1beta1.Proxy{
 		HTTPProxy:  "http://myproxy.com",
 		HTTPSProxy: "https://myproxy.com",

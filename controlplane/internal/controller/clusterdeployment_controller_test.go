@@ -92,7 +92,7 @@ var _ = Describe("AgentClusterInstall Controller", func() {
 		})
 	})
 
-	When("A cluster deployment with AgentControlPlanes in the same namespace referecing it", func() {
+	When("A cluster deployment with AgentControlPlanes in the same namespace referencing it", func() {
 		It("should not return error", func() {
 			cluster := utils.NewCluster(clusterName, namespace)
 			Expect(k8sClient.Create(ctx, cluster)).To(Succeed())

@@ -84,30 +84,70 @@ var _ = Describe("AgentControlPlane Controller", func() {
 			k8sClient = nil
 		})
 
-		It("should successfully create a cluster deployment when a cluster owns this agent control plane", func() {
-			By("setting the cluster as the owner ref on the agent control plane")
+		When("when a cluster owns this agent control plane", func() {
+			It("should successfully create a cluster deployment", func() {
+				By("setting the cluster as the owner ref on the agent control plane")
 
-			agentControlPlane := getAgentControlPlane()
-			agentControlPlane.SetOwnerReferences([]metav1.OwnerReference{*metav1.NewControllerRef(cluster, clusterv1.GroupVersion.WithKind(clusterv1.ClusterKind))})
-			Expect(k8sClient.Create(ctx, agentControlPlane)).To(Succeed())
+				agentControlPlane := getAgentControlPlane()
+				agentControlPlane.SetOwnerReferences([]metav1.OwnerReference{*metav1.NewControllerRef(cluster, clusterv1.GroupVersion.WithKind(clusterv1.ClusterKind))})
+				Expect(k8sClient.Create(ctx, agentControlPlane)).To(Succeed())
 
-			By("checking if the agent control plane created the cluster deployment after reconcile")
-			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: typeNamespacedName,
+				By("checking if the agent control plane created the cluster deployment after reconcile")
+				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: typeNamespacedName,
+				})
+				Expect(err).NotTo(HaveOccurred())
+				err = k8sClient.Get(ctx, typeNamespacedName, agentControlPlane)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(agentControlPlane.Status.ClusterDeploymentRef).NotTo(BeNil())
+				Expect(agentControlPlane.Status.ClusterDeploymentRef.Name).Should(Equal(agentControlPlane.Name))
+
+				By("checking that the cluster deployment was created")
+				cd := &hivev1.ClusterDeployment{}
+				err = k8sClient.Get(ctx, typeNamespacedName, cd)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(cd).NotTo(BeNil())
+
+				// assert ClusterDeployment properties
+				Expect(cd.Spec.ClusterName).To(Equal(clusterName))
+				Expect(cd.Spec.BaseDomain).To(Equal(agentControlPlane.Spec.AgentConfigSpec.BaseDomain))
+				Expect(cd.Spec.PullSecretRef).To(Equal(agentControlPlane.Spec.AgentConfigSpec.PullSecretRef))
 			})
-			Expect(err).NotTo(HaveOccurred())
-			err = k8sClient.Get(ctx, typeNamespacedName, agentControlPlane)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(agentControlPlane.Status.ClusterDeploymentRef).NotTo(BeNil())
-			Expect(agentControlPlane.Status.ClusterDeploymentRef.Name).Should(Equal(agentControlPlane.Name))
-
-			By("checking that the cluster deployment was created")
-			cd := &hivev1.ClusterDeployment{}
-			err = k8sClient.Get(ctx, typeNamespacedName, cd)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(cd).NotTo(BeNil())
 		})
 
+		When("when a cluster owns this agent control plane", func() {
+			It("should successfully create a cluster deployment and match AgentControlPlane properties", func() {
+				By("setting the cluster as the owner ref on the agent control plane")
+
+				agentControlPlane := getAgentControlPlane()
+				agentControlPlane.Spec.AgentConfigSpec.ClusterName = "my-cluster"
+				agentControlPlane.Spec.AgentConfigSpec.PullSecretRef = &corev1.LocalObjectReference{Name: "my-pullsecret"}
+				agentControlPlane.Spec.AgentConfigSpec.BaseDomain = "example.com"
+				agentControlPlane.SetOwnerReferences([]metav1.OwnerReference{*metav1.NewControllerRef(cluster, clusterv1.GroupVersion.WithKind(clusterv1.ClusterKind))})
+				Expect(k8sClient.Create(ctx, agentControlPlane)).To(Succeed())
+
+				By("checking if the agent control plane created the cluster deployment after reconcile")
+				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: typeNamespacedName,
+				})
+				Expect(err).NotTo(HaveOccurred())
+				err = k8sClient.Get(ctx, typeNamespacedName, agentControlPlane)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(agentControlPlane.Status.ClusterDeploymentRef).NotTo(BeNil())
+				Expect(agentControlPlane.Status.ClusterDeploymentRef.Name).Should(Equal(agentControlPlane.Name))
+
+				By("checking that the cluster deployment was created")
+				cd := &hivev1.ClusterDeployment{}
+				err = k8sClient.Get(ctx, typeNamespacedName, cd)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(cd).NotTo(BeNil())
+
+				// assert ClusterDeployment properties
+				Expect(cd.Spec.ClusterName).To(Equal(agentControlPlane.Spec.AgentConfigSpec.ClusterName))
+				Expect(cd.Spec.BaseDomain).To(Equal(agentControlPlane.Spec.AgentConfigSpec.BaseDomain))
+				Expect(cd.Spec.PullSecretRef).To(Equal(agentControlPlane.Spec.AgentConfigSpec.PullSecretRef))
+			})
+		})
 		It("should add a finalizer to the agent control plane if it's not being deleted", func() {
 			By("setting the owner ref on the agent control plane")
 

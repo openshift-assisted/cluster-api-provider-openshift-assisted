@@ -36,7 +36,6 @@ import (
 	capiutil "sigs.k8s.io/cluster-api/util"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 )
 
@@ -277,23 +276,11 @@ func (r *ClusterDeploymentReconciler) computeAgentClusterInstall(
 	}
 
 	if acp.Spec.AgentConfigSpec.ImageRegistryRef != nil {
-		registryConfigmap := &corev1.ConfigMap{}
-		if err := r.Client.Get(ctx, client.ObjectKey{Name: acp.Spec.AgentConfigSpec.ImageRegistryRef.Name, Namespace: acp.Namespace}, registryConfigmap); err != nil {
-			return nil, err
-		}
-
-		spokeImageRegistryConfigmap, err := imageregistry.CreateImageRegistryConfigmap(registryConfigmap, acp.Namespace)
-		if err != nil {
-			return nil, err
-		}
-
-		_ = controllerutil.SetOwnerReference(&acp, spokeImageRegistryConfigmap, r.Scheme)
-
-		if _, err := ctrl.CreateOrUpdate(ctx, r.Client, spokeImageRegistryConfigmap, func() error { return nil }); err != nil && !apierrors.IsAlreadyExists(err) {
+		if err := r.createImageRegistry(ctx, acp.Spec.AgentConfigSpec.ImageRegistryRef.Name, acp.Namespace); err != nil {
 			log.Error(err, "failed to create image registry config manifest")
 			return nil, err
 		}
-		additionalManifests = append(additionalManifests, hiveext.ManifestsConfigMapReference{Name: spokeImageRegistryConfigmap.Name})
+		additionalManifests = append(additionalManifests, hiveext.ManifestsConfigMapReference{Name: imageregistry.ImageConfigMapName})
 	}
 
 	aci := &hiveext.AgentClusterInstall{
@@ -328,4 +315,21 @@ func (r *ClusterDeploymentReconciler) computeAgentClusterInstall(
 		},
 	}
 	return aci, nil
+}
+
+func (r *ClusterDeploymentReconciler) createImageRegistry(ctx context.Context, registryName, registryNamespace string) error {
+	registryConfigmap := &corev1.ConfigMap{}
+	if err := r.Client.Get(ctx, client.ObjectKey{Name: registryName, Namespace: registryNamespace}, registryConfigmap); err != nil {
+		return err
+	}
+
+	spokeImageRegistryConfigmap, err := imageregistry.GenerateImageRegistryConfigmap(registryConfigmap, registryNamespace)
+	if err != nil {
+		return err
+	}
+
+	if _, err := ctrl.CreateOrUpdate(ctx, r.Client, spokeImageRegistryConfigmap, func() error { return nil }); err != nil && !apierrors.IsAlreadyExists(err) {
+		return err
+	}
+	return nil
 }

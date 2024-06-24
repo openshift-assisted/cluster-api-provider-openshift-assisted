@@ -18,7 +18,7 @@ import (
 
 const (
 	providedCMName = "user-provided-config-map"
-	namespace      = "test-namespace"
+	testNamespace  = "test-namespace"
 	certificate    = "    -----BEGIN CERTIFICATE-----\n    certificate contents\n    -----END CERTIFICATE------"
 	sourceRegistry = "quay.io"
 	mirrorRegistry = "example-user-registry.com"
@@ -42,7 +42,7 @@ var _ = BeforeSuite(func() {
 })
 
 var _ = Describe("ImageRegistry Test", func() {
-	Context("CreateImageRegistryConfigmap", func() {
+	Context("GenerateImageRegistryConfigmap", func() {
 		var (
 			mockCtrl *gomock.Controller
 		)
@@ -57,11 +57,10 @@ var _ = Describe("ImageRegistry Test", func() {
 
 		When("the user-provided image registry ConfigMap contains correct data", func() {
 			It("successfully creates the image registry configmap for the spoke cluster", func() {
-				userRegistryCM := newUserProvidedRegistryCM(getSecureRegistryToml(), certificate)
-				By("Calling the CreateImageRegistryConfigmap function")
-				imageRegistryConfigMap, err := CreateImageRegistryConfigmap(
-					userRegistryCM,
-					namespace,
+				By("Calling the GenerateImageRegistryConfigmap function")
+				imageRegistryConfigMap, err := GenerateImageRegistryConfigmap(
+					newUserProvidedRegistryCM(getSecureRegistryToml(), certificate),
+					testNamespace,
 				)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(imageRegistryConfigMap).NotTo(BeNil())
@@ -88,11 +87,10 @@ var _ = Describe("ImageRegistry Test", func() {
 
 		When("the user-provided image registry ConfigMap contains an insecure registry", func() {
 			It("successfully creates the image registry configmap with the insecure registry", func() {
-				userRegistryCM := newUserProvidedRegistryCM(getInsecureRegistryToml(), certificate)
-				By("Calling the CreateImageRegistryConfigmap function")
-				imageRegistryConfigMap, err := CreateImageRegistryConfigmap(
-					userRegistryCM,
-					namespace,
+				By("Calling the GenerateImageRegistryConfigmap function")
+				imageRegistryConfigMap, err := GenerateImageRegistryConfigmap(
+					newUserProvidedRegistryCM(getInsecureRegistryToml(), certificate),
+					testNamespace,
 				)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(imageRegistryConfigMap).NotTo(BeNil())
@@ -122,10 +120,10 @@ var _ = Describe("ImageRegistry Test", func() {
 			It("successfully creates the image registry configmap that pulls by tag", func() {
 				userRegistryCM := newUserProvidedRegistryCM(getSecureRegistryTagOnlyToml(), certificate)
 
-				By("Calling the CreateImageRegistryConfigmap function")
-				imageRegistryConfigMap, err := CreateImageRegistryConfigmap(
+				By("Calling the GenerateImageRegistryConfigmap function")
+				imageRegistryConfigMap, err := GenerateImageRegistryConfigmap(
 					userRegistryCM,
-					namespace,
+					testNamespace,
 				)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(imageRegistryConfigMap).NotTo(BeNil())
@@ -154,10 +152,10 @@ var _ = Describe("ImageRegistry Test", func() {
 			It("successfully creates the image registry configmap for the spoke cluster", func() {
 				userRegistryCM := newUserProvidedRegistryCM(getSecureRegistryToml(), "")
 
-				By("Calling the CreateImageRegistryConfigmap function")
-				imageRegistryConfigMap, err := CreateImageRegistryConfigmap(
+				By("Calling the GenerateImageRegistryConfigmap function")
+				imageRegistryConfigMap, err := GenerateImageRegistryConfigmap(
 					userRegistryCM,
-					namespace,
+					testNamespace,
 				)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(imageRegistryConfigMap).NotTo(BeNil())
@@ -173,13 +171,24 @@ var _ = Describe("ImageRegistry Test", func() {
 			})
 		})
 
+		When("the user-provided image registry ConfigMap is missing the source in the registries.conf", func() {
+			It("fails to create the image registry configmap", func() {
+				By("Calling the GenerateImageRegistryConfigmap function")
+				imageRegistryConfigMap, err := GenerateImageRegistryConfigmap(
+					newUserProvidedRegistryCM(getRegistryMissingSourceToml(), ""),
+					testNamespace,
+				)
+				Expect(err).To(HaveOccurred())
+				Expect(imageRegistryConfigMap).To(BeNil())
+			})
+		})
+
 		When("the user-provided image registry ConfigMap is missing the mirror in the registries.conf", func() {
 			It("fails to create the image registry configmap", func() {
-				userRegistryCM := newUserProvidedRegistryCM(getRegistryMissingMirrorToml(), certificate)
-				By("Calling the CreateImageRegistryConfigmap function")
-				imageRegistryConfigMap, err := CreateImageRegistryConfigmap(
-					userRegistryCM,
-					namespace,
+				By("Calling the GenerateImageRegistryConfigmap function")
+				imageRegistryConfigMap, err := GenerateImageRegistryConfigmap(
+					newUserProvidedRegistryCM(getRegistryMissingMirrorToml(), certificate),
+					testNamespace,
 				)
 				Expect(err).To(HaveOccurred())
 				Expect(imageRegistryConfigMap).To(BeNil())
@@ -190,10 +199,10 @@ var _ = Describe("ImageRegistry Test", func() {
 			It("fails to create the image registry configmap", func() {
 				userRegistryCM := newUserProvidedRegistryCM(fmt.Sprintf("location=%s", sourceRegistry), certificate)
 
-				By("Calling the CreateImageRegistryConfigmap function")
-				imageRegistryConfigMap, err := CreateImageRegistryConfigmap(
+				By("Calling the GenerateImageRegistryConfigmap function")
+				imageRegistryConfigMap, err := GenerateImageRegistryConfigmap(
 					userRegistryCM,
-					namespace,
+					testNamespace,
 				)
 				Expect(err).To(HaveOccurred())
 				Expect(imageRegistryConfigMap).To(BeNil())
@@ -204,10 +213,10 @@ var _ = Describe("ImageRegistry Test", func() {
 			It("fails to create the image registry configmap", func() {
 				userRegistryCM := newUserProvidedRegistryCM("", certificate)
 
-				By("Calling the CreateImageRegistryConfigmap function")
-				imageRegistryConfigMap, err := CreateImageRegistryConfigmap(
+				By("Calling the GenerateImageRegistryConfigmap function")
+				imageRegistryConfigMap, err := GenerateImageRegistryConfigmap(
 					userRegistryCM,
-					namespace,
+					testNamespace,
 				)
 				Expect(err).To(HaveOccurred())
 				Expect(imageRegistryConfigMap).To(BeNil())
@@ -217,13 +226,14 @@ var _ = Describe("ImageRegistry Test", func() {
 		When("the user-provided image registry ConfigMap has an invalid toml configuration", func() {
 			It("returns parsing error and fails to create configmap", func() {
 				userRegistryCM := newUserProvidedRegistryCM(getInvalidRegistryToml(), certificate)
-				By("Calling the CreateImageRegistryConfigmap function")
-				imageRegistryConfigMap, err := CreateImageRegistryConfigmap(
+				By("Calling the GenerateImageRegistryConfigmap function")
+				imageRegistryConfigMap, err := GenerateImageRegistryConfigmap(
 					userRegistryCM,
-					namespace,
+					testNamespace,
 				)
 				Expect(err).To(HaveOccurred())
-				Expect(err.Error()).To(Equal("(6, 13): cannot have two dots in one float"))
+				Expect(err.Error()).To(Equal(
+					"failed to load value of registries.conf into toml tree; incorrectly formatted toml: (6, 13): cannot have two dots in one float"))
 				Expect(imageRegistryConfigMap).To(BeNil())
 			})
 		})
@@ -281,6 +291,15 @@ location = "%s"
 	)
 }
 
+func getRegistryMissingSourceToml() string {
+	return fmt.Sprintf(`
+[[registry.mirror]]
+location = "%s"
+`,
+		mirrorRegistry,
+	)
+}
+
 func getInvalidRegistryToml() string {
 	// location has no quotes, will be parsed as double
 	return `
@@ -301,6 +320,10 @@ func newUserProvidedRegistryCM(registry, certificate string) *corev1.ConfigMap {
 	if certificate != "" {
 		data[registryCertKey] = certificate
 	}
+	return generateConfigMap(testNamespace, data)
+}
+
+func generateConfigMap(namespace string, data map[string]string) *corev1.ConfigMap {
 	return &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      providedCMName,

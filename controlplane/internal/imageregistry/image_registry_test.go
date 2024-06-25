@@ -16,6 +16,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 )
 
+const (
+	providedCMName = "user-provided-config-map"
+	namespace      = "test-namespace"
+	certificate    = "    -----BEGIN CERTIFICATE-----\n    certificate contents\n    -----END CERTIFICATE------"
+	sourceRegistry = "quay.io"
+	mirrorRegistry = "example-user-registry.com"
+)
+
 func TestControllers(t *testing.T) {
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "ImageRegistry Suite")
@@ -39,14 +47,6 @@ var _ = Describe("ImageRegistry Test", func() {
 			mockCtrl *gomock.Controller
 		)
 
-		const (
-			providedCMName = "user-provided-config-map"
-			namespace      = "test-namespace"
-			certificate    = "    -----BEGIN CERTIFICATE-----\n    certificate contents\n    -----END CERTIFICATE------"
-			sourceRegistry = "quay.io"
-			mirrorRegistry = "example-user-registry.com"
-		)
-
 		BeforeEach(func() {
 			mockCtrl = gomock.NewController(GinkgoT())
 		})
@@ -57,12 +57,7 @@ var _ = Describe("ImageRegistry Test", func() {
 
 		When("the user-provided image registry ConfigMap contains correct data", func() {
 			It("successfully creates the image registry configmap for the spoke cluster", func() {
-				userRegistryCM := generateUserProvidedRegistryCM(
-					providedCMName,
-					namespace,
-					getRegistryToml(sourceRegistry, mirrorRegistry, false, false),
-					certificate,
-				)
+				userRegistryCM := newUserProvidedRegistryCM(getSecureRegistryToml(), certificate)
 				By("Calling the CreateImageRegistryConfigmap function")
 				imageRegistryConfigMap, err := CreateImageRegistryConfigmap(
 					userRegistryCM,
@@ -93,12 +88,7 @@ var _ = Describe("ImageRegistry Test", func() {
 
 		When("the user-provided image registry ConfigMap contains an insecure registry", func() {
 			It("successfully creates the image registry configmap with the insecure registry", func() {
-				userRegistryCM := generateUserProvidedRegistryCM(
-					providedCMName,
-					namespace,
-					getRegistryToml(sourceRegistry, mirrorRegistry, true, false),
-					certificate,
-				)
+				userRegistryCM := newUserProvidedRegistryCM(getInsecureRegistryToml(), certificate)
 				By("Calling the CreateImageRegistryConfigmap function")
 				imageRegistryConfigMap, err := CreateImageRegistryConfigmap(
 					userRegistryCM,
@@ -130,12 +120,7 @@ var _ = Describe("ImageRegistry Test", func() {
 
 		When("the user-provided image registry ConfigMap pulls by tag", func() {
 			It("successfully creates the image registry configmap that pulls by tag", func() {
-				userRegistryCM := generateUserProvidedRegistryCM(
-					providedCMName,
-					namespace,
-					getRegistryToml(sourceRegistry, mirrorRegistry, false, true),
-					certificate,
-				)
+				userRegistryCM := newUserProvidedRegistryCM(getSecureRegistryTagOnlyToml(), certificate)
 
 				By("Calling the CreateImageRegistryConfigmap function")
 				imageRegistryConfigMap, err := CreateImageRegistryConfigmap(
@@ -167,12 +152,7 @@ var _ = Describe("ImageRegistry Test", func() {
 
 		When("the user-provided image registry ConfigMap doesn't have additional certificates", func() {
 			It("successfully creates the image registry configmap for the spoke cluster", func() {
-				userRegistryCM := generateUserProvidedRegistryCM(
-					providedCMName,
-					namespace,
-					getRegistryToml(sourceRegistry, mirrorRegistry, false, false),
-					"",
-				)
+				userRegistryCM := newUserProvidedRegistryCM(getSecureRegistryToml(), "")
 
 				By("Calling the CreateImageRegistryConfigmap function")
 				imageRegistryConfigMap, err := CreateImageRegistryConfigmap(
@@ -195,12 +175,7 @@ var _ = Describe("ImageRegistry Test", func() {
 
 		When("the user-provided image registry ConfigMap is missing the mirror in the registries.conf", func() {
 			It("fails to create the image registry configmap", func() {
-				userRegistryCM := generateUserProvidedRegistryCM(
-					providedCMName,
-					namespace,
-					getRegistryToml(sourceRegistry, "", false, false),
-					certificate,
-				)
+				userRegistryCM := newUserProvidedRegistryCM(getRegistryMissingMirrorToml(), certificate)
 				By("Calling the CreateImageRegistryConfigmap function")
 				imageRegistryConfigMap, err := CreateImageRegistryConfigmap(
 					userRegistryCM,
@@ -213,12 +188,7 @@ var _ = Describe("ImageRegistry Test", func() {
 
 		When("the user-provided image registry ConfigMap registries.conf toml is not well-formatted", func() {
 			It("fails to create the image registry configmap", func() {
-				userRegistryCM := generateUserProvidedRegistryCM(
-					providedCMName,
-					namespace,
-					fmt.Sprintf("location=%s", sourceRegistry),
-					certificate,
-				)
+				userRegistryCM := newUserProvidedRegistryCM(fmt.Sprintf("location=%s", sourceRegistry), certificate)
 
 				By("Calling the CreateImageRegistryConfigmap function")
 				imageRegistryConfigMap, err := CreateImageRegistryConfigmap(
@@ -232,12 +202,7 @@ var _ = Describe("ImageRegistry Test", func() {
 
 		When("the user-provided image registry ConfigMap is missing the registries.conf key", func() {
 			It("fails to create the image registry configmap", func() {
-				userRegistryCM := generateUserProvidedRegistryCM(
-					providedCMName,
-					namespace,
-					"",
-					certificate,
-				)
+				userRegistryCM := newUserProvidedRegistryCM("", certificate)
 
 				By("Calling the CreateImageRegistryConfigmap function")
 				imageRegistryConfigMap, err := CreateImageRegistryConfigmap(
@@ -248,27 +213,87 @@ var _ = Describe("ImageRegistry Test", func() {
 				Expect(imageRegistryConfigMap).To(BeNil())
 			})
 		})
+
+		When("the user-provided image registry ConfigMap has an invalid toml configuration", func() {
+			It("returns parsing error and fails to create configmap", func() {
+				userRegistryCM := newUserProvidedRegistryCM(getInvalidRegistryToml(), certificate)
+				By("Calling the CreateImageRegistryConfigmap function")
+				imageRegistryConfigMap, err := CreateImageRegistryConfigmap(
+					userRegistryCM,
+					namespace,
+				)
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(Equal("(6, 13): cannot have two dots in one float"))
+				Expect(imageRegistryConfigMap).To(BeNil())
+			})
+		})
+
 	})
 })
 
-func getRegistryToml(source, mirror string, insecure, pullByTag bool) string {
-	registryToml := ""
-	if source != "" {
-		registryToml = fmt.Sprintf("[[registry]]\nlocation = \"%s\"", source)
-	}
-	if mirror != "" {
-		registryToml = fmt.Sprintf("%s\n[[registry.mirror]]\nlocation = \"%s\"", registryToml, mirror)
-	}
-	if insecure {
-		registryToml = fmt.Sprintf("%s\ninsecure = true", registryToml)
-	}
-	if pullByTag {
-		registryToml = fmt.Sprintf("%s\npull-from-mirror = \"tag-only\"", registryToml)
-	}
-	return registryToml
+func getSecureRegistryToml() string {
+	return fmt.Sprintf(`
+[[registry]]
+location = "%s"
+
+[[registry.mirror]]
+location = "%s"
+`,
+		sourceRegistry,
+		mirrorRegistry,
+	)
 }
 
-func generateUserProvidedRegistryCM(name, namespace, registry, certificate string) *corev1.ConfigMap {
+func getSecureRegistryTagOnlyToml() string {
+	return fmt.Sprintf(`
+[[registry]]
+location = "%s"
+
+[[registry.mirror]]
+location = "%s"
+pull-from-mirror = "tag-only"
+`,
+		sourceRegistry,
+		mirrorRegistry,
+	)
+}
+
+func getInsecureRegistryToml() string {
+	return fmt.Sprintf(`
+[[registry]]
+location = "%s"
+
+[[registry.mirror]]
+location = "%s"
+insecure = true
+`,
+		sourceRegistry,
+		mirrorRegistry,
+	)
+}
+
+func getRegistryMissingMirrorToml() string {
+	return fmt.Sprintf(`
+[[registry]]
+location = "%s"
+`,
+		sourceRegistry,
+	)
+}
+
+func getInvalidRegistryToml() string {
+	// location has no quotes, will be parsed as double
+	return `
+[[registry]]
+	location = "%s"
+
+	[[registry.mirror]]
+	location = 192.168.1.1:5000
+	insecure = true
+`
+}
+
+func newUserProvidedRegistryCM(registry, certificate string) *corev1.ConfigMap {
 	data := map[string]string{}
 	if registry != "" {
 		data[registryConfKey] = registry
@@ -276,13 +301,9 @@ func generateUserProvidedRegistryCM(name, namespace, registry, certificate strin
 	if certificate != "" {
 		data[registryCertKey] = certificate
 	}
-	return generateConfigMap(name, namespace, data)
-}
-
-func generateConfigMap(name, namespace string, data map[string]string) *corev1.ConfigMap {
 	return &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
+			Name:      providedCMName,
 			Namespace: namespace,
 		},
 		Data: data,

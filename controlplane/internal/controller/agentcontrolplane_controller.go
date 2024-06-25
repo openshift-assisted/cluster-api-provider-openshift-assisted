@@ -154,7 +154,7 @@ func (r *AgentControlPlaneReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		return ctrl.Result{}, err
 	}
 
-	return r.reconcileReplicas(ctx, acp, cluster)
+	return ctrl.Result{}, r.reconcileReplicas(ctx, acp, cluster)
 }
 
 // Ensures dependencies are deleted before allowing the AgentControlPlane to be deleted
@@ -228,7 +228,7 @@ func (r *AgentControlPlaneReconciler) computeDesiredMachine(acp *controlplanev1a
 	}
 
 	// Note: by setting the ownerRef on creation we signal to the Machine controller that this is not a stand-alone Machine.
-	controllerutil.SetOwnerReference(acp, desiredMachine, r.Scheme)
+	_ = controllerutil.SetOwnerReference(acp, desiredMachine, r.Scheme)
 
 	// Set the in-place mutable fields.
 	// When we create a new Machine we will just create the Machine with those fields.
@@ -298,10 +298,10 @@ func (r *AgentControlPlaneReconciler) ensureClusterDeployment(
 	return nil
 }
 
-func (r *AgentControlPlaneReconciler) reconcileReplicas(ctx context.Context, acp *controlplanev1alpha1.AgentControlPlane, cluster *clusterv1.Cluster) (ctrl.Result, error) {
+func (r *AgentControlPlaneReconciler) reconcileReplicas(ctx context.Context, acp *controlplanev1alpha1.AgentControlPlane, cluster *clusterv1.Cluster) error {
 	machines, err := collections.GetFilteredMachinesForCluster(ctx, r.Client, cluster, collections.OwnedMachines(acp))
 	if err != nil {
-		return ctrl.Result{}, err
+		return err
 	}
 
 	numMachines := machines.Len()
@@ -319,7 +319,7 @@ func (r *AgentControlPlaneReconciler) reconcileReplicas(ctx context.Context, acp
 		}
 	}
 	updateReplicaStatus(acp, machines, created)
-	return ctrl.Result{}, kerrors.NewAggregate(errs)
+	return kerrors.NewAggregate(errs)
 }
 
 func (r *AgentControlPlaneReconciler) scaleUpControlPlane(ctx context.Context, acp *controlplanev1alpha1.AgentControlPlane, clusterName string) error {
@@ -416,7 +416,7 @@ func (r *AgentControlPlaneReconciler) generateAgentBootstrapConfig(acp *controlp
 		Spec: *acp.Spec.AgentBootstrapConfigSpec.DeepCopy(),
 	}
 
-	controllerutil.SetOwnerReference(acp, bootstrapConfig, r.Scheme)
+	_ = controllerutil.SetOwnerReference(acp, bootstrapConfig, r.Scheme)
 	return bootstrapConfig
 }
 

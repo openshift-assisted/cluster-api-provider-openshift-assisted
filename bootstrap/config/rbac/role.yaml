@@ -14,6 +14,14 @@ rules:
   - list
   - watch
 - apiGroups:
+  - ""
+  resources:
+  - services
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - agent-install.openshift.io
   resources:
   - agents
@@ -29,22 +37,17 @@ rules:
   - infraenvs
   verbs:
   - create
-  - delete
   - get
   - list
-  - update
   - watch
 - apiGroups:
   - bootstrap.cluster.x-k8s.io
   resources:
   - agentbootstrapconfigs
   verbs:
-  - create
-  - delete
   - get
   - list
   - patch
-  - update
   - watch
 - apiGroups:
   - bootstrap.cluster.x-k8s.io
@@ -57,7 +60,6 @@ rules:
   resources:
   - agentbootstrapconfigs/status
   verbs:
-  - get
   - patch
   - update
 - apiGroups:
@@ -80,11 +82,9 @@ rules:
   - cluster.x-k8s.io
   resources:
   - machinesets
-  - machinesets/status
   verbs:
   - get
   - list
-  - watch
 - apiGroups:
   - controlplane.cluster.x-k8s.io
   resources:
@@ -97,11 +97,9 @@ rules:
   - extensions.hive.openshift.io
   resources:
   - agentclusterinstalls
-  - agentclusterinstalls/status
   verbs:
   - get
   - list
-  - list'watch
   - watch
 - apiGroups:
   - hive.openshift.io
@@ -114,15 +112,9 @@ rules:
   - infrastructure.cluster.x-k8s.io
   resources:
   - metal3machines
-  verbs:
-  - list
-  - patch
-  - watch
-- apiGroups:
-  - infrastructure.cluster.x-k8s.io
-  resources:
   - metal3machinetemplates
   verbs:
+  - get
   - list
   - patch
   - watch

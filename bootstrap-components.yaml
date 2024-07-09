@@ -610,39 +610,47 @@ rules:
 - apiGroups:
   - ""
   resources:
-  - services
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - ""
-  resources:
   - secrets
   verbs:
   - create
   - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - services
+  verbs:
+  - get
+  - list
+  - watch
 - apiGroups:
   - agent-install.openshift.io
   resources:
   - agents
   verbs:
   - delete
+  - get
+  - list
+  - update
+  - watch
+- apiGroups:
+  - agent-install.openshift.io
+  resources:
+  - infraenvs
+  verbs:
+  - create
+  - get
+  - list
+  - watch
 - apiGroups:
   - bootstrap.cluster.x-k8s.io
   resources:
   - agentbootstrapconfigs
   verbs:
-  - create
-  - delete
   - get
   - list
   - patch
-  - update
   - watch
 - apiGroups:
   - bootstrap.cluster.x-k8s.io
@@ -655,7 +663,6 @@ rules:
   resources:
   - agentbootstrapconfigs/status
   verbs:
-  - get
   - patch
   - update
 - apiGroups:
@@ -669,31 +676,34 @@ rules:
 - apiGroups:
   - cluster.x-k8s.io
   resources:
-  - machinedeployments
-  - machinedeployments/status
-  verbs:
-  - get
-- apiGroups:
-  - cluster.x-k8s.io
-  resources:
   - machines
   verbs:
   - get
+  - list
   - watch
+- apiGroups:
+  - cluster.x-k8s.io
+  resources:
+  - machinesets
+  verbs:
+  - get
+  - list
 - apiGroups:
   - controlplane.cluster.x-k8s.io
   resources:
   - agentcontrolplanes
   verbs:
   - get
+  - list
+  - watch
 - apiGroups:
   - extensions.hive.openshift.io
   resources:
   - agentclusterinstalls
-  - agentclusterinstalls/status
   verbs:
   - get
   - list
+  - watch
 - apiGroups:
   - hive.openshift.io
   resources:
@@ -708,7 +718,16 @@ rules:
   - metal3machinetemplates
   verbs:
   - get
-  - update
+  - list
+  - patch
+  - watch
+- apiGroups:
+  - metal3.io
+  resources:
+  - baremetalhosts
+  verbs:
+  - list
+  - watch
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -890,13 +909,13 @@ spec:
         - --leader-elect
         command:
         - /manager
-        image: quay.io/edge-infrastructure/openshift-capi-agent-bootstrap:latest
-        imagePullPolicy: Always
         env:
         - name: NAMESPACE
           valueFrom:
             fieldRef:
               fieldPath: metadata.namespace
+        image: quay.io/edge-infrastructure/openshift-capi-agent-bootstrap:latest
+        imagePullPolicy: Always
         livenessProbe:
           httpGet:
             path: /healthz

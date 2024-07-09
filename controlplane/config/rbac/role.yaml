@@ -10,10 +10,8 @@ rules:
   - configmaps
   verbs:
   - create
-  - delete
   - get
   - list
-  - patch
   - update
   - watch
 - apiGroups:
@@ -22,7 +20,6 @@ rules:
   - secrets
   verbs:
   - create
-  - delete
   - get
   - list
   - update
@@ -34,58 +31,34 @@ rules:
   verbs:
   - create
   - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
 - apiGroups:
   - cluster.x-k8s.io
   resources:
   - clusters
-  - clusters/status
   verbs:
-  - create
-  - delete
   - get
   - list
-  - patch
-  - update
   - watch
 - apiGroups:
   - cluster.x-k8s.io
   resources:
   - machinedeployments
   verbs:
-  - get
   - list
   - watch
 - apiGroups:
   - cluster.x-k8s.io
   resources:
-  - machinepools
-  verbs:
-  - list
-- apiGroups:
-  - cluster.x-k8s.io
-  resources:
   - machines
-  - machines/status
   verbs:
   - create
-  - delete
-  - get
   - list
-  - patch
-  - update
   - watch
 - apiGroups:
   - controlplane.cluster.x-k8s.io
   resources:
   - agentcontrolplanes
   verbs:
-  - create
-  - delete
   - get
   - list
   - patch
@@ -102,7 +75,6 @@ rules:
   resources:
   - agentcontrolplanes/status
   verbs:
-  - get
   - patch
   - update
 - apiGroups:
@@ -111,18 +83,10 @@ rules:
   - agentclusterinstalls
   verbs:
   - create
-  - delete
   - get
   - list
-  - patch
   - update
   - watch
-- apiGroups:
-  - extensions.hive.openshift.io
-  resources:
-  - agentclusterinstalls/status
-  verbs:
-  - get
 - apiGroups:
   - hive.openshift.io
   resources:
@@ -132,48 +96,25 @@ rules:
   - delete
   - get
   - list
-  - patch
   - update
   - watch
-- apiGroups:
-  - hive.openshift.io
-  resources:
-  - clusterdeployments/status
-  verbs:
-  - get
 - apiGroups:
   - hive.openshift.io
   resources:
   - clusterimagesets
   verbs:
   - create
-  - delete
-  - get
   - list
-  - patch
   - update
   - watch
 - apiGroups:
   - infrastructure.cluster.x-k8s.io
   resources:
   - metal3machines
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - infrastructure.cluster.x-k8s.io
-  resources:
   - metal3machinetemplates
   verbs:
   - create
   - delete
   - get
   - list
-  - patch
   - update
-  - watch

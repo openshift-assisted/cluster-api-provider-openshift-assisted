@@ -87,6 +87,7 @@ type AgentBootstrapConfigStatus struct {
 	// AgentRef references the agent this agent bootstrap config has booted
 	AgentRef *corev1.LocalObjectReference `json:"agentRef,omitempty"`
 
+	// TODO: should this be on the spec?
 	// ISODownloadURL is the url for the live-iso to be downloaded from Assisted Installer
 	ISODownloadURL string `json:"isoDownloadURL,omitempty"`
 

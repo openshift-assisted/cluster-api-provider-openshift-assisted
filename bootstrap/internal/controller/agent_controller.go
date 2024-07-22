@@ -139,6 +139,8 @@ func (r *AgentReconciler) getMachineFromBMH(
 	return machine, nil
 }
 
+// findBMH returns the BareMetalHost whose BootMACAddress matches an interface
+// on the Agent's status.
 func (r *AgentReconciler) findBMH(
 	ctx context.Context,
 	agent *aiv1beta1.Agent,
@@ -147,6 +149,10 @@ func (r *AgentReconciler) findBMH(
 		return nil, errors.New("agent doesn't have inventory yet")
 	}
 
+	// TODO maybe we can find a better way than listing and scanning every BMH
+	// that exists, such as explicitly watching BMHs and setting up a
+	// FieldIndexer.
+	// Example: https://github.com/kubernetes-sigs/kubebuilder/blob/master/docs/book/src/reference/watching-resources/testdata/external-indexed-field/controller.go
 	bmhs := &metal3v1alpha1.BareMetalHostList{}
 	if err := r.Client.List(ctx, bmhs); err != nil {
 		return nil, err

@@ -228,6 +228,7 @@ func (r *AgentBootstrapConfigReconciler) Reconcile(ctx context.Context, req ctrl
 		return ctrl.Result{}, err
 	}
 
+	// check if the InfraEnv controller has set the ISO URL yet. If not, keep waiting.
 	if config.Status.ISODownloadURL == "" {
 		conditions.MarkFalse(
 			config,
@@ -239,6 +240,7 @@ func (r *AgentBootstrapConfigReconciler) Reconcile(ctx context.Context, req ctrl
 		return ctrl.Result{}, nil
 	}
 
+	// ensure the live ISO URL and type are set on the metal3 MachineTemplate
 	if err := r.setMetal3MachineTemplateImage(ctx, config, machine); err != nil {
 		conditions.MarkFalse(
 			config,
@@ -432,12 +434,14 @@ func (r *AgentBootstrapConfigReconciler) setMetal3MachineImage(
 			return err
 		}
 		log.V(logutil.TraceLevel).
-			Info("Added ISO URLs to metal3 machines", "machine", metal3Machine.Name, "namespace", metal3Machine.Namespace)
+			Info("Added ISO URL to metal3 machine", "machine", metal3Machine.Name, "namespace", metal3Machine.Namespace)
 	}
 	return nil
 }
 
-// Retrieves InfrastructureRefKey
+// getInfrastructureRefKey retrieves InfrastructureRefKey by looking for an
+// owner reference to a AgentControlPlane, and if not found, an owner reference
+// to a MachineDeployment. Returns an error if the Machine is owned by neither.
 func (r *AgentBootstrapConfigReconciler) getInfrastructureRefKey(
 	ctx context.Context,
 	machine *clusterv1.Machine,
@@ -461,7 +465,9 @@ func (r *AgentBootstrapConfigReconciler) getInfrastructureRefKey(
 	}, nil
 }
 
-// Overrides image reference by setting the LiveISO present on the AgentBootstrapConfig.Status.ISODownloadURL
+// setMetal3MachineTemplateImage overrides image reference by copying the
+// LiveISO URL from AgentBootstrapConfig.Status.ISODownloadURL to metal3
+// MachineTemplate Spec.
 func (r *AgentBootstrapConfigReconciler) setMetal3MachineTemplateImage(
 	ctx context.Context,
 	config *bootstrapv1alpha1.AgentBootstrapConfig,
@@ -553,6 +559,11 @@ func (r *AgentBootstrapConfigReconciler) SetupWithManager(mgr ctrl.Manager) erro
 		).
 		Watches(
 			&hivev1.ClusterDeployment{},
+			// TODO does this depend on the name and namespace for the
+			// ClusterDeployment being the same as the name and namespace of the
+			// ABC? Could we put an owner reference on the CD instead and use
+			// that as a concrete relationship, along with the
+			// EnqueueRequestForOwner handler?
 			&handler.EnqueueRequestForObject{},
 		).
 		Complete(r)
@@ -563,6 +574,7 @@ func (r *AgentBootstrapConfigReconciler) FilterMachine(_ context.Context, o clie
 	result := []ctrl.Request{}
 	m, ok := o.(*clusterv1.Machine)
 	if !ok {
+		// TODO handle this without a panic
 		panic(fmt.Sprintf("Expected a Machine but got a %T", o))
 	}
 	// m.Spec.ClusterName

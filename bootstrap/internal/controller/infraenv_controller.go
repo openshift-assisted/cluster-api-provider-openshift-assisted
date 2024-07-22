@@ -70,6 +70,7 @@ func (r *InfraEnvReconciler) attachISOToAgentBootstrapConfigs(ctx context.Contex
 	}
 
 	for _, agentBootstrapConfig := range agentBootstrapConfigs.Items {
+		// skip ABCs where InfraEnvRef is nil or is set to some other InfraEnv
 		if agentBootstrapConfig.Status.InfraEnvRef == nil ||
 			(agentBootstrapConfig.Status.InfraEnvRef != nil &&
 				agentBootstrapConfig.Status.InfraEnvRef.Name != infraEnv.Name) {
@@ -77,6 +78,9 @@ func (r *InfraEnvReconciler) attachISOToAgentBootstrapConfigs(ctx context.Contex
 		}
 
 		// Add ISO to agentBootstrapConfig status
+		// TODO: It's unconventional for a controller to set status on a
+		// resource that it doesn't own. This looks to me like further
+		// indication that the download URL should be in the ABC Spec.
 		agentBootstrapConfig.Status.ISODownloadURL = infraEnv.Status.ISODownloadURL
 		if err := r.Client.Status().Update(ctx, &agentBootstrapConfig); err != nil {
 			return errors.Wrap(err, "failed to update agentbootstrapconfig")

@@ -1,0 +1,33 @@
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+- role: control-plane
+  kubeadmConfigPatches:
+  - |
+    kind: InitConfiguration
+    nodeRegistration:
+      kubeletExtraArgs:
+        node-labels: "ingress-ready=true"
+  extraPortMappings:
+  - containerPort: 80
+    hostPort: 8080
+    protocol: TCP
+  - containerPort: 443
+    hostPort: 4433
+    protocol: TCP
+  # Open ports for Ironic
+  # Ironic httpd
+  - containerPort: 6180
+    hostPort: 6180
+    listenAddress: "0.0.0.0"
+    protocol: TCP
+  # Ironic API
+  - containerPort: 6385
+    hostPort: 6385
+    listenAddress: "0.0.0.0"
+    protocol: TCP
+  # Inspector API
+  - containerPort: 5050
+    hostPort: 5050
+    listenAddress: "0.0.0.0"
+    protocol: TCP

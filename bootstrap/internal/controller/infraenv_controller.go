@@ -143,10 +143,6 @@ func (r *InfraEnvReconciler) attachISOToAgentBootstrapConfigs(ctx context.Contex
 			errorIfSkipped = errors.New("skipped an infraenv, need to retry") // infraenv would change and retrigger though
 			continue
 		}
-		if agentBootstrapConfig.Status.InfraEnvRef.Name != infraEnv.Name {
-			log.V(logutil.TraceLevel).Info("skipping agentbootstrapconfig because not relevant", "abc", agentBootstrapConfig.Name)
-			continue
-		}
 
 		agentBootstrapConfig.Status.ISODownloadURL = downloadURL
 		if err := r.Client.Status().Update(ctx, &agentBootstrapConfig); err != nil {

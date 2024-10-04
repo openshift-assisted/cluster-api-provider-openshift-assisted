@@ -11,5 +11,5 @@ const (
 	WaitingForAssistedInstallerReason                             = "WaitingForAssistedInstaller"
 	WaitingForClusterInfrastructureReason                         = "WaitingForClusterInfrastructure"
 	DataSecretAvailableCondition          clusterv1.ConditionType = "DataSecretAvailable"
-	AgentBootstrapConfigLabel                                     = "bootstrap.cluster.x-k8s.io/agentBootstrapConfig"
+	OpenshiftAssistedConfigLabel                                  = "bootstrap.cluster.x-k8s.io/openshiftAssistedConfig"
 )

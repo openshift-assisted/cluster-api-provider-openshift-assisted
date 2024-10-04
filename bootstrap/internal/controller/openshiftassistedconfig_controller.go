@@ -58,11 +58,11 @@ import (
 var liveIsoFormat string = "live-iso"
 
 const (
-	agentBootstrapConfigFinalizer = "agentbootstrapconfig." + bootstrapv1alpha1.Group + "/deprovision"
+	openshiftAssistedConfigFinalizer = "openshiftassistedconfig." + bootstrapv1alpha1.Group + "/deprovision"
 )
 
-// AgentBootstrapConfigReconciler reconciles a AgentBootstrapConfigSpec object
-type AgentBootstrapConfigReconciler struct {
+// OpenshiftAssistedConfigReconciler reconciles a OpenshiftAssistedConfig object
+type OpenshiftAssistedConfigReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 }
@@ -70,9 +70,9 @@ type AgentBootstrapConfigReconciler struct {
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=metal3machinetemplates,verbs=list;patch;watch
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=metal3machines,verbs=list;patch;watch
 // +kubebuilder:rbac:groups=metal3.io,resources=baremetalhosts,verbs=list;watch
-// +kubebuilder:rbac:groups=bootstrap.cluster.x-k8s.io,resources=agentbootstrapconfigs,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=bootstrap.cluster.x-k8s.io,resources=agentbootstrapconfigs/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=bootstrap.cluster.x-k8s.io,resources=agentbootstrapconfigs/finalizers,verbs=update
+// +kubebuilder:rbac:groups=bootstrap.cluster.x-k8s.io,resources=openshiftassistedconfigs,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=bootstrap.cluster.x-k8s.io,resources=openshiftassistedconfigs/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=bootstrap.cluster.x-k8s.io,resources=openshiftassistedconfigs/finalizers,verbs=update
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machines,verbs=get;list;watch;
 // +kubebuilder:rbac:groups=agent-install.openshift.io,resources=infraenvs,verbs=delete;list;watch;get;update;create
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;create;list;watch
@@ -82,19 +82,18 @@ type AgentBootstrapConfigReconciler struct {
 // +kubebuilder:rbac:groups="",resources=services,verbs=list;get;watch
 // +kubebuilder:rbac:groups=hive.openshift.io,resources=clusterdeployments,verbs=list;watch
 // +kubebuilder:rbac:groups=extensions.hive.openshift.io,resources=agentclusterinstalls;agentclusterinstalls/status,verbs=get;list;watch
-// +kubebuilder:rbac:groups=extensions.hive.openshift.io,resources=agentclusterinstalls;agentclusterinstalls/status,verbs=get;list'watch
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machines,verbs=get;watch
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusters,verbs=get;list;watch
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machinesets;machinesets/status,verbs=get;list;watch;
-// +kubebuilder:rbac:groups=controlplane.cluster.x-k8s.io,resources=agentcontrolplanes,verbs=get;list;watch
+// +kubebuilder:rbac:groups=controlplane.cluster.x-k8s.io,resources=openshiftassistedcontrolplanes,verbs=get;list;watch
 
-// Reconciles AgentBootstrapConfig
-func (r *AgentBootstrapConfigReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Result, rerr error) {
+// Reconciles OpenshiftAssistedConfig
+func (r *OpenshiftAssistedConfigReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Result, rerr error) {
 	log := ctrl.LoggerFrom(ctx)
 
-	log.V(logutil.TraceLevel).Info("Reconciling AgentBootstrapConfig")
+	log.V(logutil.TraceLevel).Info("Reconciling OpenshiftAssistedConfig")
 
-	config := &bootstrapv1alpha1.AgentBootstrapConfig{}
+	config := &bootstrapv1alpha1.OpenshiftAssistedConfig{}
 	if err := r.Client.Get(ctx, req.NamespacedName, config); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
@@ -106,7 +105,7 @@ func (r *AgentBootstrapConfigReconciler) Reconcile(ctx context.Context, req ctrl
 		return ctrl.Result{}, err
 	}
 
-	// Attempt to Patch the AgentBootstrapConfig object and status after each reconciliation if no error occurs.
+	// Attempt to Patch the OpenshiftAssistedConfig object and status after each reconciliation if no error occurs.
 	defer func() {
 		// always update the readyCondition; the summary is represented using the "1 of x completed" notation.
 		conditions.SetSummary(config,
@@ -123,10 +122,10 @@ func (r *AgentBootstrapConfigReconciler) Reconcile(ctx context.Context, req ctrl
 		if err := patchHelper.Patch(ctx, config, patchOpts...); err != nil {
 			rerr = kerrors.NewAggregate([]error{rerr, err})
 		}
-		log.V(logutil.TraceLevel).Info("Finished reconciling AgentBootstrapConfig")
+		log.V(logutil.TraceLevel).Info("Finished reconciling OpenshiftAssistedConfig")
 	}()
 
-	// Look up the owner of this agentbootstrapconfig if there is one
+	// Look up the owner of this openshiftassistedconfig if there is one
 	configOwner, err := bsutil.GetTypedConfigOwner(ctx, r.Client, config)
 	if apierrors.IsNotFound(err) {
 		// Could not find the owner yet, this is not an error and will re-reconcile when the owner gets set.
@@ -146,8 +145,8 @@ func (r *AgentBootstrapConfigReconciler) Reconcile(ctx context.Context, req ctrl
 		return ctrl.Result{}, r.handleDeletion(ctx, config, configOwner)
 	}
 
-	if !controllerutil.ContainsFinalizer(config, agentBootstrapConfigFinalizer) {
-		controllerutil.AddFinalizer(config, agentBootstrapConfigFinalizer)
+	if !controllerutil.ContainsFinalizer(config, openshiftAssistedConfigFinalizer) {
+		controllerutil.AddFinalizer(config, openshiftAssistedConfigFinalizer)
 	}
 
 	cluster, err := capiutil.GetClusterByName(ctx, r.Client, configOwner.GetNamespace(), configOwner.ClusterName())
@@ -178,10 +177,10 @@ func (r *AgentBootstrapConfigReconciler) Reconcile(ctx context.Context, req ctrl
 
 		return ctrl.Result{Requeue: true, RequeueAfter: retryAfter}, nil
 	}
-	// Get the Machine that owns this agentbootstrapconfig
+	// Get the Machine that owns this openshiftassistedconfig
 	machine, err := capiutil.GetOwnerMachine(ctx, r.Client, config.ObjectMeta)
 	if err != nil {
-		log.Error(err, "couldn't get machine associated with agentbootstrapconfig", "name", config.Name)
+		log.Error(err, "couldn't get machine associated with openshiftassistedconfig", "name", config.Name)
 		return ctrl.Result{}, err
 	}
 
@@ -290,31 +289,31 @@ func (r *AgentBootstrapConfigReconciler) Reconcile(ctx context.Context, req ctrl
 }
 
 // Ensures InfraEnv exists
-func (r *AgentBootstrapConfigReconciler) ensureInfraEnv(
+func (r *OpenshiftAssistedConfigReconciler) ensureInfraEnv(
 	ctx context.Context,
-	config *bootstrapv1alpha1.AgentBootstrapConfig,
+	config *bootstrapv1alpha1.OpenshiftAssistedConfig,
 	clusterDeployment *hivev1.ClusterDeployment,
 ) error {
 	log := ctrl.LoggerFrom(ctx)
 	infraEnvName, err := getInfraEnvName(config)
 	log.WithValues(
-		"AgentBootstrapConfig Name",
+		"OpenshiftAssistedConfig Name",
 		config.Name,
-		"AgentBootstrapConfig Namespace",
+		"OpenshiftAssistedConfig Namespace",
 		config.Namespace,
 		"InfraEnv Name",
 		infraEnvName,
 	)
 
 	if err != nil {
-		log.Error(err, "couldn't get infraenv name for agentbootstrapconfig")
+		log.Error(err, "couldn't get infraenv name for openshiftassistedconfig")
 		return err
 	}
 	log.V(logutil.DebugLevel).Info("computed infraEnvName", "name", infraEnvName)
 
 	if infraEnvName == "" {
-		log.V(logutil.DebugLevel).Info("no infraenv name for agentbootstrapconfig")
-		return fmt.Errorf("no infraenv name for agentbootstrapconfig")
+		log.V(logutil.DebugLevel).Info("no infraenv name for openshiftassistedconfig")
+		return fmt.Errorf("no infraenv name for openshiftassistedconfig")
 	}
 
 	infraEnv := assistedinstaller.GetInfraEnvFromConfig(infraEnvName, config, clusterDeployment)
@@ -340,7 +339,7 @@ func (r *AgentBootstrapConfigReconciler) ensureInfraEnv(
 }
 
 // Retrieve AgentClusterInstall by ClusterDeployment.Spec.ClusterInstallRef
-func (r *AgentBootstrapConfigReconciler) getAgentClusterInstall(
+func (r *OpenshiftAssistedConfigReconciler) getAgentClusterInstall(
 	ctx context.Context,
 	clusterDeployment *hivev1.ClusterDeployment,
 ) (*v1beta1.AgentClusterInstall, error) {
@@ -359,7 +358,7 @@ func (r *AgentBootstrapConfigReconciler) getAgentClusterInstall(
 }
 
 // Retrieve ClusterDeployment by cluster name label
-func (r *AgentBootstrapConfigReconciler) getClusterDeployment(
+func (r *OpenshiftAssistedConfigReconciler) getClusterDeployment(
 	ctx context.Context,
 	clusterName string,
 ) (*hivev1.ClusterDeployment, error) {
@@ -376,9 +375,9 @@ func (r *AgentBootstrapConfigReconciler) getClusterDeployment(
 }
 
 // Creates UserData secret
-func (r *AgentBootstrapConfigReconciler) createUserDataSecret(
+func (r *OpenshiftAssistedConfigReconciler) createUserDataSecret(
 	ctx context.Context,
-	config *bootstrapv1alpha1.AgentBootstrapConfig,
+	config *bootstrapv1alpha1.OpenshiftAssistedConfig,
 ) (*corev1.Secret, error) {
 	secret := &corev1.Secret{}
 	if err := r.Client.Get(ctx, client.ObjectKey{Namespace: config.Namespace, Name: config.Name}, secret); err != nil {
@@ -398,10 +397,10 @@ func (r *AgentBootstrapConfigReconciler) createUserDataSecret(
 	return secret, nil
 }
 
-// Overrides image reference by setting the LiveISO present on the AgentBootstrapConfig.Status.ISODownloadURL
-func (r *AgentBootstrapConfigReconciler) setMetal3MachineImage(
+// Overrides image reference by setting the LiveISO present on the OpenshiftAssistedConfig.Status.ISODownloadURL
+func (r *OpenshiftAssistedConfigReconciler) setMetal3MachineImage(
 	ctx context.Context,
-	config *bootstrapv1alpha1.AgentBootstrapConfig,
+	config *bootstrapv1alpha1.OpenshiftAssistedConfig,
 	machine *clusterv1.Machine,
 ) error {
 	log := ctrl.LoggerFrom(ctx)
@@ -410,9 +409,9 @@ func (r *AgentBootstrapConfigReconciler) setMetal3MachineImage(
 		Namespace: machine.Spec.InfrastructureRef.Namespace,
 	}
 	log = log.WithValues(
-		"AgentBootstrapConfig Name",
+		"OpenshiftAssistedConfig Name",
 		config.Name,
-		"AgentBootstrapConfig Namespace",
+		"OpenshiftAssistedConfig Namespace",
 		config.Namespace,
 		"Metal3Machine Name",
 		m3MachineKey.Name,
@@ -422,7 +421,7 @@ func (r *AgentBootstrapConfigReconciler) setMetal3MachineImage(
 
 	metal3Machine := &metal3.Metal3Machine{}
 	if err := r.Client.Get(ctx, m3MachineKey, metal3Machine); err != nil {
-		log.Error(err, "couldn't get metal3machine associated with machine and agentbootstrapconfig")
+		log.Error(err, "couldn't get metal3machine associated with machine and openshiftassistedconfig")
 		// no machine, no need to inject live iso
 		if !apierrors.IsNotFound(err) {
 			return err
@@ -455,11 +454,11 @@ func (r *AgentBootstrapConfigReconciler) setMetal3MachineImage(
 }
 
 // Retrieves InfrastructureRefKey
-func (r *AgentBootstrapConfigReconciler) getInfrastructureRefKey(
+func (r *OpenshiftAssistedConfigReconciler) getInfrastructureRefKey(
 	ctx context.Context,
 	machine *clusterv1.Machine,
 ) (types.NamespacedName, error) {
-	acp := controlplanev1alpha1.AgentControlPlane{}
+	acp := controlplanev1alpha1.OpenshiftAssistedControlPlane{}
 	namespace := machine.Namespace
 	err := util.GetTypedOwner(ctx, r.Client, machine, &acp)
 	if err != nil {
@@ -485,10 +484,10 @@ func (r *AgentBootstrapConfigReconciler) getInfrastructureRefKey(
 	}, nil
 }
 
-// Overrides image reference by setting the LiveISO present on the AgentBootstrapConfig.Status.ISODownloadURL
-func (r *AgentBootstrapConfigReconciler) setMetal3MachineTemplateImage(
+// Overrides image reference by setting the LiveISO present on the OpenshiftAssistedConfig.Status.ISODownloadURL
+func (r *OpenshiftAssistedConfigReconciler) setMetal3MachineTemplateImage(
 	ctx context.Context,
-	config *bootstrapv1alpha1.AgentBootstrapConfig,
+	config *bootstrapv1alpha1.OpenshiftAssistedConfig,
 	machine *clusterv1.Machine,
 ) error {
 	log := ctrl.LoggerFrom(ctx)
@@ -524,10 +523,10 @@ func (r *AgentBootstrapConfigReconciler) setMetal3MachineTemplateImage(
 }
 
 // Deletes child resources (Agent) and removes finalizer
-func (r *AgentBootstrapConfigReconciler) handleDeletion(ctx context.Context, config *bootstrapv1alpha1.AgentBootstrapConfig, owner *bsutil.ConfigOwner) error {
+func (r *OpenshiftAssistedConfigReconciler) handleDeletion(ctx context.Context, config *bootstrapv1alpha1.OpenshiftAssistedConfig, owner *bsutil.ConfigOwner) error {
 	log := ctrl.LoggerFrom(ctx)
 	log.WithValues("name", config.Name, "namespace", config.Namespace)
-	if controllerutil.ContainsFinalizer(config, agentBootstrapConfigFinalizer) {
+	if controllerutil.ContainsFinalizer(config, openshiftAssistedConfigFinalizer) {
 		// Check if it's a control plane node and if that cluster is being deleted
 		if _, isControlPlane := config.Labels[clusterv1.MachineControlPlaneLabel]; isControlPlane &&
 			owner.GetDeletionTimestamp().IsZero() {
@@ -546,13 +545,13 @@ func (r *AgentBootstrapConfigReconciler) handleDeletion(ctx context.Context, con
 			}
 			config.Status.AgentRef = nil
 		}
-		controllerutil.RemoveFinalizer(config, agentBootstrapConfigFinalizer)
+		controllerutil.RemoveFinalizer(config, openshiftAssistedConfigFinalizer)
 	}
 	return nil
 }
 
 // Generate InfraEnvName
-func getInfraEnvName(config *bootstrapv1alpha1.AgentBootstrapConfig) (string, error) {
+func getInfraEnvName(config *bootstrapv1alpha1.OpenshiftAssistedConfig) (string, error) {
 	// this should be based on Infra template instead
 	nameFormat := "%s-%s"
 
@@ -574,9 +573,9 @@ func getInfraEnvName(config *bootstrapv1alpha1.AgentBootstrapConfig) (string, er
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *AgentBootstrapConfigReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *OpenshiftAssistedConfigReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&bootstrapv1alpha1.AgentBootstrapConfig{}).
+		For(&bootstrapv1alpha1.OpenshiftAssistedConfig{}).
 		Watches(
 			&clusterv1.Machine{},
 			handler.EnqueueRequestsFromMapFunc(r.FilterMachine),
@@ -588,8 +587,8 @@ func (r *AgentBootstrapConfigReconciler) SetupWithManager(mgr ctrl.Manager) erro
 		Complete(r)
 }
 
-// Filter machine owned by this agentbootstrapconfig
-func (r *AgentBootstrapConfigReconciler) FilterMachine(_ context.Context, o client.Object) []ctrl.Request {
+// Filter machine owned by this openshiftassistedconfig
+func (r *OpenshiftAssistedConfigReconciler) FilterMachine(_ context.Context, o client.Object) []ctrl.Request {
 	result := []ctrl.Request{}
 	m, ok := o.(*clusterv1.Machine)
 	if !ok {
@@ -599,7 +598,7 @@ func (r *AgentBootstrapConfigReconciler) FilterMachine(_ context.Context, o clie
 
 	if m.Spec.Bootstrap.ConfigRef != nil &&
 		m.Spec.Bootstrap.ConfigRef.GroupVersionKind() == bootstrapv1alpha1.GroupVersion.WithKind(
-			"AgentBootstrapConfigSpec",
+			"OpenshiftAssistedConfig",
 		) {
 		name := client.ObjectKey{Namespace: m.Namespace, Name: m.Spec.Bootstrap.ConfigRef.Name}
 		result = append(result, ctrl.Request{NamespacedName: name})

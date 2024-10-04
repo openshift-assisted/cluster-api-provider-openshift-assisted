@@ -52,7 +52,7 @@ type ClusterDeploymentReconciler struct {
 func (r *ClusterDeploymentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&hivev1.ClusterDeployment{}).
-		Watches(&controlplanev1alpha1.AgentControlPlane{}, &handler.EnqueueRequestForObject{}).
+		Watches(&controlplanev1alpha1.OpenshiftAssistedControlPlane{}, &handler.EnqueueRequestForObject{}).
 		Watches(&clusterv1.MachineDeployment{}, &handler.EnqueueRequestForObject{}).
 		Complete(r)
 }
@@ -67,12 +67,12 @@ func (r *ClusterDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	log.WithValues("cluster_deployment", clusterDeployment.Name, "cluster_deployment_namespace", clusterDeployment.Namespace)
 	log.V(logutil.TraceLevel).Info("Reconciling ClusterDeployment")
 
-	acp := controlplanev1alpha1.AgentControlPlane{}
+	acp := controlplanev1alpha1.OpenshiftAssistedControlPlane{}
 	if err := util.GetTypedOwner(ctx, r.Client, clusterDeployment, &acp); err != nil {
-		log.V(logutil.TraceLevel).Info("Cluster deployment is not owned by AgentControlPlane")
+		log.V(logutil.TraceLevel).Info("Cluster deployment is not owned by OpenshiftAssistedControlPlane")
 		return ctrl.Result{}, nil
 	}
-	log.WithValues("agent_control_plane", acp.Name, "agent_controlplane_namespace", acp.Namespace)
+	log.WithValues("openshiftassisted_control_plane", acp.Name, "openshiftassisted_control_plane_namespace", acp.Namespace)
 
 	if clusterDeployment.Spec.ClusterInstallRef != nil && r.agentClusterInstallExists(ctx, clusterDeployment.Spec.ClusterInstallRef.Name, clusterDeployment.Namespace) {
 		log.V(logutil.TraceLevel).Info(
@@ -94,7 +94,7 @@ func (r *ClusterDeploymentReconciler) agentClusterInstallExists(ctx context.Cont
 func (r *ClusterDeploymentReconciler) ensureAgentClusterInstall(
 	ctx context.Context,
 	clusterDeployment *hivev1.ClusterDeployment,
-	acp controlplanev1alpha1.AgentControlPlane,
+	acp controlplanev1alpha1.OpenshiftAssistedControlPlane,
 ) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
 
@@ -104,7 +104,7 @@ func (r *ClusterDeploymentReconciler) ensureAgentClusterInstall(
 		return ctrl.Result{}, err
 	}
 
-	imageSet, err := r.createOrUpdateClusterImageSet(ctx, clusterDeployment.Name, acp.Spec.AgentConfigSpec.ReleaseImage)
+	imageSet, err := r.createOrUpdateClusterImageSet(ctx, clusterDeployment.Name, acp.Spec.Config.ReleaseImage)
 	if err != nil {
 		log.Error(err, "failed creating ClusterImageSet")
 		return ctrl.Result{}, err
@@ -184,7 +184,7 @@ func (r *ClusterDeploymentReconciler) createOrUpdateAgentClusterInstall(
 func (r *ClusterDeploymentReconciler) computeAgentClusterInstall(
 	ctx context.Context,
 	clusterDeployment *hivev1.ClusterDeployment,
-	acp controlplanev1alpha1.AgentControlPlane,
+	acp controlplanev1alpha1.OpenshiftAssistedControlPlane,
 	imageSet *hivev1.ClusterImageSet,
 	cluster *clusterv1.Cluster,
 	workerReplicas int,
@@ -202,12 +202,12 @@ func (r *ClusterDeploymentReconciler) computeAgentClusterInstall(
 		serviceNetwork = cluster.Spec.ClusterNetwork.Services.CIDRBlocks
 	}
 	var additionalManifests []hiveext.ManifestsConfigMapReference
-	if len(acp.Spec.AgentConfigSpec.ManifestsConfigMapRefs) > 0 {
-		additionalManifests = append(additionalManifests, acp.Spec.AgentConfigSpec.ManifestsConfigMapRefs...)
+	if len(acp.Spec.Config.ManifestsConfigMapRefs) > 0 {
+		additionalManifests = append(additionalManifests, acp.Spec.Config.ManifestsConfigMapRefs...)
 	}
 
-	if acp.Spec.AgentConfigSpec.ImageRegistryRef != nil {
-		if err := r.createImageRegistry(ctx, acp.Spec.AgentConfigSpec.ImageRegistryRef.Name, acp.Namespace); err != nil {
+	if acp.Spec.Config.ImageRegistryRef != nil {
+		if err := r.createImageRegistry(ctx, acp.Spec.Config.ImageRegistryRef.Name, acp.Namespace); err != nil {
 			log.Error(err, "failed to create image registry config manifest")
 			return nil, err
 		}
@@ -223,7 +223,7 @@ func (r *ClusterDeploymentReconciler) computeAgentClusterInstall(
 				clusterDeployment.Labels[clusterv1.ClusterNameLabel],
 			),
 			OwnerReferences: []metav1.OwnerReference{
-				*metav1.NewControllerRef(&acp, controlplanev1alpha1.GroupVersion.WithKind(agentControlPlaneKind)),
+				*metav1.NewControllerRef(&acp, controlplanev1alpha1.GroupVersion.WithKind(openshiftAssistedControlPlaneKind)),
 			},
 		},
 		Spec: hiveext.AgentClusterInstallSpec{
@@ -233,10 +233,10 @@ func (r *ClusterDeploymentReconciler) computeAgentClusterInstall(
 				ControlPlaneAgents: int(acp.Spec.Replicas),
 				WorkerAgents:       workerReplicas,
 			},
-			DiskEncryption:     acp.Spec.AgentConfigSpec.DiskEncryption,
-			MastersSchedulable: acp.Spec.AgentConfigSpec.MastersSchedulable,
-			Proxy:              acp.Spec.AgentConfigSpec.Proxy,
-			SSHPublicKey:       acp.Spec.AgentConfigSpec.SSHAuthorizedKey,
+			DiskEncryption:     acp.Spec.Config.DiskEncryption,
+			MastersSchedulable: acp.Spec.Config.MastersSchedulable,
+			Proxy:              acp.Spec.Config.Proxy,
+			SSHPublicKey:       acp.Spec.Config.SSHAuthorizedKey,
 			ImageSetRef:        &hivev1.ClusterImageSetReference{Name: imageSet.Name},
 			Networking: hiveext.Networking{
 				ClusterNetwork: clusterNetwork,
@@ -246,9 +246,9 @@ func (r *ClusterDeploymentReconciler) computeAgentClusterInstall(
 		},
 	}
 
-	if len(acp.Spec.AgentConfigSpec.APIVIPs) > 0 && len(acp.Spec.AgentConfigSpec.IngressVIPs) > 0 {
-		aci.Spec.APIVIPs = acp.Spec.AgentConfigSpec.APIVIPs
-		aci.Spec.IngressVIPs = acp.Spec.AgentConfigSpec.IngressVIPs
+	if len(acp.Spec.Config.APIVIPs) > 0 && len(acp.Spec.Config.IngressVIPs) > 0 {
+		aci.Spec.APIVIPs = acp.Spec.Config.APIVIPs
+		aci.Spec.IngressVIPs = acp.Spec.Config.IngressVIPs
 		aci.Spec.PlatformType = hiveext.PlatformType(configv1.BareMetalPlatformType)
 		aci.Annotations = map[string]string{
 			InstallConfigOverrides: `{"capabilities": {"baselineCapabilitySet": "None", "additionalEnabledCapabilities": ["baremetal","Console","Insights","OperatorLifecycleManager","Ingress"]}}"`,

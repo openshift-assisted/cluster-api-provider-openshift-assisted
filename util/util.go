@@ -39,7 +39,7 @@ func GetTypedOwner(ctx context.Context, k8sClient client.Client, obj client.Obje
 // ControlPlaneMachineLabelsForCluster returns a set of labels to add
 // to a control plane machine for this specific cluster.
 func ControlPlaneMachineLabelsForCluster(
-	acp *controlplanev1alpha1.AgentControlPlane,
+	acp *controlplanev1alpha1.OpenshiftAssistedControlPlane,
 	clusterName string,
 ) map[string]string {
 	labels := map[string]string{}

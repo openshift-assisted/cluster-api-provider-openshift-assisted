@@ -275,12 +275,10 @@ func InstallExampleCluster(manifest, namespace string, vars map[string]string) e
 	}
 
 	cmd := exec.Command("kubectl", "-n", namespace, "apply", "-f", outFile.Name())
-	_, err = cmd.CombinedOutput()
-	Expect(err).NotTo(HaveOccurred())
-
+	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return err
+		_, _ = fmt.Fprintf(GinkgoWriter, "[DEBUG] error applying cluster: %s", out)
+
 	}
-	Expect(err).NotTo(HaveOccurred())
-	return nil
+	return err
 }

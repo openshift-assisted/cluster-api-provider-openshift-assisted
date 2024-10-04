@@ -103,7 +103,7 @@ func getIgnitionConfig() (string, error) {
 }
 
 func (r *AgentReconciler) ensureBootstrapConfigReference(ctx context.Context, machine *clusterv1.Machine, agentName string) error {
-	config := &bootstrapv1alpha1.AgentBootstrapConfig{}
+	config := &bootstrapv1alpha1.OpenshiftAssistedConfig{}
 	if err := r.Client.Get(ctx,
 		client.ObjectKey{
 			Name:      machine.Spec.Bootstrap.ConfigRef.Name,

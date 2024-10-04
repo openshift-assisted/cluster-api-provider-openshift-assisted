@@ -149,11 +149,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err = (&controller.AgentBootstrapConfigReconciler{
+	if err = (&controller.OpenshiftAssistedConfigReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
 	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "AgentBootstrapConfigSpec")
+		setupLog.Error(err, "unable to create controller", "controller", "OpenshiftAssistedConfig")
 		os.Exit(1)
 	}
 	if err = (&controller.InfraEnvReconciler{

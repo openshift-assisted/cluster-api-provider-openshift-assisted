@@ -4,20 +4,20 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.14.0
-  name: agentbootstrapconfigtemplates.bootstrap.cluster.x-k8s.io
+  name: openshiftassistedconfigtemplates.bootstrap.cluster.x-k8s.io
 spec:
   group: bootstrap.cluster.x-k8s.io
   names:
-    kind: AgentBootstrapConfigTemplate
-    listKind: AgentBootstrapConfigTemplateList
-    plural: agentbootstrapconfigtemplates
-    singular: agentbootstrapconfigtemplate
+    kind: OpenshiftAssistedConfigTemplate
+    listKind: OpenshiftAssistedConfigTemplateList
+    plural: openshiftassistedconfigtemplates
+    singular: openshiftassistedconfigtemplate
   scope: Namespaced
   versions:
   - name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: AgentBootstrapConfigTemplate is the Schema for the agentbootstrapconfigtemplates
+        description: OpenshiftAssistedConfigTemplate is the Schema for the agentbootstrapconfigtemplates
           API
         properties:
           apiVersion:
@@ -38,12 +38,11 @@ spec:
           metadata:
             type: object
           spec:
-            description: AgentBootstrapConfigTemplateSpec defines the desired state
-              of AgentBootstrapConfigTemplate
+            description: OpenshiftAssistedConfigTemplateSpec defines the desired state
+              of OpenshiftAssistedConfigTemplate
             properties:
               template:
-                description: Foo is an example field of AgentBootstrapConfigTemplate.
-                  Edit agentbootstrapconfigtemplate_types.go to remove/update
+                description: OpenshiftAssistedConfig template
                 properties:
                   metadata:
                     description: |-
@@ -70,8 +69,8 @@ spec:
                         type: object
                     type: object
                   spec:
-                    description: AgentBootstrapConfigSpec defines the desired state
-                      of AgentBootstrapConfig
+                    description: OpenshiftAssistedConfigSpec defines the desired state
+                      of OpenshiftAssistedConfig
                     properties:
                       additionalNTPSources:
                         description: |-
@@ -212,8 +211,8 @@ spec:
             - template
             type: object
           status:
-            description: AgentBootstrapConfigTemplateStatus defines the observed state
-              of AgentBootstrapConfigTemplate
+            description: OpenshiftAssistedConfigTemplateStatus defines the observed
+              state of OpenshiftAssistedConfigTemplate
             type: object
         type: object
     served: true

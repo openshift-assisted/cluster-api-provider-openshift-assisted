@@ -5,4 +5,8 @@ kind: Kustomization
 images:
 - name: controller
   newName: quay.io/rh_ee_rpiccoli/openshift-capi-agent-bootstrap
-  newTag: openshift-assisted
+  newTag: baremetal
+configMapGenerator:
+- name: env-vars-cm
+  literals:
+    - 

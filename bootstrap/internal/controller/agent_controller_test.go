@@ -49,7 +49,7 @@ var _ = Describe("Agent Controller", func() {
 		)
 		BeforeEach(func() {
 			k8sClient = fakeclient.NewClientBuilder().WithScheme(testScheme).
-				WithStatusSubresource(&bootstrapv1alpha1.AgentBootstrapConfig{}).
+				WithStatusSubresource(&bootstrapv1alpha1.OpenshiftAssistedConfig{}).
 				Build()
 			Expect(k8sClient).NotTo(BeNil())
 
@@ -93,7 +93,7 @@ var _ = Describe("Agent Controller", func() {
 				Expect(err.Error()).To(Equal("agent doesn't have inventory yet"))
 			})
 		})
-		When("an Agent resource exists with a machine has no ABC reference", func() {
+		When("an Agent resource exists with a machine has no OAC reference", func() {
 			It("should reconcile with no errors", func() {
 				By("Creating the Agent")
 				agent := testutils.NewAgentWithInterface(namespace, agentName, agentInterfaceMACAddress)
@@ -120,7 +120,7 @@ var _ = Describe("Agent Controller", func() {
 				Expect(err).NotTo(HaveOccurred())
 			})
 		})
-		When("an Agent resource with a valid Machine reference but the ABC does not exist", func() {
+		When("an Agent resource with a valid Machine reference but the OAC does not exist", func() {
 			It("should reconcile with an error", func() {
 				By("Creating the Agent")
 				agent := testutils.NewAgentWithInterface(namespace, agentName, agentInterfaceMACAddress)
@@ -135,7 +135,7 @@ var _ = Describe("Agent Controller", func() {
 				}
 				machine := testutils.NewMachine(namespace, machineName, clusterName)
 				machine.Spec.Bootstrap.ConfigRef = &corev1.ObjectReference{
-					Name:      abcName,
+					Name:      oacName,
 					Namespace: namespace,
 				}
 				Expect(controllerutil.SetOwnerReference(machine, m3machine, testScheme)).To(Succeed())
@@ -151,14 +151,14 @@ var _ = Describe("Agent Controller", func() {
 				Expect(err).To(HaveOccurred())
 				Expect(
 					err.Error(),
-				).To(Equal("agentbootstrapconfigs.bootstrap.cluster.x-k8s.io \"test-resource\" not found"))
+				).To(Equal("openshiftassistedconfigs.bootstrap.cluster.x-k8s.io \"test-resource\" not found"))
 			})
 		})
-		When("an Agent resource with a valid Machine with ABCs, and reported interfaces", func() {
+		When("an Agent resource with a valid Machine with OACs, and reported interfaces", func() {
 			It("should return error if BMH is not found", func() {
-				By("Creating the AgentBootstrapConfig")
-				abc := NewAgentBootstrapConfig(namespace, abcName, clusterName)
-				Expect(k8sClient.Create(ctx, abc)).To(Succeed())
+				By("Creating the OpenshiftAssistedConfig")
+				oac := NewOpenshiftAssistedConfig(namespace, oacName, clusterName)
+				Expect(k8sClient.Create(ctx, oac)).To(Succeed())
 
 				By("Creating the Agent")
 				agent := testutils.NewAgentWithInterface(namespace, agentName, agentInterfaceMACAddress)
@@ -184,15 +184,15 @@ var _ = Describe("Agent Controller", func() {
 				).To(Equal("found 0 BMHs, but none matched any of the MacAddresses from the agent's 1 interfaces"))
 
 				By("Checking the results of reconciliation")
-				postABC := &bootstrapv1alpha1.AgentBootstrapConfig{}
-				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(abc), postABC)).To(Succeed())
-				Expect(postABC.Status.AgentRef).To(BeNil())
+				postOAC := &bootstrapv1alpha1.OpenshiftAssistedConfig{}
+				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(oac), postOAC)).To(Succeed())
+				Expect(postOAC.Status.AgentRef).To(BeNil())
 			})
 		})
-		When("an Agent resource with a valid Machine with ABCs, reported interfaces", func() {
+		When("an Agent resource with a valid Machine with OACs, reported interfaces", func() {
 			It("should return error if no matching BMH is not found", func() {
-				abc := NewAgentBootstrapConfig(namespace, abcName, clusterName)
-				Expect(k8sClient.Create(ctx, abc)).To(Succeed())
+				oac := NewOpenshiftAssistedConfig(namespace, oacName, clusterName)
+				Expect(k8sClient.Create(ctx, oac)).To(Succeed())
 
 				By("Creating the BMH, Metal3Machine, and Machine")
 				bmh := testutils.NewBareMetalHost(namespace, bmhName)
@@ -221,7 +221,7 @@ var _ = Describe("Agent Controller", func() {
 				).To(Equal("found 1 BMHs, but none matched any of the MacAddresses from the agent's 1 interfaces"))
 			})
 		})
-		When("an Agent resource with a valid Machine with ABCs, reported interfaces", func() {
+		When("an Agent resource with a valid Machine with OACs, reported interfaces", func() {
 			It("should return error if matching BMH is found, but no metal3machine is found", func() {
 				By("Creating the BMH")
 				bmh := testutils.NewBareMetalHost(namespace, bmhName)
@@ -241,11 +241,11 @@ var _ = Describe("Agent Controller", func() {
 			})
 		})
 
-		When("an Agent resource with a valid Machine with ABCs, reported interfaces", func() {
+		When("an Agent resource with a valid Machine with OACs, reported interfaces", func() {
 			It("should return error if matching BMH+metal3machine is found, but no machine is found", func() {
-				By("Creating the AgentBootstrapConfig")
-				abc := NewAgentBootstrapConfig(namespace, abcName, clusterName)
-				Expect(k8sClient.Create(ctx, abc)).To(Succeed())
+				By("Creating the OpenshiftAssistedConfig")
+				oac := NewOpenshiftAssistedConfig(namespace, oacName, clusterName)
+				Expect(k8sClient.Create(ctx, oac)).To(Succeed())
 
 				By("Creating the BMH and Metal3Machine")
 				bmh := testutils.NewBareMetalHost(namespace, bmhName)
@@ -275,9 +275,9 @@ var _ = Describe("Agent Controller", func() {
 
 		When("an Agent resource with matching matching BMH, metal3machine, machine (worker)", func() {
 			It("should reconcile with a valid accepted worker agent", func() {
-				By("Creating the AgentBootstrapConfig")
-				abc := NewAgentBootstrapConfig(namespace, abcName, clusterName)
-				Expect(k8sClient.Create(ctx, abc)).To(Succeed())
+				By("Creating the OpenshiftAssistedConfig")
+				oac := NewOpenshiftAssistedConfig(namespace, oacName, clusterName)
+				Expect(k8sClient.Create(ctx, oac)).To(Succeed())
 
 				By("Creating the BMH, Metal3Machine and Machine")
 				bmh := testutils.NewBareMetalHost(namespace, bmhName)
@@ -288,7 +288,7 @@ var _ = Describe("Agent Controller", func() {
 				}
 				machine := testutils.NewMachine(namespace, machineName, clusterName)
 				machine.Spec.Bootstrap.ConfigRef = &corev1.ObjectReference{
-					Name:      abcName,
+					Name:      oacName,
 					Namespace: namespace,
 				}
 				Expect(controllerutil.SetOwnerReference(machine, m3machine, testScheme)).To(Succeed())
@@ -314,9 +314,9 @@ var _ = Describe("Agent Controller", func() {
 		})
 		When("an Agent resource with matching matching BMH, metal3machine, machine (master)", func() {
 			It("should reconcile with a valid accepted master agent", func() {
-				By("Creating the AgentBootstrapConfig")
-				abc := NewAgentBootstrapConfig(namespace, abcName, clusterName)
-				Expect(k8sClient.Create(ctx, abc)).To(Succeed())
+				By("Creating the OpenshiftAssistedConfig")
+				oac := NewOpenshiftAssistedConfig(namespace, oacName, clusterName)
+				Expect(k8sClient.Create(ctx, oac)).To(Succeed())
 
 				By("Creating the BMH, Metal3Machine and Machine")
 				bmh := testutils.NewBareMetalHost(namespace, bmhName)
@@ -327,7 +327,7 @@ var _ = Describe("Agent Controller", func() {
 				}
 				machine := testutils.NewMachine(namespace, machineName, clusterName)
 				machine.Spec.Bootstrap.ConfigRef = &corev1.ObjectReference{
-					Name:      abcName,
+					Name:      oacName,
 					Namespace: namespace,
 				}
 				machine.Labels[clusterv1.MachineControlPlaneLabel] = "control-plane"
@@ -350,10 +350,10 @@ var _ = Describe("Agent Controller", func() {
 				By("Checking the result of the reconciliation")
 				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(agent), agent)).To(Succeed())
 				assertAgentIsReadyWithRole(agent, bmh, models.HostRoleMaster)
-				postABC := &bootstrapv1alpha1.AgentBootstrapConfig{}
-				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(abc), postABC)).To(Succeed())
-				Expect(postABC.Status.AgentRef).NotTo(BeNil())
-				Expect(postABC.Status.AgentRef.Name).To(Equal(agent.Name))
+				postOAC := &bootstrapv1alpha1.OpenshiftAssistedConfig{}
+				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(oac), postOAC)).To(Succeed())
+				Expect(postOAC.Status.AgentRef).NotTo(BeNil())
+				Expect(postOAC.Status.AgentRef.Name).To(Equal(agent.Name))
 			})
 		})
 	})

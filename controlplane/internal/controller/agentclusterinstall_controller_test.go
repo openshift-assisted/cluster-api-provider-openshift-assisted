@@ -42,28 +42,28 @@ import (
 var _ = Describe("AgentClusterInstall Controller", func() {
 	Context("When reconciling a resource", func() {
 		const (
-			agentControlPlaneName   = "test-controlplane"
-			clusterName             = "test-cluster"
-			namespace               = "test-namespace"
-			agentClusterInstallName = "test-aci"
-			adminKubeconfigSecret   = "test-admin-kubeconfig"
-			kubeconfigSecret        = clusterName + "-kubeconfig"
+			openshiftAssistedControlPlaneName = "test-controlplane"
+			clusterName                       = "test-cluster"
+			namespace                         = "test-namespace"
+			agentClusterInstallName           = "test-aci"
+			adminKubeconfigSecret             = "test-admin-kubeconfig"
+			kubeconfigSecret                  = clusterName + "-kubeconfig"
 		)
 		var (
-			ctx               = context.Background()
-			aciNamespacedName types.NamespacedName
-			agentControlPlane *controlplanev1alpha1.AgentControlPlane
-			aci               *hiveext.AgentClusterInstall
-			reconciler        *AgentClusterInstallReconciler
-			mockCtrl          *gomock.Controller
-			k8sClient         client.Client
+			ctx                           = context.Background()
+			aciNamespacedName             types.NamespacedName
+			openshiftAssistedControlPlane *controlplanev1alpha1.OpenshiftAssistedControlPlane
+			aci                           *hiveext.AgentClusterInstall
+			reconciler                    *AgentClusterInstallReconciler
+			mockCtrl                      *gomock.Controller
+			k8sClient                     client.Client
 		)
 
 		BeforeEach(func() {
 			mockCtrl = gomock.NewController(GinkgoT())
 			k8sClient = fakeclient.NewClientBuilder().
 				WithScheme(testScheme).
-				WithStatusSubresource(&controlplanev1alpha1.AgentControlPlane{}, &hiveext.AgentClusterInstall{}).
+				WithStatusSubresource(&controlplanev1alpha1.OpenshiftAssistedControlPlane{}, &hiveext.AgentClusterInstall{}).
 				Build()
 			Expect(k8sClient).NotTo(BeNil())
 			aciNamespacedName = types.NamespacedName{
@@ -76,20 +76,20 @@ var _ = Describe("AgentClusterInstall Controller", func() {
 				Scheme: k8sClient.Scheme(),
 			}
 
-			agentControlPlane = &controlplanev1alpha1.AgentControlPlane{
+			openshiftAssistedControlPlane = &controlplanev1alpha1.OpenshiftAssistedControlPlane{
 				TypeMeta: metav1.TypeMeta{
-					Kind:       "AgentControlPlane",
+					Kind:       "OpenshiftAssistedControlPlane",
 					APIVersion: controlplanev1alpha1.GroupVersion.String(),
 				},
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      agentControlPlaneName,
+					Name:      openshiftAssistedControlPlaneName,
 					Namespace: namespace,
 					Labels: map[string]string{
 						clusterv1.ClusterNameLabel: clusterName,
 					},
 				},
 			}
-			Expect(k8sClient.Create(ctx, agentControlPlane)).To(Succeed())
+			Expect(k8sClient.Create(ctx, openshiftAssistedControlPlane)).To(Succeed())
 
 			ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespace}}
 			Expect(k8sClient.Create(ctx, ns)).To(Succeed())
@@ -102,7 +102,7 @@ var _ = Describe("AgentClusterInstall Controller", func() {
 			mockCtrl.Finish()
 		})
 
-		It("should return an error when the AgentClusterInstall doesn't have an AgentControlPlane owner", func() {
+		It("should return an error when the AgentClusterInstall doesn't have an OpenshiftAssistedControlPlane owner", func() {
 			By("Reconciling the AgentClusterInstall")
 			_, err := reconciler.Reconcile(ctx, reconcile.Request{
 				NamespacedName: aciNamespacedName,
@@ -110,9 +110,9 @@ var _ = Describe("AgentClusterInstall Controller", func() {
 			Expect(err).To(HaveOccurred())
 		})
 
-		It("should reconcile successfully when the AgentClusterInstall has an AgentControlPlane owner", func() {
-			By("Updating the AgentClusterInstall to have an AgentControlPlane owner")
-			Expect(controllerutil.SetOwnerReference(agentControlPlane, aci, k8sClient.Scheme())).To(Succeed())
+		It("should reconcile successfully when the AgentClusterInstall has an OpenshiftAssistedControlPlane owner", func() {
+			By("Updating the AgentClusterInstall to have an OpenshiftAssistedControlPlane owner")
+			Expect(controllerutil.SetOwnerReference(openshiftAssistedControlPlane, aci, k8sClient.Scheme())).To(Succeed())
 			Expect(k8sClient.Update(ctx, aci)).To(Succeed())
 
 			By("Reconciling the AgentClusterInstall")
@@ -124,10 +124,10 @@ var _ = Describe("AgentClusterInstall Controller", func() {
 		})
 
 		It(
-			"should not change the status of the AgentControlPlane when the AgentClusterInstall doesn't have a kubeconfig reference",
+			"should not change the status of the OpenshiftAssistedControlPlane when the AgentClusterInstall doesn't have a kubeconfig reference",
 			func() {
 				By("Updating the AgentClusterInstall's status")
-				Expect(controllerutil.SetOwnerReference(agentControlPlane, aci, k8sClient.Scheme())).To(Succeed())
+				Expect(controllerutil.SetOwnerReference(openshiftAssistedControlPlane, aci, k8sClient.Scheme())).To(Succeed())
 				Expect(k8sClient.Update(ctx, aci)).To(Succeed())
 				aci.Status.DebugInfo.State = aimodels.HostStatusInstalling
 				Expect(k8sClient.Status().Update(ctx, aci)).To(Succeed())
@@ -139,10 +139,10 @@ var _ = Describe("AgentClusterInstall Controller", func() {
 				Expect(err).NotTo(HaveOccurred())
 				Expect(res).To(Equal(ctrl.Result{}))
 
-				By("Checking that the AgentControlPlane status was not changed")
-				acp := &controlplanev1alpha1.AgentControlPlane{}
+				By("Checking that the OpenshiftAssistedControlPlane status was not changed")
+				acp := &controlplanev1alpha1.OpenshiftAssistedControlPlane{}
 				Expect(
-					k8sClient.Get(ctx, types.NamespacedName{Name: agentControlPlaneName, Namespace: namespace}, acp),
+					k8sClient.Get(ctx, types.NamespacedName{Name: openshiftAssistedControlPlaneName, Namespace: namespace}, acp),
 				).To(Succeed())
 				Expect(acp.Status.Initialized).NotTo(BeTrue())
 				Expect(acp.Status.Ready).NotTo(BeTrue())
@@ -151,7 +151,7 @@ var _ = Describe("AgentClusterInstall Controller", func() {
 
 		It("should fail to reconcile when the kubeconfig reference is set but the secret doesn't exist", func() {
 			By("Updating the AgentClusterInstall's kubeconfig reference")
-			Expect(controllerutil.SetOwnerReference(agentControlPlane, aci, k8sClient.Scheme())).To(Succeed())
+			Expect(controllerutil.SetOwnerReference(openshiftAssistedControlPlane, aci, k8sClient.Scheme())).To(Succeed())
 			aci.Spec.ClusterMetadata = &hivev1.ClusterMetadata{
 				AdminKubeconfigSecretRef: corev1.LocalObjectReference{
 					Name: adminKubeconfigSecret,
@@ -172,10 +172,10 @@ var _ = Describe("AgentClusterInstall Controller", func() {
 				k8sClient.Get(ctx, types.NamespacedName{Name: kubeconfigSecret, Namespace: namespace}, kubeconfig),
 			).NotTo(Succeed())
 
-			By("Checking that the AgentControlPlane status was not changed")
-			acp := &controlplanev1alpha1.AgentControlPlane{}
+			By("Checking that the OpenshiftAssistedControlPlane status was not changed")
+			acp := &controlplanev1alpha1.OpenshiftAssistedControlPlane{}
 			Expect(
-				k8sClient.Get(ctx, types.NamespacedName{Name: agentControlPlaneName, Namespace: namespace}, acp),
+				k8sClient.Get(ctx, types.NamespacedName{Name: openshiftAssistedControlPlaneName, Namespace: namespace}, acp),
 			).To(Succeed())
 			Expect(acp.Status.Initialized).NotTo(BeTrue())
 			Expect(acp.Status.Ready).NotTo(BeTrue())
@@ -183,7 +183,7 @@ var _ = Describe("AgentClusterInstall Controller", func() {
 
 		It("should successfully reconcile when the kubeconfig reference is set", func() {
 			By("Updating the AgentClusterInstall's kubeconfig reference")
-			Expect(controllerutil.SetOwnerReference(agentControlPlane, aci, k8sClient.Scheme())).To(Succeed())
+			Expect(controllerutil.SetOwnerReference(openshiftAssistedControlPlane, aci, k8sClient.Scheme())).To(Succeed())
 			aci.Spec.ClusterMetadata = &hivev1.ClusterMetadata{
 				AdminKubeconfigSecretRef: corev1.LocalObjectReference{
 					Name: adminKubeconfigSecret,
@@ -229,18 +229,18 @@ var _ = Describe("AgentClusterInstall Controller", func() {
 			Expect(updatedSecret.Labels).To(HaveKeyWithValue(clusterv1.ClusterNameLabel, clusterName))
 			Expect(kubeconfig.Labels).To(HaveKeyWithValue(clusterv1.ClusterNameLabel, clusterName))
 
-			By("Checking that the AgentControlPlane status is correct")
-			acp := &controlplanev1alpha1.AgentControlPlane{}
+			By("Checking that the OpenshiftAssistedControlPlane status is correct")
+			acp := &controlplanev1alpha1.OpenshiftAssistedControlPlane{}
 			Expect(
-				k8sClient.Get(ctx, types.NamespacedName{Name: agentControlPlaneName, Namespace: namespace}, acp),
+				k8sClient.Get(ctx, types.NamespacedName{Name: openshiftAssistedControlPlaneName, Namespace: namespace}, acp),
 			).To(Succeed())
 			Expect(acp.Status.Initialized).To(BeTrue())
 			Expect(acp.Status.Ready).NotTo(BeTrue())
 		})
 
-		It("should set the AgentControlPlane to ready when the AgentClusterInstall has finished installing", func() {
+		It("should set the OpenshiftAssistedControlPlane to ready when the AgentClusterInstall has finished installing", func() {
 			By("Updating the AgentClusterInstall's kubeconfig reference")
-			Expect(controllerutil.SetOwnerReference(agentControlPlane, aci, k8sClient.Scheme())).To(Succeed())
+			Expect(controllerutil.SetOwnerReference(openshiftAssistedControlPlane, aci, k8sClient.Scheme())).To(Succeed())
 			aci.Spec.ClusterMetadata = &hivev1.ClusterMetadata{
 				AdminKubeconfigSecretRef: corev1.LocalObjectReference{
 					Name: adminKubeconfigSecret,
@@ -271,10 +271,10 @@ var _ = Describe("AgentClusterInstall Controller", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(res).To(Equal(ctrl.Result{}))
 
-			By("Checking that the AgentControlPlane status is correct")
-			acp := &controlplanev1alpha1.AgentControlPlane{}
+			By("Checking that the OpenshiftAssistedControlPlane status is correct")
+			acp := &controlplanev1alpha1.OpenshiftAssistedControlPlane{}
 			Expect(
-				k8sClient.Get(ctx, types.NamespacedName{Name: agentControlPlaneName, Namespace: namespace}, acp),
+				k8sClient.Get(ctx, types.NamespacedName{Name: openshiftAssistedControlPlaneName, Namespace: namespace}, acp),
 			).To(Succeed())
 			Expect(acp.Status.Initialized).To(BeTrue())
 			Expect(acp.Status.Ready).To(BeTrue())

@@ -18,20 +18,22 @@ metadata:
     controller-gen.kubebuilder.io/version: v0.14.0
   labels:
     cluster.x-k8s.io/v1beta1: v1alpha1
-  name: agentbootstrapconfigs.bootstrap.cluster.x-k8s.io
+  name: openshiftassistedconfigs.bootstrap.cluster.x-k8s.io
 spec:
   group: bootstrap.cluster.x-k8s.io
   names:
-    kind: AgentBootstrapConfig
-    listKind: AgentBootstrapConfigList
-    plural: agentbootstrapconfigs
-    singular: agentbootstrapconfig
+    kind: OpenshiftAssistedConfig
+    listKind: OpenshiftAssistedConfigList
+    plural: openshiftassistedconfigs
+    shortNames:
+    - oac
+    singular: openshiftassistedconfig
   scope: Namespaced
   versions:
   - name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: AgentBootstrapConfig is the Schema for the agentbootstrapconfigs
+        description: OpenshiftAssistedConfig is the Schema for the openshiftassistedconfig
           API
         properties:
           apiVersion:
@@ -52,7 +54,8 @@ spec:
           metadata:
             type: object
           spec:
-            description: AgentBootstrapConfigSpec defines the desired state of AgentBootstrapConfig
+            description: OpenshiftAssistedConfigSpec defines the desired state of
+              OpenshiftAssistedConfig
             properties:
               additionalNTPSources:
                 description: |-
@@ -187,8 +190,8 @@ spec:
                 type: string
             type: object
           status:
-            description: AgentBootstrapConfigStatus defines the observed state of
-              AgentBootstrapConfig
+            description: OpenshiftAssistedConfigStatus defines the observed state
+              of OpenshiftAssistedConfig
             properties:
               agentRef:
                 description: AgentRef references the agent this agent bootstrap config
@@ -203,7 +206,7 @@ spec:
                 type: object
                 x-kubernetes-map-type: atomic
               conditions:
-                description: Conditions defines current service state of the AgentBootstrapConfig.
+                description: Conditions defines current service state of the OpenshiftAssistedConfig.
                 items:
                   description: Condition defines an observation of a Cluster API resource
                     operational state.
@@ -331,20 +334,20 @@ metadata:
     controller-gen.kubebuilder.io/version: v0.14.0
   labels:
     cluster.x-k8s.io/v1beta1: v1alpha1
-  name: agentbootstrapconfigtemplates.bootstrap.cluster.x-k8s.io
+  name: openshiftassistedconfigtemplates.bootstrap.cluster.x-k8s.io
 spec:
   group: bootstrap.cluster.x-k8s.io
   names:
-    kind: AgentBootstrapConfigTemplate
-    listKind: AgentBootstrapConfigTemplateList
-    plural: agentbootstrapconfigtemplates
-    singular: agentbootstrapconfigtemplate
+    kind: OpenshiftAssistedConfigTemplate
+    listKind: OpenshiftAssistedConfigTemplateList
+    plural: openshiftassistedconfigtemplates
+    singular: openshiftassistedconfigtemplate
   scope: Namespaced
   versions:
   - name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: AgentBootstrapConfigTemplate is the Schema for the agentbootstrapconfigtemplates
+        description: OpenshiftAssistedConfigTemplate is the Schema for the agentbootstrapconfigtemplates
           API
         properties:
           apiVersion:
@@ -365,12 +368,11 @@ spec:
           metadata:
             type: object
           spec:
-            description: AgentBootstrapConfigTemplateSpec defines the desired state
-              of AgentBootstrapConfigTemplate
+            description: OpenshiftAssistedConfigTemplateSpec defines the desired state
+              of OpenshiftAssistedConfigTemplate
             properties:
               template:
-                description: Foo is an example field of AgentBootstrapConfigTemplate.
-                  Edit agentbootstrapconfigtemplate_types.go to remove/update
+                description: OpenshiftAssistedConfig template
                 properties:
                   metadata:
                     description: |-
@@ -397,8 +399,8 @@ spec:
                         type: object
                     type: object
                   spec:
-                    description: AgentBootstrapConfigSpec defines the desired state
-                      of AgentBootstrapConfig
+                    description: OpenshiftAssistedConfigSpec defines the desired state
+                      of OpenshiftAssistedConfig
                     properties:
                       additionalNTPSources:
                         description: |-
@@ -539,8 +541,8 @@ spec:
             - template
             type: object
           status:
-            description: AgentBootstrapConfigTemplateStatus defines the observed state
-              of AgentBootstrapConfigTemplate
+            description: OpenshiftAssistedConfigTemplateStatus defines the observed
+              state of OpenshiftAssistedConfigTemplate
             type: object
         type: object
     served: true
@@ -648,7 +650,7 @@ rules:
 - apiGroups:
   - bootstrap.cluster.x-k8s.io
   resources:
-  - agentbootstrapconfigs
+  - openshiftassistedconfigs
   verbs:
   - create
   - delete
@@ -660,13 +662,13 @@ rules:
 - apiGroups:
   - bootstrap.cluster.x-k8s.io
   resources:
-  - agentbootstrapconfigs/finalizers
+  - openshiftassistedconfigs/finalizers
   verbs:
   - update
 - apiGroups:
   - bootstrap.cluster.x-k8s.io
   resources:
-  - agentbootstrapconfigs/status
+  - openshiftassistedconfigs/status
   verbs:
   - get
   - patch
@@ -699,7 +701,7 @@ rules:
 - apiGroups:
   - controlplane.cluster.x-k8s.io
   resources:
-  - agentcontrolplanes
+  - openshiftassistedcontrolplanes
   verbs:
   - get
   - list
@@ -712,7 +714,6 @@ rules:
   verbs:
   - get
   - list
-  - list'watch
   - watch
 - apiGroups:
   - hive.openshift.io
@@ -933,13 +934,13 @@ spec:
         - --leader-elect
         command:
         - /manager
-        image: quay.io/edge-infrastructure/openshift-capi-agent-bootstrap:latest
-        imagePullPolicy: Always
         env:
         - name: NAMESPACE
           valueFrom:
             fieldRef:
               fieldPath: metadata.namespace
+        image: quay.io/edge-infrastructure/openshift-capi-agent-bootstrap:latest
+        imagePullPolicy: Always
         livenessProbe:
           httpGet:
             path: /healthz

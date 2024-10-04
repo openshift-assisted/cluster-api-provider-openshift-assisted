@@ -8,10 +8,13 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func GetClusterDeploymentFromConfig(acp *v1alpha1.AgentControlPlane, clusterName string) *hivev1.ClusterDeployment {
+func GetClusterDeploymentFromConfig(
+	acp *v1alpha1.OpenshiftAssistedControlPlane,
+	clusterName string,
+) *hivev1.ClusterDeployment {
 	assistedClusterName := clusterName
-	if acp.Spec.AgentConfigSpec.ClusterName != "" {
-		assistedClusterName = acp.Spec.AgentConfigSpec.ClusterName
+	if acp.Spec.Config.ClusterName != "" {
+		assistedClusterName = acp.Spec.Config.ClusterName
 	}
 	// Get cluster clusterName instead of reference to ACP clusterName
 	clusterDeployment := &hivev1.ClusterDeployment{
@@ -22,11 +25,11 @@ func GetClusterDeploymentFromConfig(acp *v1alpha1.AgentControlPlane, clusterName
 		},
 		Spec: hivev1.ClusterDeploymentSpec{
 			ClusterName: assistedClusterName,
-			BaseDomain:  acp.Spec.AgentConfigSpec.BaseDomain,
+			BaseDomain:  acp.Spec.Config.BaseDomain,
 			Platform: hivev1.Platform{
 				AgentBareMetal: &agent.BareMetalPlatform{},
 			},
-			PullSecretRef: acp.Spec.AgentConfigSpec.PullSecretRef,
+			PullSecretRef: acp.Spec.Config.PullSecretRef,
 		},
 	}
 	return clusterDeployment

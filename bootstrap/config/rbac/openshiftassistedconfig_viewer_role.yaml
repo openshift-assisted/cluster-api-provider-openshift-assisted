@@ -1,20 +1,20 @@
-# permissions for end users to view agentbootstrapconfigs.
+# permissions for end users to view openshiftassistedconfigs.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   labels:
     app.kubernetes.io/name: clusterrole
-    app.kubernetes.io/instance: agentbootstrapconfig-viewer-role
+    app.kubernetes.io/instance: openshiftassistedconfig-viewer-role
     app.kubernetes.io/component: rbac
     app.kubernetes.io/created-by: cluster-api-agent
     app.kubernetes.io/part-of: cluster-api-agent
     app.kubernetes.io/managed-by: kustomize
-  name: agentbootstrapconfig-viewer-role
+  name: openshiftassistedconfig-viewer-role
 rules:
 - apiGroups:
   - bootstrap.cluster.x-k8s.io
   resources:
-  - agentbootstrapconfigs
+  - openshiftassistedconfigs
   verbs:
   - get
   - list
@@ -22,6 +22,6 @@ rules:
 - apiGroups:
   - bootstrap.cluster.x-k8s.io
   resources:
-  - agentbootstrapconfigs/status
+  - openshiftassistedconfigs/status
   verbs:
   - get

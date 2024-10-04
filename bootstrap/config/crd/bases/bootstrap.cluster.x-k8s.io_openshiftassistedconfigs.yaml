@@ -4,20 +4,22 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.14.0
-  name: agentbootstrapconfigs.bootstrap.cluster.x-k8s.io
+  name: openshiftassistedconfigs.bootstrap.cluster.x-k8s.io
 spec:
   group: bootstrap.cluster.x-k8s.io
   names:
-    kind: AgentBootstrapConfig
-    listKind: AgentBootstrapConfigList
-    plural: agentbootstrapconfigs
-    singular: agentbootstrapconfig
+    kind: OpenshiftAssistedConfig
+    listKind: OpenshiftAssistedConfigList
+    plural: openshiftassistedconfigs
+    shortNames:
+    - oac
+    singular: openshiftassistedconfig
   scope: Namespaced
   versions:
   - name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: AgentBootstrapConfig is the Schema for the agentbootstrapconfigs
+        description: OpenshiftAssistedConfig is the Schema for the openshiftassistedconfig
           API
         properties:
           apiVersion:
@@ -38,7 +40,8 @@ spec:
           metadata:
             type: object
           spec:
-            description: AgentBootstrapConfigSpec defines the desired state of AgentBootstrapConfig
+            description: OpenshiftAssistedConfigSpec defines the desired state of
+              OpenshiftAssistedConfig
             properties:
               additionalNTPSources:
                 description: |-
@@ -173,8 +176,8 @@ spec:
                 type: string
             type: object
           status:
-            description: AgentBootstrapConfigStatus defines the observed state of
-              AgentBootstrapConfig
+            description: OpenshiftAssistedConfigStatus defines the observed state
+              of OpenshiftAssistedConfig
             properties:
               agentRef:
                 description: AgentRef references the agent this agent bootstrap config
@@ -189,7 +192,7 @@ spec:
                 type: object
                 x-kubernetes-map-type: atomic
               conditions:
-                description: Conditions defines current service state of the AgentBootstrapConfig.
+                description: Conditions defines current service state of the OpenshiftAssistedConfig.
                 items:
                   description: Condition defines an observation of a Cluster API resource
                     operational state.

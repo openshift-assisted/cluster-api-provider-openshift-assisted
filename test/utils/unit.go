@@ -75,7 +75,7 @@ func NewCluster(clusterName, namespace string) *clusterv1.Cluster {
 
 func NewMachineWithInfraRef(
 	machineName, namespace, clusterName string,
-	acp *controlplanev1alpha1.AgentControlPlane,
+	acp *controlplanev1alpha1.OpenshiftAssistedControlPlane,
 	infraRef client.Object,
 ) *clusterv1.Machine {
 	infraRefGVK := infraRef.GetObjectKind().GroupVersionKind()
@@ -138,10 +138,10 @@ func NewM3MachineTemplateWithImage(namespace, name, url, diskFormat string) *met
 	return m3Template
 }
 
-func NewAgentControlPlane(namespace, name string) *controlplanev1alpha1.AgentControlPlane {
-	return &controlplanev1alpha1.AgentControlPlane{
+func NewOpenshiftAssistedControlPlane(namespace, name string) *controlplanev1alpha1.OpenshiftAssistedControlPlane {
+	return &controlplanev1alpha1.OpenshiftAssistedControlPlane{
 		TypeMeta: metav1.TypeMeta{
-			Kind:       "AgentControlPlane",
+			Kind:       "OpenshiftAssistedControlPlane",
 			APIVersion: controlplanev1alpha1.GroupVersion.String(),
 		},
 		ObjectMeta: metav1.ObjectMeta{
@@ -151,11 +151,11 @@ func NewAgentControlPlane(namespace, name string) *controlplanev1alpha1.AgentCon
 	}
 }
 
-func NewAgentControlPlaneWithMachineTemplate(
+func NewOpenshiftAssistedControlPlaneWithMachineTemplate(
 	namespace, name string,
 	m3Template *metal3.Metal3MachineTemplate,
-) *controlplanev1alpha1.AgentControlPlane {
-	acp := NewAgentControlPlane(namespace, name)
+) *controlplanev1alpha1.OpenshiftAssistedControlPlane {
+	acp := NewOpenshiftAssistedControlPlane(namespace, name)
 	acp.Spec.MachineTemplate.InfrastructureRef = corev1.ObjectReference{
 		Kind:       m3Template.Kind,
 		Namespace:  m3Template.Namespace,

@@ -168,7 +168,7 @@ func InstallIronic() error {
 	cmd = exec.Command(
 		"kubectl", "wait",
 		"--for=condition=available", "deployment/ironic",
-		"--timeout=300s",
+		"--timeout=600s",
 		"-n", "baremetal-operator-system",
 	)
 	out, err = cmd.CombinedOutput()
@@ -189,7 +189,7 @@ func InstallBMO() error {
 	cmd = exec.Command(
 		"kubectl", "wait",
 		"--for=condition=available", "deployment/baremetal-operator-controller-manager",
-		"--timeout=300s",
+		"--timeout=600s",
 		"-n", "baremetal-operator-system",
 	)
 	out, err := cmd.CombinedOutput()

@@ -45,7 +45,7 @@ rules:
 - apiGroups:
   - bootstrap.cluster.x-k8s.io
   resources:
-  - agentbootstrapconfigs
+  - openshiftassistedconfigs
   verbs:
   - create
   - delete
@@ -57,13 +57,13 @@ rules:
 - apiGroups:
   - bootstrap.cluster.x-k8s.io
   resources:
-  - agentbootstrapconfigs/finalizers
+  - openshiftassistedconfigs/finalizers
   verbs:
   - update
 - apiGroups:
   - bootstrap.cluster.x-k8s.io
   resources:
-  - agentbootstrapconfigs/status
+  - openshiftassistedconfigs/status
   verbs:
   - get
   - patch
@@ -96,7 +96,7 @@ rules:
 - apiGroups:
   - controlplane.cluster.x-k8s.io
   resources:
-  - agentcontrolplanes
+  - openshiftassistedcontrolplanes
   verbs:
   - get
   - list
@@ -109,7 +109,6 @@ rules:
   verbs:
   - get
   - list
-  - list'watch
   - watch
 - apiGroups:
   - hive.openshift.io

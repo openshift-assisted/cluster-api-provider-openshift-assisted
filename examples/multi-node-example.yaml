@@ -22,7 +22,7 @@ spec:
         - 10.96.0.0/12
   controlPlaneRef:
     apiVersion: controlplane.cluster.x-k8s.io/v1alpha1
-    kind: AgentControlPlane
+    kind: OpenshiftAssistedControlPlane
     name: test-multinode
     namespace: test-capi
   infrastructureRef:
@@ -43,16 +43,16 @@ spec:
   noCloudProvider: true
 ---
 apiVersion: controlplane.cluster.x-k8s.io/v1alpha1
-kind: AgentControlPlane
+kind: OpenshiftAssistedControlPlane
 metadata:
   name: test-multinode
   namespace: test-capi
 spec:
-  agentBootstrapConfigSpec:
+  openshiftAssistedConfigSpec:
     pullSecretRef:
       name: "pull-secret"
     sshAuthorizedKey: <SSH_AUTHORIZED_KEY>
-  agentConfigSpec:
+  config:
     apiVIPs:
     - 192.168.222.40
     ingressVIPs:
@@ -146,14 +146,14 @@ spec:
         configRef:
           name: test-multinode-worker
           apiVersion: bootstrap.cluster.x-k8s.io/v1alpha1
-          kind: AgentBootstrapConfigTemplate
+          kind: OpenshiftAssistedConfigTemplate
       infrastructureRef:
         name: test-multinode-workers-2
         apiVersion: infrastructure.cluster.x-k8s.io/v1alpha3
         kind: Metal3MachineTemplate
 ---
 apiVersion: bootstrap.cluster.x-k8s.io/v1alpha1
-kind: AgentBootstrapConfigTemplate
+kind: OpenshiftAssistedConfigTemplate
 metadata:
   name: test-multinode-worker
   labels:

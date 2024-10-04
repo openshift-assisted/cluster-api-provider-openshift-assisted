@@ -38,18 +38,18 @@ import (
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 )
 
-var _ = Describe("AgentControlPlane Controller", func() {
+var _ = Describe("OpenshiftAssistedControlPlane Controller", func() {
 	Context("When reconciling a resource", func() {
 		const (
-			agentControlPlaneName = "test-resource"
-			clusterName           = "test-cluster"
-			namespace             = "test"
+			openshiftAssistedControlPlaneName = "test-resource"
+			clusterName                       = "test-cluster"
+			namespace                         = "test"
 		)
 		var (
 			ctx                  = context.Background()
 			typeNamespacedName   types.NamespacedName
 			cluster              *clusterv1.Cluster
-			controllerReconciler *AgentControlPlaneReconciler
+			controllerReconciler *OpenshiftAssistedControlPlaneReconciler
 			mockCtrl             *gomock.Controller
 			k8sClient            client.Client
 		)
@@ -57,17 +57,17 @@ var _ = Describe("AgentControlPlane Controller", func() {
 		BeforeEach(func() {
 			k8sClient = fakeclient.NewClientBuilder().
 				WithScheme(testScheme).
-				WithStatusSubresource(&controlplanev1alpha1.AgentControlPlane{}).Build()
+				WithStatusSubresource(&controlplanev1alpha1.OpenshiftAssistedControlPlane{}).Build()
 
 			mockCtrl = gomock.NewController(GinkgoT())
 			ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespace}}
 			Expect(k8sClient.Create(ctx, ns)).To(Succeed())
 			typeNamespacedName = types.NamespacedName{
-				Name:      agentControlPlaneName,
+				Name:      openshiftAssistedControlPlaneName,
 				Namespace: namespace,
 			}
 
-			controllerReconciler = &AgentControlPlaneReconciler{
+			controllerReconciler = &OpenshiftAssistedControlPlaneReconciler{
 				Client: k8sClient,
 				Scheme: k8sClient.Scheme(),
 			}
@@ -87,27 +87,27 @@ var _ = Describe("AgentControlPlane Controller", func() {
 			k8sClient = nil
 		})
 
-		When("when a cluster owns this agent control plane", func() {
+		When("when a cluster owns this OpenshiftAssistedControlPlane", func() {
 			It("should successfully create a cluster deployment", func() {
-				By("setting the cluster as the owner ref on the agent control plane")
+				By("setting the cluster as the owner ref on the OACP")
 
-				agentControlPlane := getAgentControlPlane()
-				agentControlPlane.SetOwnerReferences(
+				openshiftAssistedControlPlane := getOpenshiftAssistedControlPlane()
+				openshiftAssistedControlPlane.SetOwnerReferences(
 					[]metav1.OwnerReference{
 						*metav1.NewControllerRef(cluster, clusterv1.GroupVersion.WithKind(clusterv1.ClusterKind)),
 					},
 				)
-				Expect(k8sClient.Create(ctx, agentControlPlane)).To(Succeed())
+				Expect(k8sClient.Create(ctx, openshiftAssistedControlPlane)).To(Succeed())
 
-				By("checking if the agent control plane created the cluster deployment after reconcile")
+				By("checking if the OpenshiftAssistedControlPlane created the cluster deployment after reconcile")
 				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
 					NamespacedName: typeNamespacedName,
 				})
 				Expect(err).NotTo(HaveOccurred())
-				err = k8sClient.Get(ctx, typeNamespacedName, agentControlPlane)
+				err = k8sClient.Get(ctx, typeNamespacedName, openshiftAssistedControlPlane)
 				Expect(err).NotTo(HaveOccurred())
-				Expect(agentControlPlane.Status.ClusterDeploymentRef).NotTo(BeNil())
-				Expect(agentControlPlane.Status.ClusterDeploymentRef.Name).Should(Equal(agentControlPlane.Name))
+				Expect(openshiftAssistedControlPlane.Status.ClusterDeploymentRef).NotTo(BeNil())
+				Expect(openshiftAssistedControlPlane.Status.ClusterDeploymentRef.Name).Should(Equal(openshiftAssistedControlPlane.Name))
 
 				By("checking that the cluster deployment was created")
 				cd := &hivev1.ClusterDeployment{}
@@ -117,37 +117,37 @@ var _ = Describe("AgentControlPlane Controller", func() {
 
 				// assert ClusterDeployment properties
 				Expect(cd.Spec.ClusterName).To(Equal(clusterName))
-				Expect(cd.Spec.BaseDomain).To(Equal(agentControlPlane.Spec.AgentConfigSpec.BaseDomain))
-				Expect(cd.Spec.PullSecretRef).To(Equal(agentControlPlane.Spec.AgentConfigSpec.PullSecretRef))
+				Expect(cd.Spec.BaseDomain).To(Equal(openshiftAssistedControlPlane.Spec.Config.BaseDomain))
+				Expect(cd.Spec.PullSecretRef).To(Equal(openshiftAssistedControlPlane.Spec.Config.PullSecretRef))
 			})
 		})
 
-		When("a cluster owns this agent control plane", func() {
-			It("should successfully create a cluster deployment and match AgentControlPlane properties", func() {
-				By("setting the cluster as the owner ref on the agent control plane")
+		When("a cluster owns this OpenshiftAssistedControlPlane", func() {
+			It("should successfully create a cluster deployment and match OpenshiftAssistedControlPlane properties", func() {
+				By("setting the cluster as the owner ref on the OpenshiftAssistedControlPlane")
 
-				agentControlPlane := getAgentControlPlane()
-				agentControlPlane.Spec.AgentConfigSpec.ClusterName = "my-cluster"
-				agentControlPlane.Spec.AgentConfigSpec.PullSecretRef = &corev1.LocalObjectReference{
+				openshiftAssistedControlPlane := getOpenshiftAssistedControlPlane()
+				openshiftAssistedControlPlane.Spec.Config.ClusterName = "my-cluster"
+				openshiftAssistedControlPlane.Spec.Config.PullSecretRef = &corev1.LocalObjectReference{
 					Name: "my-pullsecret",
 				}
-				agentControlPlane.Spec.AgentConfigSpec.BaseDomain = "example.com"
-				agentControlPlane.SetOwnerReferences(
+				openshiftAssistedControlPlane.Spec.Config.BaseDomain = "example.com"
+				openshiftAssistedControlPlane.SetOwnerReferences(
 					[]metav1.OwnerReference{
 						*metav1.NewControllerRef(cluster, clusterv1.GroupVersion.WithKind(clusterv1.ClusterKind)),
 					},
 				)
-				Expect(k8sClient.Create(ctx, agentControlPlane)).To(Succeed())
+				Expect(k8sClient.Create(ctx, openshiftAssistedControlPlane)).To(Succeed())
 
-				By("checking if the agent control plane created the cluster deployment after reconcile")
+				By("checking if the OpenshiftAssistedControlPlane created the cluster deployment after reconcile")
 				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
 					NamespacedName: typeNamespacedName,
 				})
 				Expect(err).NotTo(HaveOccurred())
-				err = k8sClient.Get(ctx, typeNamespacedName, agentControlPlane)
+				err = k8sClient.Get(ctx, typeNamespacedName, openshiftAssistedControlPlane)
 				Expect(err).NotTo(HaveOccurred())
-				Expect(agentControlPlane.Status.ClusterDeploymentRef).NotTo(BeNil())
-				Expect(agentControlPlane.Status.ClusterDeploymentRef.Name).Should(Equal(agentControlPlane.Name))
+				Expect(openshiftAssistedControlPlane.Status.ClusterDeploymentRef).NotTo(BeNil())
+				Expect(openshiftAssistedControlPlane.Status.ClusterDeploymentRef.Name).Should(Equal(openshiftAssistedControlPlane.Name))
 
 				By("checking that the cluster deployment was created")
 				cd := &hivev1.ClusterDeployment{}
@@ -156,32 +156,32 @@ var _ = Describe("AgentControlPlane Controller", func() {
 				Expect(cd).NotTo(BeNil())
 
 				// assert ClusterDeployment properties
-				Expect(cd.Spec.ClusterName).To(Equal(agentControlPlane.Spec.AgentConfigSpec.ClusterName))
-				Expect(cd.Spec.BaseDomain).To(Equal(agentControlPlane.Spec.AgentConfigSpec.BaseDomain))
-				Expect(cd.Spec.PullSecretRef).To(Equal(agentControlPlane.Spec.AgentConfigSpec.PullSecretRef))
+				Expect(cd.Spec.ClusterName).To(Equal(openshiftAssistedControlPlane.Spec.Config.ClusterName))
+				Expect(cd.Spec.BaseDomain).To(Equal(openshiftAssistedControlPlane.Spec.Config.BaseDomain))
+				Expect(cd.Spec.PullSecretRef).To(Equal(openshiftAssistedControlPlane.Spec.Config.PullSecretRef))
 			})
 		})
 
-		When("a pull secret isn't set on the AgentControlPlane", func() {
+		When("a pull secret isn't set on the OpenshiftAssistedControlPlane", func() {
 			It("should successfully create the ClusterDeployment with the default fake pull secret", func() {
-				By("setting the cluster as the owner ref on the agent control plane")
-				agentControlPlane := getAgentControlPlane()
-				agentControlPlane.SetOwnerReferences(
+				By("setting the cluster as the owner ref on the OpenshiftAssistedControlPlane")
+				openshiftAssistedControlPlane := getOpenshiftAssistedControlPlane()
+				openshiftAssistedControlPlane.SetOwnerReferences(
 					[]metav1.OwnerReference{
 						*metav1.NewControllerRef(cluster, clusterv1.GroupVersion.WithKind(clusterv1.ClusterKind)),
 					},
 				)
-				Expect(k8sClient.Create(ctx, agentControlPlane)).To(Succeed())
+				Expect(k8sClient.Create(ctx, openshiftAssistedControlPlane)).To(Succeed())
 
-				By("checking if the agent control plane created the cluster deployment after reconcile")
+				By("checking if the OpenshiftAssistedControlPlane created the cluster deployment after reconcile")
 				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
 					NamespacedName: typeNamespacedName,
 				})
 				Expect(err).NotTo(HaveOccurred())
-				err = k8sClient.Get(ctx, typeNamespacedName, agentControlPlane)
+				err = k8sClient.Get(ctx, typeNamespacedName, openshiftAssistedControlPlane)
 				Expect(err).NotTo(HaveOccurred())
-				Expect(agentControlPlane.Status.ClusterDeploymentRef).NotTo(BeNil())
-				Expect(agentControlPlane.Status.ClusterDeploymentRef.Name).Should(Equal(agentControlPlane.Name))
+				Expect(openshiftAssistedControlPlane.Status.ClusterDeploymentRef).NotTo(BeNil())
+				Expect(openshiftAssistedControlPlane.Status.ClusterDeploymentRef.Name).Should(Equal(openshiftAssistedControlPlane.Name))
 
 				By("checking that the fake pull secret was created")
 				pullSecret := &corev1.Secret{}
@@ -201,46 +201,46 @@ var _ = Describe("AgentControlPlane Controller", func() {
 
 			})
 		})
-		It("should add a finalizer to the agent control plane if it's not being deleted", func() {
-			By("setting the owner ref on the agent control plane")
+		It("should add a finalizer to the OpenshiftAssistedControlPlane if it's not being deleted", func() {
+			By("setting the owner ref on the OpenshiftAssistedControlPlane")
 
-			agentControlPlane := getAgentControlPlane()
-			agentControlPlane.SetOwnerReferences(
+			openshiftAssistedControlPlane := getOpenshiftAssistedControlPlane()
+			openshiftAssistedControlPlane.SetOwnerReferences(
 				[]metav1.OwnerReference{
 					*metav1.NewControllerRef(cluster, clusterv1.GroupVersion.WithKind(clusterv1.ClusterKind)),
 				},
 			)
-			Expect(k8sClient.Create(ctx, agentControlPlane)).To(Succeed())
+			Expect(k8sClient.Create(ctx, openshiftAssistedControlPlane)).To(Succeed())
 
 			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
 			Expect(err).NotTo(HaveOccurred())
 
-			By("checking if the agent control plane has the finalizer")
-			err = k8sClient.Get(ctx, typeNamespacedName, agentControlPlane)
+			By("checking if the OpenshiftAssistedControlPlane has the finalizer")
+			err = k8sClient.Get(ctx, typeNamespacedName, openshiftAssistedControlPlane)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(agentControlPlane.Finalizers).NotTo(BeEmpty())
-			Expect(agentControlPlane.Finalizers).To(ContainElement(acpFinalizer))
+			Expect(openshiftAssistedControlPlane.Finalizers).NotTo(BeEmpty())
+			Expect(openshiftAssistedControlPlane.Finalizers).To(ContainElement(acpFinalizer))
 		})
-		When("an invalid version is set on the AgentControlPlane", func() {
+		When("an invalid version is set on the OpenshiftAssistedControlPlane", func() {
 			It("should return error", func() {
-				By("setting the cluster as the owner ref on the agent control plane")
-				agentControlPlane := getAgentControlPlane()
-				agentControlPlane.Spec.Version = "4.12.0"
-				agentControlPlane.SetOwnerReferences(
+				By("setting the cluster as the owner ref on the OpenshiftAssistedControlPlane")
+				openshiftAssistedControlPlane := getOpenshiftAssistedControlPlane()
+				openshiftAssistedControlPlane.Spec.Version = "4.12.0"
+				openshiftAssistedControlPlane.SetOwnerReferences(
 					[]metav1.OwnerReference{
 						*metav1.NewControllerRef(cluster, clusterv1.GroupVersion.WithKind(clusterv1.ClusterKind)),
 					},
 				)
-				Expect(k8sClient.Create(ctx, agentControlPlane)).To(Succeed())
+				Expect(k8sClient.Create(ctx, openshiftAssistedControlPlane)).To(Succeed())
 				By("checking if the condition of invalid version")
 				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
 					NamespacedName: typeNamespacedName,
 				})
 				Expect(err).NotTo(HaveOccurred())
 
-				Expect(k8sClient.Get(ctx, typeNamespacedName, agentControlPlane)).To(Succeed())
+				Expect(k8sClient.Get(ctx, typeNamespacedName, openshiftAssistedControlPlane)).To(Succeed())
 
-				condition := conditions.Get(agentControlPlane,
+				condition := conditions.Get(openshiftAssistedControlPlane,
 					controlplanev1alpha1.MachinesCreatedCondition,
 				)
 				Expect(condition).NotTo(BeNil())
@@ -251,13 +251,13 @@ var _ = Describe("AgentControlPlane Controller", func() {
 	})
 })
 
-func getAgentControlPlane() *controlplanev1alpha1.AgentControlPlane {
-	return &controlplanev1alpha1.AgentControlPlane{
+func getOpenshiftAssistedControlPlane() *controlplanev1alpha1.OpenshiftAssistedControlPlane {
+	return &controlplanev1alpha1.OpenshiftAssistedControlPlane{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      agentControlPlaneName,
+			Name:      openshiftAssistedControlPlaneName,
 			Namespace: namespace,
 		},
-		Spec: controlplanev1alpha1.AgentControlPlaneSpec{
+		Spec: controlplanev1alpha1.OpenshiftAssistedControlPlaneSpec{
 			Version: "4.16.0",
 		},
 	}

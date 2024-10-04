@@ -39,7 +39,7 @@ import (
 
 const (
 	agentName                        = "test-agent"
-	abcName                          = "test-resource"
+	oacName                          = "test-resource"
 	bmhName                          = "test-bmh"
 	namespace                        = "test-namespace"
 	clusterName                      = "test-cluster"
@@ -82,20 +82,20 @@ gmY=
 -----END CERTIFICATE-----`
 )
 
-var _ = Describe("AgentBootstrapConfigSpec Controller", func() {
+var _ = Describe("OpenshiftAssistedConfig Controller", func() {
 	Context("When reconciling a resource", func() {
 		ctx := context.Background()
-		var controllerReconciler *AgentBootstrapConfigReconciler
+		var controllerReconciler *OpenshiftAssistedConfigReconciler
 		var k8sClient client.Client
 
 		BeforeEach(func() {
 			By("Resetting fakeclient state")
 			k8sClient = fakeclient.NewClientBuilder().WithScheme(testScheme).
-				WithStatusSubresource(&bootstrapv1alpha1.AgentBootstrapConfig{}).
+				WithStatusSubresource(&bootstrapv1alpha1.OpenshiftAssistedConfig{}).
 				Build()
 			Expect(k8sClient).NotTo(BeNil())
 
-			controllerReconciler = &AgentBootstrapConfigReconciler{
+			controllerReconciler = &OpenshiftAssistedConfigReconciler{
 				Client: k8sClient,
 				Scheme: k8sClient.Scheme(),
 			}
@@ -112,28 +112,28 @@ var _ = Describe("AgentBootstrapConfigSpec Controller", func() {
 			k8sClient = nil
 			controllerReconciler = nil
 		})
-		When("AgentBootstrapConfig has no owner", func() {
+		When("OpenshiftAssistedConfig has no owner", func() {
 			It("should successfully reconcile with NOOP", func() {
-				abc := NewAgentBootstrapConfig(namespace, abcName, clusterName)
-				Expect(k8sClient.Create(ctx, abc)).To(Succeed())
+				oac := NewOpenshiftAssistedConfig(namespace, oacName, clusterName)
+				Expect(k8sClient.Create(ctx, oac)).To(Succeed())
 
 				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-					NamespacedName: client.ObjectKeyFromObject(abc),
+					NamespacedName: client.ObjectKeyFromObject(oac),
 				})
 				Expect(err).NotTo(HaveOccurred())
 
 				// This config has no owner, should exit before setting conditions
-				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(abc), abc)).To(Succeed())
-				condition := conditions.Get(abc,
+				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(oac), oac)).To(Succeed())
+				condition := conditions.Get(oac,
 					bootstrapv1alpha1.DataSecretAvailableCondition,
 				)
 				Expect(condition).To(BeNil())
 			})
 		})
-		When("AgentBootstrapConfig has a non-relevant owner", func() {
+		When("OpenshiftAssistedConfig has a non-relevant owner", func() {
 			It("should successfully reconcile", func() {
-				abc := NewAgentBootstrapConfig(namespace, abcName, clusterName)
-				abc.OwnerReferences = []metav1.OwnerReference{
+				oac := NewOpenshiftAssistedConfig(namespace, oacName, clusterName)
+				oac.OwnerReferences = []metav1.OwnerReference{
 					{
 						APIVersion: "madeup-version",
 						Kind:       "madeup-kind",
@@ -141,16 +141,16 @@ var _ = Describe("AgentBootstrapConfigSpec Controller", func() {
 						UID:        "madeup-uid",
 					},
 				}
-				Expect(k8sClient.Create(ctx, abc)).To(Succeed())
+				Expect(k8sClient.Create(ctx, oac)).To(Succeed())
 
 				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-					NamespacedName: client.ObjectKeyFromObject(abc),
+					NamespacedName: client.ObjectKeyFromObject(oac),
 				})
 				Expect(err).NotTo(HaveOccurred())
 
 				// This config has no relevant owner, should exit before setting conditions
-				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(abc), abc)).To(Succeed())
-				condition := conditions.Get(abc,
+				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(oac), oac)).To(Succeed())
+				condition := conditions.Get(oac,
 					bootstrapv1alpha1.DataSecretAvailableCondition,
 				)
 				Expect(condition).To(BeNil())
@@ -159,15 +159,15 @@ var _ = Describe("AgentBootstrapConfigSpec Controller", func() {
 		When("ClusterDeployment and AgentClusterInstall are not created yet", func() {
 			It("should wait with no error", func() {
 				// Given
-				abc := setupControlPlaneAgentBootstrapConfig(ctx, k8sClient)
+				oac := setupControlPlaneOpenshiftAssistedConfig(ctx, k8sClient)
 				// and AgentControlPlane provider did not create CD and ACI
 
 				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-					NamespacedName: client.ObjectKeyFromObject(abc),
+					NamespacedName: client.ObjectKeyFromObject(oac),
 				})
 				Expect(err).NotTo(HaveOccurred())
-				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(abc), abc)).To(Succeed())
-				dataSecretReadyCondition := conditions.Get(abc,
+				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(oac), oac)).To(Succeed())
+				dataSecretReadyCondition := conditions.Get(oac,
 					bootstrapv1alpha1.DataSecretAvailableCondition,
 				)
 				Expect(dataSecretReadyCondition).NotTo(BeNil())
@@ -176,18 +176,18 @@ var _ = Describe("AgentBootstrapConfigSpec Controller", func() {
 		})
 		When("ClusterDeployment is created but AgentClusterInstall is not", func() {
 			It("should requeue the request without errors", func() {
-				abc := setupControlPlaneAgentBootstrapConfig(ctx, k8sClient)
+				oac := setupControlPlaneOpenshiftAssistedConfig(ctx, k8sClient)
 				cd := testutils.NewClusterDeploymentWithOwnerCluster(namespace, clusterName, clusterName)
 				Expect(k8sClient.Create(ctx, cd)).To(Succeed())
 				// but not ACI
 
 				result, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-					NamespacedName: client.ObjectKeyFromObject(abc),
+					NamespacedName: client.ObjectKeyFromObject(oac),
 				})
 				Expect(err).NotTo(HaveOccurred())
 				Expect(result.Requeue).To(BeTrue())
-				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(abc), abc)).To(Succeed())
-				dataSecretReadyCondition := conditions.Get(abc,
+				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(oac), oac)).To(Succeed())
+				dataSecretReadyCondition := conditions.Get(oac,
 					bootstrapv1alpha1.DataSecretAvailableCondition,
 				)
 				Expect(dataSecretReadyCondition).NotTo(BeNil())
@@ -196,44 +196,44 @@ var _ = Describe("AgentBootstrapConfigSpec Controller", func() {
 		})
 		When("ClusterDeployment and AgentClusterInstall are already created", func() {
 			It("should create infraenv with an empty ISO URL", func() {
-				abc := setupControlPlaneAgentBootstrapConfig(ctx, k8sClient)
+				oac := setupControlPlaneOpenshiftAssistedConfig(ctx, k8sClient)
 				mockControlPlaneInitialization(ctx, k8sClient)
 
 				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-					NamespacedName: client.ObjectKeyFromObject(abc),
+					NamespacedName: client.ObjectKeyFromObject(oac),
 				})
 				Expect(err).NotTo(HaveOccurred())
-				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(abc), abc)).To(Succeed())
-				dataSecretReadyCondition := conditions.Get(abc,
+				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(oac), oac)).To(Succeed())
+				dataSecretReadyCondition := conditions.Get(oac,
 					bootstrapv1alpha1.DataSecretAvailableCondition,
 				)
 				Expect(dataSecretReadyCondition).NotTo(BeNil())
 				Expect(dataSecretReadyCondition.Reason).To(Equal(bootstrapv1alpha1.WaitingForLiveISOURLReason))
 
-				assertInfraEnvWithEmptyISOURL(ctx, k8sClient, abc)
+				assertInfraEnvWithEmptyISOURL(ctx, k8sClient, oac)
 			})
 		})
 		When(
 			"InfraEnv, ClusterDeployment and AgentClusterInstall are already created but no Metal3Machine is running",
 			func() {
 				It("should update metal3MachineTemplate", func() {
-					abc := setupControlPlaneAgentBootstrapConfig(ctx, k8sClient)
+					oac := setupControlPlaneOpenshiftAssistedConfig(ctx, k8sClient)
 					mockControlPlaneInitialization(ctx, k8sClient)
 
-					// InfraEnv and AgentBootstrapConfig is already updated by InfraEnv controller
+					// InfraEnv and OpenshiftAssistedConfig is already updated by InfraEnv controller
 					Expect(k8sClient.Create(ctx, testutils.NewInfraEnv(namespace, infraEnvName))).To(Succeed())
 					expectedDiskFormat := "live-iso"
 					expectedISODownloadURL := "https://example.com/download-my-iso"
-					abc.Status.ISODownloadURL = expectedISODownloadURL
-					Expect(k8sClient.Status().Update(ctx, abc)).To(Succeed())
+					oac.Status.ISODownloadURL = expectedISODownloadURL
+					Expect(k8sClient.Status().Update(ctx, oac)).To(Succeed())
 
 					_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-						NamespacedName: client.ObjectKeyFromObject(abc),
+						NamespacedName: client.ObjectKeyFromObject(oac),
 					})
 					Expect(err).NotTo(HaveOccurred())
 					assertISOURLOnM3Template(ctx, k8sClient, expectedISODownloadURL, expectedDiskFormat)
-					Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(abc), abc)).To(Succeed())
-					assertBootstrapReady(abc)
+					Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(oac), oac)).To(Succeed())
+					assertBootstrapReady(oac)
 				})
 			},
 		)
@@ -241,26 +241,26 @@ var _ = Describe("AgentBootstrapConfigSpec Controller", func() {
 			"InfraEnv, ClusterDeployment and AgentClusterInstall are already created and Metal3Machine is running",
 			func() {
 				It("should update metal3MachineTemplate", func() {
-					abc := setupControlPlaneAgentBootstrapConfigWithMetal3Machine(ctx, k8sClient)
+					oac := setupControlPlaneOpenshiftAssistedConfigWithMetal3Machine(ctx, k8sClient)
 					mockControlPlaneInitialization(ctx, k8sClient)
-					// InfraEnv and AgentBootstrapConfig is already updated by InfraEnv controller
+					// InfraEnv and OpenshiftAssistedConfig is already updated by InfraEnv controller
 					Expect(k8sClient.Create(ctx, testutils.NewInfraEnv(namespace, infraEnvName))).To(Succeed())
 					expectedDiskFormat := "live-iso"
 					expectedISODownloadURL := "https://example.com/download-my-iso"
 					// Simulate InfraEnv controller updating ISO to config
-					abc.Status.ISODownloadURL = expectedISODownloadURL
-					Expect(k8sClient.Status().Update(ctx, abc)).To(Succeed())
+					oac.Status.ISODownloadURL = expectedISODownloadURL
+					Expect(k8sClient.Status().Update(ctx, oac)).To(Succeed())
 
 					_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-						NamespacedName: client.ObjectKeyFromObject(abc),
+						NamespacedName: client.ObjectKeyFromObject(oac),
 					})
 					Expect(err).NotTo(HaveOccurred())
 
 					assertISOURLOnM3Template(ctx, k8sClient, expectedISODownloadURL, expectedDiskFormat)
 					assertISOURLOnM3Machine(ctx, k8sClient, expectedISODownloadURL, expectedDiskFormat)
 
-					Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(abc), abc)).To(Succeed())
-					assertBootstrapReady(abc)
+					Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(oac), oac)).To(Succeed())
+					assertBootstrapReady(oac)
 
 				})
 			},
@@ -289,41 +289,41 @@ func assertISOURLOnM3Machine(
 	Expect(m3Machine.Spec.Image.URL).To(Equal(expectedISODownloadURL))
 	Expect(m3Machine.Spec.Image.DiskFormat).To(Equal(&expectedDiskFormat))
 }
-func assertBootstrapReady(abc *bootstrapv1alpha1.AgentBootstrapConfig) {
-	Expect(conditions.IsTrue(abc, bootstrapv1alpha1.DataSecretAvailableCondition)).To(BeTrue())
-	Expect(abc.Status.Ready).To(BeTrue())
-	Expect(*abc.Status.DataSecretName).NotTo(BeNil())
+func assertBootstrapReady(oac *bootstrapv1alpha1.OpenshiftAssistedConfig) {
+	Expect(conditions.IsTrue(oac, bootstrapv1alpha1.DataSecretAvailableCondition)).To(BeTrue())
+	Expect(oac.Status.Ready).To(BeTrue())
+	Expect(*oac.Status.DataSecretName).NotTo(BeNil())
 }
 
 func assertInfraEnvWithEmptyISOURL(
 	ctx context.Context,
 	k8sClient client.Client,
-	abc *bootstrapv1alpha1.AgentBootstrapConfig,
+	oac *bootstrapv1alpha1.OpenshiftAssistedConfig,
 ) {
 	infraEnvList := &v1beta1.InfraEnvList{}
 	Expect(
-		k8sClient.List(ctx, infraEnvList, client.MatchingLabels{bootstrapv1alpha1.AgentBootstrapConfigLabel: abcName}),
+		k8sClient.List(ctx, infraEnvList, client.MatchingLabels{bootstrapv1alpha1.OpenshiftAssistedConfigLabel: oacName}),
 	).To(Succeed())
 	Expect(len(infraEnvList.Items)).To(Equal(1))
 	infraEnv := infraEnvList.Items[0]
-	Expect(abc.Status.InfraEnvRef).ToNot(BeNil())
+	Expect(oac.Status.InfraEnvRef).ToNot(BeNil())
 
-	assertInfraEnvSpecs(infraEnv, abc)
+	assertInfraEnvSpecs(infraEnv, oac)
 
 	Expect(infraEnv.Status.ISODownloadURL).To(Equal(""))
-	Expect(abc.Status.ISODownloadURL).To(Equal(""))
+	Expect(oac.Status.ISODownloadURL).To(Equal(""))
 }
 
-func assertInfraEnvSpecs(infraEnv v1beta1.InfraEnv, abc *bootstrapv1alpha1.AgentBootstrapConfig) {
-	Expect(infraEnv.Name).To(Equal(abc.Status.InfraEnvRef.Name))
-	Expect(infraEnv.Spec.PullSecretRef).To(Equal(abc.Spec.PullSecretRef))
-	Expect(infraEnv.Spec.Proxy).To(Equal(abc.Spec.Proxy))
-	Expect(infraEnv.Spec.AdditionalNTPSources).To(Equal(abc.Spec.AdditionalNTPSources))
-	Expect(infraEnv.Spec.NMStateConfigLabelSelector).To(Equal(abc.Spec.NMStateConfigLabelSelector))
-	Expect(infraEnv.Spec.CpuArchitecture).To(Equal(abc.Spec.CpuArchitecture))
-	Expect(infraEnv.Spec.KernelArguments).To(Equal(abc.Spec.KernelArguments))
-	Expect(infraEnv.Spec.AdditionalTrustBundle).To(Equal(abc.Spec.AdditionalTrustBundle))
-	Expect(infraEnv.Spec.OSImageVersion).To(Equal(abc.Spec.OSImageVersion))
+func assertInfraEnvSpecs(infraEnv v1beta1.InfraEnv, oac *bootstrapv1alpha1.OpenshiftAssistedConfig) {
+	Expect(infraEnv.Name).To(Equal(oac.Status.InfraEnvRef.Name))
+	Expect(infraEnv.Spec.PullSecretRef).To(Equal(oac.Spec.PullSecretRef))
+	Expect(infraEnv.Spec.Proxy).To(Equal(oac.Spec.Proxy))
+	Expect(infraEnv.Spec.AdditionalNTPSources).To(Equal(oac.Spec.AdditionalNTPSources))
+	Expect(infraEnv.Spec.NMStateConfigLabelSelector).To(Equal(oac.Spec.NMStateConfigLabelSelector))
+	Expect(infraEnv.Spec.CpuArchitecture).To(Equal(oac.Spec.CpuArchitecture))
+	Expect(infraEnv.Spec.KernelArguments).To(Equal(oac.Spec.KernelArguments))
+	Expect(infraEnv.Spec.AdditionalTrustBundle).To(Equal(oac.Spec.AdditionalTrustBundle))
+	Expect(infraEnv.Spec.OSImageVersion).To(Equal(oac.Spec.OSImageVersion))
 }
 
 // mock controlplane provider generating ACI and CD
@@ -337,11 +337,11 @@ func mockControlPlaneInitialization(ctx context.Context, k8sClient client.Client
 	crossReferenceACIAndCD(ctx, k8sClient, aci, cd)
 }
 
-func setupControlPlaneAgentBootstrapConfigWithMetal3Machine(
+func setupControlPlaneOpenshiftAssistedConfigWithMetal3Machine(
 	ctx context.Context,
 	k8sClient client.Client,
-) *bootstrapv1alpha1.AgentBootstrapConfig {
-	abc := setupControlPlaneAgentBootstrapConfig(ctx, k8sClient)
+) *bootstrapv1alpha1.OpenshiftAssistedConfig {
+	oac := setupControlPlaneOpenshiftAssistedConfig(ctx, k8sClient)
 	m3Machine := testutils.NewMetal3Machine(namespace, metal3MachineName)
 	Expect(k8sClient.Create(ctx, m3Machine)).To(Succeed())
 	machine := &clusterv1.Machine{}
@@ -358,13 +358,13 @@ func setupControlPlaneAgentBootstrapConfigWithMetal3Machine(
 		APIVersion: gvk.GroupVersion().String(),
 	}
 	Expect(k8sClient.Update(ctx, machine)).To(Succeed())
-	return abc
+	return oac
 }
 
-func setupControlPlaneAgentBootstrapConfig(
+func setupControlPlaneOpenshiftAssistedConfig(
 	ctx context.Context,
 	k8sClient client.Client,
-) *bootstrapv1alpha1.AgentBootstrapConfig {
+) *bootstrapv1alpha1.OpenshiftAssistedConfig {
 	cluster := testutils.NewCluster(clusterName, namespace)
 	Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
 
@@ -377,7 +377,7 @@ func setupControlPlaneAgentBootstrapConfig(
 	Expect(k8sClient.Create(ctx, m3Template)).To(Succeed())
 	Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(m3Template), m3Template)).To(Succeed())
 
-	acp := testutils.NewAgentControlPlaneWithMachineTemplate(namespace, acpName, m3Template)
+	acp := testutils.NewOpenshiftAssistedControlPlaneWithMachineTemplate(namespace, acpName, m3Template)
 	Expect(k8sClient.Create(ctx, acp)).Should(Succeed())
 	Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(acp), acp)).To(Succeed())
 
@@ -385,24 +385,24 @@ func setupControlPlaneAgentBootstrapConfig(
 	Expect(k8sClient.Create(ctx, machine)).To(Succeed())
 	Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(machine), machine)).To(Succeed())
 
-	abc := NewAgentBootstrapConfigWithOwner(namespace, abcName, clusterName, machine)
-	abc.Spec.PullSecretRef = &corev1.LocalObjectReference{Name: "my-pullsecret"}
-	abc.Spec.Proxy = &v1beta1.Proxy{
+	oac := NewOpenshiftAssistedConfigWithOwner(namespace, oacName, clusterName, machine)
+	oac.Spec.PullSecretRef = &corev1.LocalObjectReference{Name: "my-pullsecret"}
+	oac.Spec.Proxy = &v1beta1.Proxy{
 		HTTPProxy:  "http://myproxy.com",
 		HTTPSProxy: "https://myproxy.com",
 		NoProxy:    "example.com,redhat.com",
 	}
-	abc.Spec.AdditionalNTPSources = []string{
+	oac.Spec.AdditionalNTPSources = []string{
 		"192.168.1.3",
 		"myntpservice.com",
 	}
-	abc.Spec.NMStateConfigLabelSelector = metav1.LabelSelector{
+	oac.Spec.NMStateConfigLabelSelector = metav1.LabelSelector{
 		MatchLabels: map[string]string{
 			"mylabel": "myvalue",
 		},
 	}
-	abc.Spec.CpuArchitecture = "x86"
-	abc.Spec.KernelArguments = []v1beta1.KernelArgument{
+	oac.Spec.CpuArchitecture = "x86"
+	oac.Spec.KernelArguments = []v1beta1.KernelArgument{
 		{
 			Operation: "append",
 			Value:     "p1",
@@ -412,16 +412,16 @@ func setupControlPlaneAgentBootstrapConfig(
 			Value:     `p2="this is an argument"`,
 		},
 	}
-	abc.Spec.AdditionalTrustBundle = testCert
-	abc.Spec.OSImageVersion = "4.14.0"
-	Expect(k8sClient.Create(ctx, abc)).To(Succeed())
-	return abc
+	oac.Spec.AdditionalTrustBundle = testCert
+	oac.Spec.OSImageVersion = "4.14.0"
+	Expect(k8sClient.Create(ctx, oac)).To(Succeed())
+	return oac
 }
 
-func NewAgentBootstrapConfigWithOwner(
+func NewOpenshiftAssistedConfigWithOwner(
 	namespace, name, clusterName string,
 	owner client.Object,
-) *bootstrapv1alpha1.AgentBootstrapConfig {
+) *bootstrapv1alpha1.OpenshiftAssistedConfig {
 	ownerGVK := owner.GetObjectKind().GroupVersionKind()
 	ownerRefs := []metav1.OwnerReference{
 		{
@@ -431,16 +431,16 @@ func NewAgentBootstrapConfigWithOwner(
 			UID:        owner.GetUID(),
 		},
 	}
-	abc := NewAgentBootstrapConfig(namespace, name, clusterName)
-	abc.OwnerReferences = ownerRefs
-	return abc
+	oac := NewOpenshiftAssistedConfig(namespace, name, clusterName)
+	oac.OwnerReferences = ownerRefs
+	return oac
 }
 
-func NewAgentBootstrapConfig(namespace, name, clusterName string) *bootstrapv1alpha1.AgentBootstrapConfig {
-	return NewAgentBootstrapConfigWithInfraEnv(namespace, name, clusterName, nil)
+func NewOpenshiftAssistedConfig(namespace, name, clusterName string) *bootstrapv1alpha1.OpenshiftAssistedConfig {
+	return NewOpenshiftAssistedConfigWithInfraEnv(namespace, name, clusterName, nil)
 }
 
-func NewAgentBootstrapConfigWithInfraEnv(namespace, name, clusterName string, infraEnv *v1beta1.InfraEnv) *bootstrapv1alpha1.AgentBootstrapConfig {
+func NewOpenshiftAssistedConfigWithInfraEnv(namespace, name, clusterName string, infraEnv *v1beta1.InfraEnv) *bootstrapv1alpha1.OpenshiftAssistedConfig {
 	var ref *corev1.ObjectReference
 	if infraEnv != nil {
 		ref = &corev1.ObjectReference{
@@ -448,7 +448,7 @@ func NewAgentBootstrapConfigWithInfraEnv(namespace, name, clusterName string, in
 			Name:      infraEnv.GetName(),
 		}
 	}
-	return &bootstrapv1alpha1.AgentBootstrapConfig{
+	return &bootstrapv1alpha1.OpenshiftAssistedConfig{
 		ObjectMeta: metav1.ObjectMeta{
 			Labels: map[string]string{
 				clusterv1.ClusterNameLabel:         clusterName,
@@ -457,7 +457,7 @@ func NewAgentBootstrapConfigWithInfraEnv(namespace, name, clusterName string, in
 			Name:      name,
 			Namespace: namespace,
 		},
-		Status: bootstrapv1alpha1.AgentBootstrapConfigStatus{
+		Status: bootstrapv1alpha1.OpenshiftAssistedConfigStatus{
 			InfraEnvRef: ref,
 		},
 	}

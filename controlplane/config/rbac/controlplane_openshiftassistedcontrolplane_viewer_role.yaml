@@ -1,31 +1,27 @@
-# permissions for end users to edit agentbootstrapconfigs.
+# permissions for end users to view openshiftassistedcontrolplanes.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   labels:
     app.kubernetes.io/name: clusterrole
-    app.kubernetes.io/instance: agentbootstrapconfig-editor-role
+    app.kubernetes.io/instance: openshiftassistedcontrolplane-viewer-role
     app.kubernetes.io/component: rbac
     app.kubernetes.io/created-by: cluster-api-agent
     app.kubernetes.io/part-of: cluster-api-agent
     app.kubernetes.io/managed-by: kustomize
-  name: agentbootstrapconfig-editor-role
+  name: openshiftassistedcontrolplane-viewer-role
 rules:
 - apiGroups:
-  - bootstrap.cluster.x-k8s.io
+  - controlplane.cluster.x-k8s.io
   resources:
-  - agentbootstrapconfigs
+  - openshiftassistedcontrolplanes
   verbs:
-  - create
-  - delete
   - get
   - list
-  - patch
-  - update
   - watch
 - apiGroups:
-  - bootstrap.cluster.x-k8s.io
+  - controlplane.cluster.x-k8s.io
   resources:
-  - agentbootstrapconfigs/status
+  - openshiftassistedcontrolplanes/status
   verbs:
   - get

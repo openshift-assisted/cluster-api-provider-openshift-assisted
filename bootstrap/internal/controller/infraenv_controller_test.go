@@ -45,15 +45,15 @@ var _ = Describe("InfraEnv Controller", func() {
 		BeforeEach(func() {
 
 			k8sClient = fakeclient.NewClientBuilder().WithScheme(testScheme).
-				WithStatusSubresource(&bootstrapv1alpha1.AgentBootstrapConfig{}).
+				WithStatusSubresource(&bootstrapv1alpha1.OpenshiftAssistedConfig{}).
 				WithIndex(
-					&bootstrapv1alpha1.AgentBootstrapConfig{},
-					abcInfraEnvRefFieldName,
+					&bootstrapv1alpha1.OpenshiftAssistedConfig{},
+					oacInfraEnvRefFieldName,
 					filterRefName,
 				).
 				WithIndex(
-					&bootstrapv1alpha1.AgentBootstrapConfig{},
-					abcInfraEnvRefFieldNamespace,
+					&bootstrapv1alpha1.OpenshiftAssistedConfig{},
+					oacInfraEnvRefFieldNamespace,
 					filterRefNamespace,
 				).
 				Build()
@@ -118,17 +118,17 @@ var _ = Describe("InfraEnv Controller", func() {
 				Expect(err).NotTo(HaveOccurred())
 			})
 		})
-		When("Infraenv ISO URL set, but no AgentBootstrapConfigs reference it", func() {
+		When("Infraenv ISO URL set, but no OpenshiftAssistedConfigs reference it", func() {
 			It("should reconcile with no errors", func() {
-				By("creating the InfraEnv and AgentBootstrapConfig")
+				By("creating the InfraEnv and OpenshiftAssistedConfig")
 				infraEnv := testutils.NewInfraEnv(namespace, infraEnvName)
 				infraEnv.Labels = map[string]string{
 					clusterv1.ClusterNameLabel: clusterName,
 				}
 				infraEnv.Status.ISODownloadURL = DownloadURL
 				Expect(k8sClient.Create(ctx, infraEnv)).To(Succeed())
-				abc := NewAgentBootstrapConfig(namespace, abcName, clusterName)
-				Expect(k8sClient.Create(ctx, abc)).To(Succeed())
+				oac := NewOpenshiftAssistedConfig(namespace, oacName, clusterName)
+				Expect(k8sClient.Create(ctx, oac)).To(Succeed())
 
 				By("reconciling the InfraEnv")
 				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
@@ -139,13 +139,13 @@ var _ = Describe("InfraEnv Controller", func() {
 				})
 				Expect(err).NotTo(HaveOccurred())
 
-				By("checking that the AgentBootstrapConfig does not have its ISO URL set")
-				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(abc), abc)).To(Succeed())
-				Expect(abc.Status.ISODownloadURL).To(BeEmpty())
+				By("checking that the OpenshiftAssistedConfig does not have its ISO URL set")
+				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(oac), oac)).To(Succeed())
+				Expect(oac.Status.ISODownloadURL).To(BeEmpty())
 			})
 		})
-		When("Infraenv ISO URL set, and there is a referenced ABC ", func() {
-			It("should update ABC status with the URL", func() {
+		When("Infraenv ISO URL set, and there is a referenced OAC ", func() {
+			It("should update OAC status with the URL", func() {
 				infraEnv := testutils.NewInfraEnv(namespace, infraEnvName)
 				infraEnv.Labels = map[string]string{
 					clusterv1.ClusterNameLabel: clusterName,
@@ -153,8 +153,8 @@ var _ = Describe("InfraEnv Controller", func() {
 				infraEnv.Status.ISODownloadURL = DownloadURL
 				Expect(k8sClient.Create(ctx, infraEnv)).To(Succeed())
 
-				abc := NewAgentBootstrapConfigWithInfraEnv(namespace, abcName, clusterName, infraEnv)
-				Expect(k8sClient.Create(ctx, abc)).To(Succeed())
+				oac := NewOpenshiftAssistedConfigWithInfraEnv(namespace, oacName, clusterName, infraEnv)
+				Expect(k8sClient.Create(ctx, oac)).To(Succeed())
 
 				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
 					NamespacedName: types.NamespacedName{
@@ -164,9 +164,9 @@ var _ = Describe("InfraEnv Controller", func() {
 				})
 				Expect(err).NotTo(HaveOccurred())
 
-				By("checking that the AgentBootstrapConfig does have its ISO URL set")
-				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(abc), abc)).To(Succeed())
-				Expect(abc.Status.ISODownloadURL).To(Equal(infraEnv.Status.ISODownloadURL))
+				By("checking that the OpenshiftAssistedConfig does have its ISO URL set")
+				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(oac), oac)).To(Succeed())
+				Expect(oac.Status.ISODownloadURL).To(Equal(infraEnv.Status.ISODownloadURL))
 			})
 		})
 	})
@@ -179,20 +179,20 @@ var _ = Describe("InfraEnv Controller", func() {
 			ctx                  = context.Background()
 			controllerReconciler *InfraEnvReconciler
 			k8sClient            client.Client
-			abc                  *bootstrapv1alpha1.AgentBootstrapConfig
+			oac                  *bootstrapv1alpha1.OpenshiftAssistedConfig
 		)
 
 		BeforeEach(func() {
 			k8sClient = fakeclient.NewClientBuilder().WithScheme(testScheme).
-				WithStatusSubresource(&bootstrapv1alpha1.AgentBootstrapConfig{}).
+				WithStatusSubresource(&bootstrapv1alpha1.OpenshiftAssistedConfig{}).
 				WithIndex(
-					&bootstrapv1alpha1.AgentBootstrapConfig{},
-					abcInfraEnvRefFieldName,
+					&bootstrapv1alpha1.OpenshiftAssistedConfig{},
+					oacInfraEnvRefFieldName,
 					filterRefName,
 				).
 				WithIndex(
-					&bootstrapv1alpha1.AgentBootstrapConfig{},
-					abcInfraEnvRefFieldNamespace,
+					&bootstrapv1alpha1.OpenshiftAssistedConfig{},
+					oacInfraEnvRefFieldNamespace,
 					filterRefNamespace,
 				).
 				Build()
@@ -222,15 +222,15 @@ var _ = Describe("InfraEnv Controller", func() {
 			}
 			Expect(k8sClient.Create(ctx, assistedNS)).To(Succeed())
 
-			By("creating the InfraEnv and AgentBootstrapConfig")
+			By("creating the InfraEnv and OpenshiftAssistedConfig")
 			infraEnv := testutils.NewInfraEnv(namespace, infraEnvName)
 			infraEnv.Labels = map[string]string{
 				clusterv1.ClusterNameLabel: clusterName,
 			}
 			infraEnv.Status.ISODownloadURL = DownloadURL
 			Expect(k8sClient.Create(ctx, infraEnv)).To(Succeed())
-			abc = NewAgentBootstrapConfigWithInfraEnv(namespace, abcName, clusterName, infraEnv)
-			Expect(k8sClient.Create(ctx, abc)).To(Succeed())
+			oac = NewOpenshiftAssistedConfigWithInfraEnv(namespace, oacName, clusterName, infraEnv)
+			Expect(k8sClient.Create(ctx, oac)).To(Succeed())
 		})
 
 		AfterEach(func() {
@@ -239,7 +239,7 @@ var _ = Describe("InfraEnv Controller", func() {
 		})
 
 		When("The image service service doesn't exists", func() {
-			It("should return an error and ABC status should be empty", func() {
+			It("should return an error and OAC status should be empty", func() {
 				By("reconciling the InfraEnv")
 				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
 					NamespacedName: types.NamespacedName{
@@ -250,14 +250,14 @@ var _ = Describe("InfraEnv Controller", func() {
 				Expect(err).To(HaveOccurred())
 				Expect(err.Error()).To(Equal("failed to find assisted image service service: services \"assisted-image-service\" not found"))
 
-				By("checking that the AgentBootstrapConfig does not have its ISO URL set")
-				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(abc), abc)).To(Succeed())
-				Expect(abc.Status.ISODownloadURL).To(BeEmpty())
+				By("checking that the OpenshiftAssistedConfig does not have its ISO URL set")
+				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(oac), oac)).To(Succeed())
+				Expect(oac.Status.ISODownloadURL).To(BeEmpty())
 			})
 		})
 
 		When("The image service service doesn't have a cluster IP", func() {
-			It("should return an error and ABC status should be empty", func() {
+			It("should return an error and OAC status should be empty", func() {
 				By("creating the image service service")
 				svc := &corev1.Service{
 					ObjectMeta: metav1.ObjectMeta{
@@ -284,14 +284,14 @@ var _ = Describe("InfraEnv Controller", func() {
 				Expect(err).To(HaveOccurred())
 				Expect(err.Error()).To(Equal("failed to get internal image service URL, either cluster IP or Ports were missing from Service"))
 
-				By("checking that the AgentBootstrapConfig does not have its ISO URL set")
-				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(abc), abc)).To(Succeed())
-				Expect(abc.Status.ISODownloadURL).To(BeEmpty())
+				By("checking that the OpenshiftAssistedConfig does not have its ISO URL set")
+				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(oac), oac)).To(Succeed())
+				Expect(oac.Status.ISODownloadURL).To(BeEmpty())
 			})
 		})
 
 		When("The image service service doesn't have any Ports", func() {
-			It("should return an error and ABC status should be empty", func() {
+			It("should return an error and OAC status should be empty", func() {
 				By("creating the image service service")
 				svc := &corev1.Service{
 					ObjectMeta: metav1.ObjectMeta{
@@ -314,14 +314,14 @@ var _ = Describe("InfraEnv Controller", func() {
 				Expect(err).To(HaveOccurred())
 				Expect(err.Error()).To(Equal("failed to get internal image service URL, either cluster IP or Ports were missing from Service"))
 
-				By("checking that the AgentBootstrapConfig does not have its ISO URL set")
-				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(abc), abc)).To(Succeed())
-				Expect(abc.Status.ISODownloadURL).To(BeEmpty())
+				By("checking that the OpenshiftAssistedConfig does not have its ISO URL set")
+				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(oac), oac)).To(Succeed())
+				Expect(oac.Status.ISODownloadURL).To(BeEmpty())
 			})
 		})
 
 		When("The image service service exists", func() {
-			It("should update ABC status with the internal URL instead of the InfraEnv's URL", func() {
+			It("should update OAC status with the internal URL instead of the InfraEnv's URL", func() {
 				By("creating the image service service")
 				svc := &corev1.Service{
 					ObjectMeta: metav1.ObjectMeta{
@@ -348,9 +348,9 @@ var _ = Describe("InfraEnv Controller", func() {
 				})
 				Expect(err).NotTo(HaveOccurred())
 
-				By("checking that the AgentBootstrapConfig does have its ISO URL set")
-				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(abc), abc)).To(Succeed())
-				Expect(abc.Status.ISODownloadURL).To(Equal("http://172.0.0.1:8080/my-image"))
+				By("checking that the OpenshiftAssistedConfig does have its ISO URL set")
+				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(oac), oac)).To(Succeed())
+				Expect(oac.Status.ISODownloadURL).To(Equal("http://172.0.0.1:8080/my-image"))
 			})
 		})
 	})

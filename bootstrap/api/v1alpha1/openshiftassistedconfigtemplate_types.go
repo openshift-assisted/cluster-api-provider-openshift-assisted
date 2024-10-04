@@ -24,27 +24,27 @@ import (
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
-// AgentBootstrapConfigTemplateSpec defines the desired state of AgentBootstrapConfigTemplate
-type AgentBootstrapConfigTemplateSpec struct {
+// OpenshiftAssistedConfigTemplateSpec defines the desired state of OpenshiftAssistedConfigTemplate
+type OpenshiftAssistedConfigTemplateSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
-	// Foo is an example field of AgentBootstrapConfigTemplate. Edit agentbootstrapconfigtemplate_types.go to remove/update
-	Template AgentBootstrapConfigTemplateResource `json:"template"`
+	// OpenshiftAssistedConfig template
+	Template OpenshiftAssistedConfigTemplateResource `json:"template"`
 }
 
-// AgentBootstrapConfigTemplateResource defines the Template structure.
-type AgentBootstrapConfigTemplateResource struct {
+// OpenshiftAssistedConfigTemplateResource defines the Template structure.
+type OpenshiftAssistedConfigTemplateResource struct {
 	// Standard object's metadata.
 	// More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#metadata
 	// +optional
 	ObjectMeta clusterv1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec AgentBootstrapConfigSpec `json:"spec,omitempty"`
+	Spec OpenshiftAssistedConfigSpec `json:"spec,omitempty"`
 }
 
-// AgentBootstrapConfigTemplateStatus defines the observed state of AgentBootstrapConfigTemplate
-type AgentBootstrapConfigTemplateStatus struct {
+// OpenshiftAssistedConfigTemplateStatus defines the observed state of OpenshiftAssistedConfigTemplate
+type OpenshiftAssistedConfigTemplateStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 }
@@ -52,24 +52,24 @@ type AgentBootstrapConfigTemplateStatus struct {
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
 
-// AgentBootstrapConfigTemplate is the Schema for the agentbootstrapconfigtemplates API
-type AgentBootstrapConfigTemplate struct {
+// OpenshiftAssistedConfigTemplate is the Schema for the agentbootstrapconfigtemplates API
+type OpenshiftAssistedConfigTemplate struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   AgentBootstrapConfigTemplateSpec   `json:"spec,omitempty"`
-	Status AgentBootstrapConfigTemplateStatus `json:"status,omitempty"`
+	Spec   OpenshiftAssistedConfigTemplateSpec   `json:"spec,omitempty"`
+	Status OpenshiftAssistedConfigTemplateStatus `json:"status,omitempty"`
 }
 
 //+kubebuilder:object:root=true
 
-// AgentBootstrapConfigTemplateList contains a list of AgentBootstrapConfigTemplate
-type AgentBootstrapConfigTemplateList struct {
+// OpenshiftAssistedConfigTemplateList contains a list of OpenshiftAssistedConfigTemplate
+type OpenshiftAssistedConfigTemplateList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []AgentBootstrapConfigTemplate `json:"items"`
+	Items           []OpenshiftAssistedConfigTemplate `json:"items"`
 }
 
 func init() {
-	SchemeBuilder.Register(&AgentBootstrapConfigTemplate{}, &AgentBootstrapConfigTemplateList{})
+	SchemeBuilder.Register(&OpenshiftAssistedConfigTemplate{}, &OpenshiftAssistedConfigTemplateList{})
 }

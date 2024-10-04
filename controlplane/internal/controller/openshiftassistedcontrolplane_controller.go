@@ -54,21 +54,21 @@ import (
 )
 
 const (
-	minOpenShiftVersion       = "4.14.0"
-	agentControlPlaneKind     = "AgentControlPlane"
-	acpFinalizer              = "agentcontrolplane." + controlplanev1alpha1.Group + "/deprovision"
-	placeholderPullSecretName = "placeholder-pull-secret"
+	minOpenShiftVersion               = "4.14.0"
+	openshiftAssistedControlPlaneKind = "OpenshiftAssistedControlPlane"
+	acpFinalizer                      = "openshiftassistedcontrolplane." + controlplanev1alpha1.Group + "/deprovision"
+	placeholderPullSecretName         = "placeholder-pull-secret"
 )
 
-// AgentControlPlaneReconciler reconciles a AgentControlPlane object
-type AgentControlPlaneReconciler struct {
+// OpenshiftAssistedControlPlaneReconciler reconciles a OpenshiftAssistedControlPlane object
+type OpenshiftAssistedControlPlaneReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 }
 
 var minVersion = semver.New(minOpenShiftVersion)
 
-// +kubebuilder:rbac:groups=bootstrap.cluster.x-k8s.io,resources=agentbootstrapconfigs,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=bootstrap.cluster.x-k8s.io,resources=openshiftassistedconfigs,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=metal3machines,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=metal3machinetemplates,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machinedeployments,verbs=get;list;watch
@@ -79,9 +79,9 @@ var minVersion = semver.New(minOpenShiftVersion)
 // +kubebuilder:rbac:groups=hive.openshift.io,resources=clusterdeployments/status,verbs=get
 // +kubebuilder:rbac:groups=hive.openshift.io,resources=clusterdeployments,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusters;clusters/status,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=controlplane.cluster.x-k8s.io,resources=agentcontrolplanes,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=controlplane.cluster.x-k8s.io,resources=agentcontrolplanes/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=controlplane.cluster.x-k8s.io,resources=agentcontrolplanes/finalizers,verbs=update
+// +kubebuilder:rbac:groups=controlplane.cluster.x-k8s.io,resources=openshiftassistedcontrolplanes,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=controlplane.cluster.x-k8s.io,resources=openshiftassistedcontrolplanes/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=controlplane.cluster.x-k8s.io,resources=openshiftassistedcontrolplanes/finalizers,verbs=update
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machines;machines/status,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machinepools,verbs=list
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;delete
@@ -89,16 +89,16 @@ var minVersion = semver.New(minOpenShiftVersion)
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
-func (r *AgentControlPlaneReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Result, rerr error) {
+func (r *OpenshiftAssistedControlPlaneReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Result, rerr error) {
 	log := ctrl.LoggerFrom(ctx)
 
-	acp := &controlplanev1alpha1.AgentControlPlane{}
+	acp := &controlplanev1alpha1.OpenshiftAssistedControlPlane{}
 	if err := r.Client.Get(ctx, req.NamespacedName, acp); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	log.WithValues("agent_control_plane", acp.Name, "agent_control_plane_namespace", acp.Namespace)
-	log.V(logutil.TraceLevel).Info("Started reconciling AgentControlPlane")
+	log.WithValues("openshift_assisted_control_plane", acp.Name, "openshift_assisted_control_plane_namespace", acp.Namespace)
+	log.V(logutil.TraceLevel).Info("Started reconciling OpenshiftAssistedControlPlane")
 
 	// Initialize the patch helper.
 	patchHelper, err := patch.NewHelper(acp, r.Client)
@@ -106,7 +106,7 @@ func (r *AgentControlPlaneReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		return ctrl.Result{}, err
 	}
 
-	// Attempt to Patch the AgentControlPlane object and status after each reconciliation if no error occurs.
+	// Attempt to Patch the OpenshiftAssistedControlPlane object and status after each reconciliation if no error occurs.
 	defer func() {
 		// Patch ObservedGeneration only if the reconciliation completed successfully
 		patchOpts := []patch.Option{}
@@ -117,7 +117,7 @@ func (r *AgentControlPlaneReconciler) Reconcile(ctx context.Context, req ctrl.Re
 			rerr = kerrors.NewAggregate([]error{rerr, err})
 		}
 
-		log.V(logutil.TraceLevel).Info("Finished reconciling AgentControlPlane")
+		log.V(logutil.TraceLevel).Info("Finished reconciling OpenshiftAssistedControlPlane")
 	}()
 
 	if acp.DeletionTimestamp != nil {
@@ -171,11 +171,11 @@ func (r *AgentControlPlaneReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	return ctrl.Result{}, r.reconcileReplicas(ctx, acp, cluster)
 }
 
-// Ensures dependencies are deleted before allowing the AgentControlPlane to be deleted
+// Ensures dependencies are deleted before allowing the OpenshiftAssistedControlPlane to be deleted
 // Deletes the ClusterDeployment (which deletes the AgentClusterInstall)
-// Machines, InfraMachines, and AgentBootstrapConfigs get auto-deleted when the ACP has a deletion timestamp - this deprovisions the BMH automatically
-// TODO: should we handle watching until all machines & agentbootstrapconfigs are deleted too?
-func (r *AgentControlPlaneReconciler) handleDeletion(ctx context.Context, acp *controlplanev1alpha1.AgentControlPlane) error {
+// Machines, InfraMachines, and OpenshiftAssistedConfigs get auto-deleted when the ACP has a deletion timestamp - this deprovisions the BMH automatically
+// TODO: should we handle watching until all machines & openshiftassistedconfigs are deleted too?
+func (r *OpenshiftAssistedControlPlaneReconciler) handleDeletion(ctx context.Context, acp *controlplanev1alpha1.OpenshiftAssistedControlPlane) error {
 	log := ctrl.LoggerFrom(ctx)
 
 	if !controllerutil.ContainsFinalizer(acp, acpFinalizer) {
@@ -196,7 +196,7 @@ func (r *AgentControlPlaneReconciler) handleDeletion(ctx context.Context, acp *c
 	return nil
 }
 
-func (r *AgentControlPlaneReconciler) deleteClusterDeployment(
+func (r *OpenshiftAssistedControlPlaneReconciler) deleteClusterDeployment(
 	ctx context.Context,
 	clusterDeployment *corev1.ObjectReference,
 ) error {
@@ -212,7 +212,7 @@ func (r *AgentControlPlaneReconciler) deleteClusterDeployment(
 	return r.Client.Delete(ctx, cd)
 }
 
-func (r *AgentControlPlaneReconciler) computeDesiredMachine(acp *controlplanev1alpha1.AgentControlPlane, name, clusterName string) *clusterv1.Machine {
+func (r *OpenshiftAssistedControlPlaneReconciler) computeDesiredMachine(acp *controlplanev1alpha1.OpenshiftAssistedControlPlane, name, clusterName string) *clusterv1.Machine {
 	var machineUID types.UID
 	annotations := map[string]string{
 		"bmac.agent-install.openshift.io/role": "master",
@@ -270,20 +270,20 @@ func (r *AgentControlPlaneReconciler) computeDesiredMachine(acp *controlplanev1a
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *AgentControlPlaneReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *OpenshiftAssistedControlPlaneReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	//TODO: maybe enqueue for clusterdeployment owned by this ACP in case it gets deleted...?
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&controlplanev1alpha1.AgentControlPlane{}).
+		For(&controlplanev1alpha1.OpenshiftAssistedControlPlane{}).
 		Watches(
 			&clusterv1.Machine{},
-			handler.EnqueueRequestForOwner(r.Scheme, mgr.GetRESTMapper(), &controlplanev1alpha1.AgentControlPlane{}),
+			handler.EnqueueRequestForOwner(r.Scheme, mgr.GetRESTMapper(), &controlplanev1alpha1.OpenshiftAssistedControlPlane{}),
 		).
 		Complete(r)
 }
 
-func (r *AgentControlPlaneReconciler) ensureClusterDeployment(
+func (r *OpenshiftAssistedControlPlaneReconciler) ensureClusterDeployment(
 	ctx context.Context,
-	acp *controlplanev1alpha1.AgentControlPlane,
+	acp *controlplanev1alpha1.OpenshiftAssistedControlPlane,
 	clusterName string,
 ) error {
 	if acp.Status.ClusterDeploymentRef == nil {
@@ -313,7 +313,7 @@ func (r *AgentControlPlaneReconciler) ensureClusterDeployment(
 	return nil
 }
 
-func (r *AgentControlPlaneReconciler) reconcileReplicas(ctx context.Context, acp *controlplanev1alpha1.AgentControlPlane, cluster *clusterv1.Cluster) error {
+func (r *OpenshiftAssistedControlPlaneReconciler) reconcileReplicas(ctx context.Context, acp *controlplanev1alpha1.OpenshiftAssistedControlPlane, cluster *clusterv1.Cluster) error {
 	machines, err := collections.GetFilteredMachinesForCluster(ctx, r.Client, cluster, collections.OwnedMachines(acp))
 	if err != nil {
 		return err
@@ -337,13 +337,13 @@ func (r *AgentControlPlaneReconciler) reconcileReplicas(ctx context.Context, acp
 	return kerrors.NewAggregate(errs)
 }
 
-func (r *AgentControlPlaneReconciler) scaleUpControlPlane(ctx context.Context, acp *controlplanev1alpha1.AgentControlPlane, clusterName string) error {
+func (r *OpenshiftAssistedControlPlaneReconciler) scaleUpControlPlane(ctx context.Context, acp *controlplanev1alpha1.OpenshiftAssistedControlPlane, clusterName string) error {
 	name := names.SimpleNameGenerator.GenerateName(acp.Name + "-")
 	machine, err := r.generateMachine(ctx, acp, name, clusterName)
 	if err != nil {
 		return err
 	}
-	bootstrapConfig := r.generateAgentBootstrapConfig(acp, clusterName, name)
+	bootstrapConfig := r.generateOpenshiftAssistedConfig(acp, clusterName, name)
 	_ = controllerutil.SetOwnerReference(acp, bootstrapConfig, r.Scheme)
 	if err := r.Client.Create(ctx, bootstrapConfig); err != nil {
 		conditions.MarkFalse(acp, controlplanev1alpha1.MachinesCreatedCondition, controlplanev1alpha1.BootstrapTemplateCloningFailedReason,
@@ -370,7 +370,7 @@ func (r *AgentControlPlaneReconciler) scaleUpControlPlane(ctx context.Context, a
 	return nil
 }
 
-func updateReplicaStatus(acp *controlplanev1alpha1.AgentControlPlane, machines collections.Machines, updatedMachines int) {
+func updateReplicaStatus(acp *controlplanev1alpha1.OpenshiftAssistedControlPlane, machines collections.Machines, updatedMachines int) {
 	desiredReplicas := acp.Spec.Replicas
 	readyMachines := machines.Filter(collections.IsReady()).Len()
 
@@ -380,7 +380,7 @@ func updateReplicaStatus(acp *controlplanev1alpha1.AgentControlPlane, machines c
 	acp.Status.ReadyReplicas = int32(readyMachines)
 }
 
-func (r *AgentControlPlaneReconciler) generateMachine(ctx context.Context, acp *controlplanev1alpha1.AgentControlPlane, name, clusterName string) (*clusterv1.Machine, error) {
+func (r *OpenshiftAssistedControlPlaneReconciler) generateMachine(ctx context.Context, acp *controlplanev1alpha1.OpenshiftAssistedControlPlane, name, clusterName string) (*clusterv1.Machine, error) {
 	// Compute desired Machine
 	machine := r.computeDesiredMachine(acp, name, clusterName)
 	infraRef, err := r.computeInfraRef(ctx, acp, machine.Name, clusterName)
@@ -391,12 +391,12 @@ func (r *AgentControlPlaneReconciler) generateMachine(ctx context.Context, acp *
 	return machine, nil
 }
 
-func (r *AgentControlPlaneReconciler) computeInfraRef(ctx context.Context, acp *controlplanev1alpha1.AgentControlPlane, machineName, clusterName string) (*corev1.ObjectReference, error) {
+func (r *OpenshiftAssistedControlPlaneReconciler) computeInfraRef(ctx context.Context, acp *controlplanev1alpha1.OpenshiftAssistedControlPlane, machineName, clusterName string) (*corev1.ObjectReference, error) {
 	// Since the cloned resource should eventually have a controller ref for the Machine, we create an
 	// OwnerReference here without the Controller field set
 	infraCloneOwner := &metav1.OwnerReference{
 		APIVersion: controlplanev1alpha1.GroupVersion.String(),
-		Kind:       agentControlPlaneKind,
+		Kind:       openshiftAssistedControlPlaneKind,
 		Name:       acp.Name,
 		UID:        acp.UID,
 	}
@@ -421,26 +421,26 @@ func (r *AgentControlPlaneReconciler) computeInfraRef(ctx context.Context, acp *
 	return infraRef, nil
 }
 
-func (r *AgentControlPlaneReconciler) generateAgentBootstrapConfig(acp *controlplanev1alpha1.AgentControlPlane, clusterName string, name string) *bootstrapv1alpha1.AgentBootstrapConfig {
-	bootstrapConfig := &bootstrapv1alpha1.AgentBootstrapConfig{
+func (r *OpenshiftAssistedControlPlaneReconciler) generateOpenshiftAssistedConfig(acp *controlplanev1alpha1.OpenshiftAssistedControlPlane, clusterName string, name string) *bootstrapv1alpha1.OpenshiftAssistedConfig {
+	bootstrapConfig := &bootstrapv1alpha1.OpenshiftAssistedConfig{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        name,
 			Namespace:   acp.Namespace,
 			Labels:      util.ControlPlaneMachineLabelsForCluster(acp, clusterName),
 			Annotations: acp.Spec.MachineTemplate.ObjectMeta.Annotations,
 		},
-		Spec: *acp.Spec.AgentBootstrapConfigSpec.DeepCopy(),
+		Spec: *acp.Spec.OpenshiftAssistedConfigSpec.DeepCopy(),
 	}
 
 	_ = controllerutil.SetOwnerReference(acp, bootstrapConfig, r.Scheme)
 	return bootstrapConfig
 }
 
-func (r *AgentControlPlaneReconciler) ensurePullSecret(
+func (r *OpenshiftAssistedControlPlaneReconciler) ensurePullSecret(
 	ctx context.Context,
-	acp *controlplanev1alpha1.AgentControlPlane,
+	acp *controlplanev1alpha1.OpenshiftAssistedControlPlane,
 ) error {
-	if acp.Spec.AgentConfigSpec.PullSecretRef != nil {
+	if acp.Spec.Config.PullSecretRef != nil {
 		return nil
 	}
 
@@ -452,6 +452,6 @@ func (r *AgentControlPlaneReconciler) ensurePullSecret(
 	if err := r.Client.Create(ctx, secret); err != nil {
 		return err
 	}
-	acp.Spec.AgentConfigSpec.PullSecretRef = &corev1.LocalObjectReference{Name: secret.Name}
+	acp.Spec.Config.PullSecretRef = &corev1.LocalObjectReference{Name: secret.Name}
 	return nil
 }

@@ -26,8 +26,8 @@ import (
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
-// AgentBootstrapConfigSpec defines the desired state of AgentBootstrapConfig
-type AgentBootstrapConfigSpec struct {
+// OpenshiftAssistedConfigSpec defines the desired state of OpenshiftAssistedConfig
+type OpenshiftAssistedConfigSpec struct {
 	// Below some fields that would map to the InfraEnv https://github.com/openshift/assisted-service/blob/5b9d5f9197c950750f0d57dc7900a60cef255171/api/v1beta1/infraenv_types.go#L48
 
 	// Proxy defines the proxy settings for agents and clusters that use the InfraEnv. If
@@ -77,8 +77,8 @@ type AgentBootstrapConfigSpec struct {
 	OSImageVersion string `json:"osImageVersion,omitempty"`
 }
 
-// AgentBootstrapConfigStatus defines the observed state of AgentBootstrapConfig
-type AgentBootstrapConfigStatus struct {
+// OpenshiftAssistedConfigStatus defines the observed state of OpenshiftAssistedConfig
+type OpenshiftAssistedConfigStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 	// InfraEnvRef references the infra env to generate the ISO
@@ -110,42 +110,43 @@ type AgentBootstrapConfigStatus struct {
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 
-	// Conditions defines current service state of the AgentBootstrapConfig.
+	// Conditions defines current service state of the OpenshiftAssistedConfig.
 	// +optional
 	Conditions clusterv1.Conditions `json:"conditions,omitempty"`
 }
 
 //+kubebuilder:object:root=true
+//+kubebuilder:resource:shortName=oac
 //+kubebuilder:subresource:status
 
-// AgentBootstrapConfig is the Schema for the agentbootstrapconfigs API
-type AgentBootstrapConfig struct {
+// OpenshiftAssistedConfig is the Schema for the openshiftassistedconfig API
+type OpenshiftAssistedConfig struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   AgentBootstrapConfigSpec   `json:"spec,omitempty"`
-	Status AgentBootstrapConfigStatus `json:"status,omitempty"`
+	Spec   OpenshiftAssistedConfigSpec   `json:"spec,omitempty"`
+	Status OpenshiftAssistedConfigStatus `json:"status,omitempty"`
 }
 
 // GetConditions returns the set of conditions for this object.
-func (c *AgentBootstrapConfig) GetConditions() clusterv1.Conditions {
+func (c *OpenshiftAssistedConfig) GetConditions() clusterv1.Conditions {
 	return c.Status.Conditions
 }
 
 // SetConditions sets the conditions on this object.
-func (c *AgentBootstrapConfig) SetConditions(conditions clusterv1.Conditions) {
+func (c *OpenshiftAssistedConfig) SetConditions(conditions clusterv1.Conditions) {
 	c.Status.Conditions = conditions
 }
 
 //+kubebuilder:object:root=true
 
-// AgentBootstrapConfigList contains a list of AgentBootstrapConfig
-type AgentBootstrapConfigList struct {
+// OpenshiftAssistedConfigList contains a list of OpenshiftAssistedConfig
+type OpenshiftAssistedConfigList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []AgentBootstrapConfig `json:"items"`
+	Items           []OpenshiftAssistedConfig `json:"items"`
 }
 
 func init() {
-	SchemeBuilder.Register(&AgentBootstrapConfig{}, &AgentBootstrapConfigList{})
+	SchemeBuilder.Register(&OpenshiftAssistedConfig{}, &OpenshiftAssistedConfigList{})
 }

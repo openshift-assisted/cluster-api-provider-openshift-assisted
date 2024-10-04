@@ -27,7 +27,7 @@ import (
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
-type AgentControlPlaneMachineTemplate struct {
+type OpenshiftAssistedControlPlaneMachineTemplate struct {
 	// Standard object's metadata.
 	// More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#metadata
 	// +optional
@@ -55,21 +55,21 @@ type AgentControlPlaneMachineTemplate struct {
 	NodeDeletionTimeout *metav1.Duration `json:"nodeDeletionTimeout,omitempty"`
 }
 
-// AgentControlPlaneSpec defines the desired state of AgentControlPlane
-type AgentControlPlaneSpec struct {
+// OpenshiftAssistedControlPlaneSpec defines the desired state of OpenshiftAssistedControlPlane
+type OpenshiftAssistedControlPlaneSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
-	// AgentConfigSpec specs for the AgentConfig
-	AgentConfigSpec          AgentControlPlaneConfigSpec               `json:"agentConfigSpec"`
-	MachineTemplate          AgentControlPlaneMachineTemplate          `json:"machineTemplate"`
-	AgentBootstrapConfigSpec bootstrapv1beta1.AgentBootstrapConfigSpec `json:"agentBootstrapConfigSpec,omitempty"`
-	Replicas                 int32                                     `json:"replicas,omitempty"`
-	Version                  string                                    `json:"version"`
+	// Config specs for the OpenshiftAssistedControlPlane
+	Config                      OpenshiftAssistedControlPlaneConfigSpec      `json:"config,omitempty"`
+	MachineTemplate             OpenshiftAssistedControlPlaneMachineTemplate `json:"machineTemplate"`
+	OpenshiftAssistedConfigSpec bootstrapv1beta1.OpenshiftAssistedConfigSpec `json:"openshiftAssistedConfigSpec,omitempty"`
+	Replicas                    int32                                        `json:"replicas,omitempty"`
+	Version                     string                                       `json:"version"`
 }
 
-// AgentControlPlaneConfigSpec defines configuration for the agent-provisioned cluster
-type AgentControlPlaneConfigSpec struct {
+// OpenshiftAssistedControlPlaneConfigSpec defines configuration for the agent-provisioned cluster
+type OpenshiftAssistedControlPlaneConfigSpec struct {
 	// From AgentClusterInstall https://github.com/openshift/assisted-service/blob/master/api/hiveextension/v1beta1/agentclusterinstall_types.go
 
 	// APIVIPs are the virtual IPs used to reach the OpenShift cluster's API.
@@ -132,8 +132,8 @@ type AgentControlPlaneConfigSpec struct {
 	ImageRegistryRef *corev1.LocalObjectReference `json:"imageRegistryRef,omitempty"`
 }
 
-// AgentControlPlaneStatus defines the observed state of AgentControlPlane
-type AgentControlPlaneStatus struct {
+// OpenshiftAssistedControlPlaneStatus defines the observed state of OpenshiftAssistedControlPlane
+type OpenshiftAssistedControlPlaneStatus struct {
 	// ClusterDeploymentRef references the ClusterDeployment used to create the cluster
 	ClusterDeploymentRef *corev1.ObjectReference `json:"clusterDeploymentRef,omitempty"`
 
@@ -177,7 +177,7 @@ type AgentControlPlaneStatus struct {
 	// +optional
 	Initialized bool `json:"initialized"`
 
-	// Ready denotes that the AgentControlPlane API Server became ready during initial provisioning
+	// Ready denotes that the OpenshiftAssistedControlPlane API Server became ready during initial provisioning
 	// to receive requests.
 	// NOTE: this field is part of the Cluster API contract and it is used to orchestrate provisioning.
 	// The value of this field is never updated after provisioning is completed. Please use conditions
@@ -203,6 +203,7 @@ type AgentControlPlaneStatus struct {
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
+//+kubebuilder:resources:shortName=aocp
 // +kubebuilder:subresource:scale:specpath=.spec.replicas,statuspath=.status.replicas,selectorpath=.status.selector
 // +kubebuilder:printcolumn:name="Cluster",type="string",JSONPath=".metadata.labels['cluster\\.x-k8s\\.io/cluster-name']",description="Cluster"
 // +kubebuilder:printcolumn:name="Initialized",type=boolean,JSONPath=".status.initialized",description="This denotes whether or not the control plane has the uploaded kubeadm-config configmap"
@@ -215,34 +216,34 @@ type AgentControlPlaneStatus struct {
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp",description="Time duration since creation of KubeadmControlPlane"
 // +kubebuilder:printcolumn:name="Version",type=string,JSONPath=".spec.version",description="OpenShift version associated with this control plane"
 
-// AgentControlPlane is the Schema for the agentcontrolplanes API
-type AgentControlPlane struct {
+// OpenshiftAssistedControlPlane is the Schema for the openshiftassistedcontrolplane API
+type OpenshiftAssistedControlPlane struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   AgentControlPlaneSpec   `json:"spec,omitempty"`
-	Status AgentControlPlaneStatus `json:"status,omitempty"`
+	Spec   OpenshiftAssistedControlPlaneSpec   `json:"spec,omitempty"`
+	Status OpenshiftAssistedControlPlaneStatus `json:"status,omitempty"`
 }
 
 //+kubebuilder:object:root=true
 
-// AgentControlPlaneList contains a list of AgentControlPlane
-type AgentControlPlaneList struct {
+// OpenshiftAssistedControlPlaneList contains a list of OpenshiftAssistedControlPlane
+type OpenshiftAssistedControlPlaneList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []AgentControlPlane `json:"items"`
+	Items           []OpenshiftAssistedControlPlane `json:"items"`
 }
 
 func init() {
-	SchemeBuilder.Register(&AgentControlPlane{}, &AgentControlPlaneList{})
+	SchemeBuilder.Register(&OpenshiftAssistedControlPlane{}, &OpenshiftAssistedControlPlaneList{})
 }
 
 // GetConditions returns the set of conditions for this object.
-func (in *AgentControlPlane) GetConditions() clusterv1.Conditions {
+func (in *OpenshiftAssistedControlPlane) GetConditions() clusterv1.Conditions {
 	return in.Status.Conditions
 }
 
 // SetConditions sets the conditions on this object.
-func (in *AgentControlPlane) SetConditions(conditions clusterv1.Conditions) {
+func (in *OpenshiftAssistedControlPlane) SetConditions(conditions clusterv1.Conditions) {
 	in.Status.Conditions = conditions
 }

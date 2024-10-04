@@ -11,7 +11,7 @@ import (
 
 func GetInfraEnvFromConfig(
 	infraEnvName string,
-	config *bootstrapv1alpha1.AgentBootstrapConfig,
+	config *bootstrapv1alpha1.OpenshiftAssistedConfig,
 	clusterDeployment *hivev1.ClusterDeployment,
 ) *aiv1beta1.InfraEnv {
 	infraEnv := &aiv1beta1.InfraEnv{
@@ -19,7 +19,7 @@ func GetInfraEnvFromConfig(
 			Name:      infraEnvName,
 			Namespace: config.Namespace,
 			Labels: map[string]string{
-				bootstrapv1alpha1.AgentBootstrapConfigLabel: config.Name,
+				bootstrapv1alpha1.OpenshiftAssistedConfigLabel: config.Name,
 			},
 		},
 	}

@@ -38,11 +38,11 @@ import (
 )
 
 const (
-	agentControlPlaneName = "test-resource"
-	clusterDeploymentName = "test-clusterdeployment"
-	namespace             = "test"
-	clusterName           = "test-cluster"
-	openShiftVersion      = "4.16.0"
+	openshiftAssistedControlPlaneName = "test-resource"
+	clusterDeploymentName             = "test-clusterdeployment"
+	namespace                         = "test"
+	clusterName                       = "test-cluster"
+	openShiftVersion                  = "4.16.0"
 )
 
 var _ = Describe("ClusterDeployment Controller", func() {
@@ -52,7 +52,7 @@ var _ = Describe("ClusterDeployment Controller", func() {
 
 	BeforeEach(func() {
 		k8sClient = fakeclient.NewClientBuilder().WithScheme(testScheme).
-			WithStatusSubresource(&hivev1.ClusterDeployment{}, &v1alpha1.AgentControlPlane{}).
+			WithStatusSubresource(&hivev1.ClusterDeployment{}, &v1alpha1.OpenshiftAssistedControlPlane{}).
 			Build()
 		Expect(k8sClient).NotTo(BeNil())
 		controllerReconciler = &ClusterDeploymentReconciler{
@@ -68,7 +68,7 @@ var _ = Describe("ClusterDeployment Controller", func() {
 		By("creating the test namespace")
 		Expect(k8sClient.Create(ctx, ns)).To(Succeed())
 	})
-	When("A cluster deployment with no AgentControlPlanes in the same namespace", func() {
+	When("A cluster deployment with no OpenshiftAssistedControlPlanes in the same namespace", func() {
 		It("should not return error", func() {
 			cd := utils.NewClusterDeployment(namespace, clusterDeploymentName)
 			Expect(k8sClient.Create(ctx, cd)).To(Succeed())
@@ -79,12 +79,12 @@ var _ = Describe("ClusterDeployment Controller", func() {
 		})
 	})
 
-	When("A cluster deployment with AgentControlPlanes in the same namespace, but none referencing it", func() {
+	When("A cluster deployment with OpenshiftAssistedControlPlanes in the same namespace, but none referencing it", func() {
 		It("should not return error", func() {
 			cd := utils.NewClusterDeployment(namespace, clusterDeploymentName)
 			Expect(k8sClient.Create(ctx, cd)).To(Succeed())
 
-			acp := utils.NewAgentControlPlane(namespace, agentControlPlaneName)
+			acp := utils.NewOpenshiftAssistedControlPlane(namespace, openshiftAssistedControlPlaneName)
 			acp.Spec.Version = openShiftVersion
 			Expect(k8sClient.Create(ctx, acp)).To(Succeed())
 
@@ -95,7 +95,7 @@ var _ = Describe("ClusterDeployment Controller", func() {
 		})
 	})
 
-	When("A cluster deployment with AgentControlPlanes in the same namespace referencing it", func() {
+	When("A cluster deployment with OpenshiftAssistedControlPlanes in the same namespace referencing it", func() {
 		It("should not return error", func() {
 			cluster := utils.NewCluster(clusterName, namespace)
 			Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
@@ -105,18 +105,18 @@ var _ = Describe("ClusterDeployment Controller", func() {
 
 			enableOn := models.DiskEncryptionEnableOnAll
 			mode := models.DiskEncryptionModeTang
-			acp := utils.NewAgentControlPlane(namespace, agentControlPlaneName)
+			acp := utils.NewOpenshiftAssistedControlPlane(namespace, openshiftAssistedControlPlaneName)
 			acp.Spec.Version = openShiftVersion
-			acp.Spec.AgentConfigSpec.SSHAuthorizedKey = "mykey"
-			acp.Spec.AgentConfigSpec.DiskEncryption = &hiveext.DiskEncryption{
+			acp.Spec.Config.SSHAuthorizedKey = "mykey"
+			acp.Spec.Config.DiskEncryption = &hiveext.DiskEncryption{
 				EnableOn:    &enableOn,
 				Mode:        &mode,
 				TangServers: " [{\"url\":\"http://tang.example.com:7500\",\"thumbprint\":\"PLjNyRdGw03zlRoGjQYMahSZGu9\"}, {\"url\":\"http://tang.example.com:7501\",\"thumbprint\":\"PLjNyRdGw03zlRoGjQYMahSZGu8\"}]",
 			}
-			acp.Spec.AgentConfigSpec.Proxy = &hiveext.Proxy{
+			acp.Spec.Config.Proxy = &hiveext.Proxy{
 				HTTPProxy: "https://example.com",
 			}
-			acp.Spec.AgentConfigSpec.MastersSchedulable = true
+			acp.Spec.Config.MastersSchedulable = true
 
 			Expect(controllerutil.SetOwnerReference(cluster, acp, testScheme)).To(Succeed())
 			Expect(controllerutil.SetOwnerReference(acp, cd, testScheme)).To(Succeed())
@@ -134,11 +134,11 @@ var _ = Describe("ClusterDeployment Controller", func() {
 			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cd), aci)).To(Succeed())
 
 			// Assert exposed ACI fields are derived from ACP
-			Expect(aci.Spec.ManifestsConfigMapRefs).To(Equal(acp.Spec.AgentConfigSpec.ManifestsConfigMapRefs))
-			Expect(aci.Spec.DiskEncryption).To(Equal(acp.Spec.AgentConfigSpec.DiskEncryption))
-			Expect(aci.Spec.Proxy).To(Equal(acp.Spec.AgentConfigSpec.Proxy))
-			Expect(aci.Spec.MastersSchedulable).To(Equal(acp.Spec.AgentConfigSpec.MastersSchedulable))
-			Expect(aci.Spec.SSHPublicKey).To(Equal(acp.Spec.AgentConfigSpec.SSHAuthorizedKey))
+			Expect(aci.Spec.ManifestsConfigMapRefs).To(Equal(acp.Spec.Config.ManifestsConfigMapRefs))
+			Expect(aci.Spec.DiskEncryption).To(Equal(acp.Spec.Config.DiskEncryption))
+			Expect(aci.Spec.Proxy).To(Equal(acp.Spec.Config.Proxy))
+			Expect(aci.Spec.MastersSchedulable).To(Equal(acp.Spec.Config.MastersSchedulable))
+			Expect(aci.Spec.SSHPublicKey).To(Equal(acp.Spec.Config.SSHAuthorizedKey))
 		})
 		When("ACP with ingressVIPs and apiVIPs", func() {
 			It("should start a multinode cluster install", func() {
@@ -147,12 +147,12 @@ var _ = Describe("ClusterDeployment Controller", func() {
 
 				cd := utils.NewClusterDeployment(namespace, clusterDeploymentName)
 
-				acp := utils.NewAgentControlPlane(namespace, agentControlPlaneName)
+				acp := utils.NewOpenshiftAssistedControlPlane(namespace, openshiftAssistedControlPlaneName)
 				acp.Spec.Version = openShiftVersion
 				apiVIPs := []string{"1.2.3.4", "2.3.4.5"}
 				ingressVIPs := []string{"9.9.9.9", "10.10.10.10"}
-				acp.Spec.AgentConfigSpec.APIVIPs = apiVIPs
-				acp.Spec.AgentConfigSpec.IngressVIPs = ingressVIPs
+				acp.Spec.Config.APIVIPs = apiVIPs
+				acp.Spec.Config.IngressVIPs = ingressVIPs
 
 				Expect(controllerutil.SetOwnerReference(cluster, acp, testScheme)).To(Succeed())
 				Expect(controllerutil.SetOwnerReference(acp, cd, testScheme)).To(Succeed())

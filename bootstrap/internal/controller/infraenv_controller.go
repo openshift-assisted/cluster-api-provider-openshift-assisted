@@ -37,8 +37,8 @@ import (
 )
 
 const (
-	abcInfraEnvRefFieldName      = ".status.infraEnvRef.name"
-	abcInfraEnvRefFieldNamespace = ".status.infraEnvRef.namespace"
+	oacInfraEnvRefFieldName      = ".status.infraEnvRef.name"
+	oacInfraEnvRefFieldNamespace = ".status.infraEnvRef.namespace"
 )
 
 type InfraEnvControllerConfig struct {
@@ -60,27 +60,27 @@ type InfraEnvReconciler struct {
 }
 
 func filterRefName(rawObj client.Object) []string {
-	abc, ok := rawObj.(*bootstrapv1alpha1.AgentBootstrapConfig)
-	if !ok || abc.Status.InfraEnvRef == nil {
+	oac, ok := rawObj.(*bootstrapv1alpha1.OpenshiftAssistedConfig)
+	if !ok || oac.Status.InfraEnvRef == nil {
 		return nil
 	}
-	return []string{abc.Status.InfraEnvRef.Name}
+	return []string{oac.Status.InfraEnvRef.Name}
 }
 
 func filterRefNamespace(rawObj client.Object) []string {
-	abc, ok := rawObj.(*bootstrapv1alpha1.AgentBootstrapConfig)
-	if !ok || abc.Status.InfraEnvRef == nil {
+	oac, ok := rawObj.(*bootstrapv1alpha1.OpenshiftAssistedConfig)
+	if !ok || oac.Status.InfraEnvRef == nil {
 		return nil
 	}
-	return []string{abc.Status.InfraEnvRef.Namespace}
+	return []string{oac.Status.InfraEnvRef.Namespace}
 }
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *InfraEnvReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	if err := mgr.GetFieldIndexer().IndexField(context.TODO(), &bootstrapv1alpha1.AgentBootstrapConfig{}, abcInfraEnvRefFieldNamespace, filterRefNamespace); err != nil {
+	if err := mgr.GetFieldIndexer().IndexField(context.TODO(), &bootstrapv1alpha1.OpenshiftAssistedConfig{}, oacInfraEnvRefFieldNamespace, filterRefNamespace); err != nil {
 		return err
 	}
-	if err := mgr.GetFieldIndexer().IndexField(context.TODO(), &bootstrapv1alpha1.AgentBootstrapConfig{}, abcInfraEnvRefFieldName, filterRefName); err != nil {
+	if err := mgr.GetFieldIndexer().IndexField(context.TODO(), &bootstrapv1alpha1.OpenshiftAssistedConfig{}, oacInfraEnvRefFieldName, filterRefName); err != nil {
 		return err
 	}
 	return ctrl.NewControllerManagedBy(mgr).
@@ -103,7 +103,7 @@ func (r *InfraEnvReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		// NOTE: We should not need this, as InfraEnv should notify us when changing status
 		return ctrl.Result{Requeue: true, RequeueAfter: retryAfter}, nil
 	}
-	err := r.attachISOToAgentBootstrapConfigs(ctx, infraEnv)
+	err := r.attachISOToOpenshiftAssistedConfigs(ctx, infraEnv)
 	if err != nil {
 		return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 5}, err
 	}
@@ -111,23 +111,16 @@ func (r *InfraEnvReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 }
 
-func (r *InfraEnvReconciler) attachISOToAgentBootstrapConfigs(ctx context.Context, infraEnv *aiv1beta1.InfraEnv) error {
+func (r *InfraEnvReconciler) attachISOToOpenshiftAssistedConfigs(ctx context.Context, infraEnv *aiv1beta1.InfraEnv) error {
 	log := ctrl.LoggerFrom(ctx)
 
-	/*clusterName, ok := infraEnv.Labels[clusterv1.ClusterNameLabel]
-	if !ok {
-		return nil
-	}
-	*/
-	agentBootstrapConfigs := &bootstrapv1alpha1.AgentBootstrapConfigList{}
-	/*if err := r.Client.List(ctx, agentBootstrapConfigs, client.MatchingLabels{clusterv1.ClusterNameLabel: clusterName}); err != nil {
-		return errors.Wrap(err, "failed to list agent bootstrap configs")
-	}*/
-	if err := r.Client.List(ctx, agentBootstrapConfigs, client.MatchingFields{abcInfraEnvRefFieldName: infraEnv.Name, abcInfraEnvRefFieldNamespace: infraEnv.Namespace}); err != nil {
-		return errors.Wrap(err, "failed to list agent bootstrap configs")
+	openshiftAssistedConfig := &bootstrapv1alpha1.OpenshiftAssistedConfigList{}
+
+	if err := r.Client.List(ctx, openshiftAssistedConfig, client.MatchingFields{oacInfraEnvRefFieldName: infraEnv.Name, oacInfraEnvRefFieldNamespace: infraEnv.Namespace}); err != nil {
+		return errors.Wrap(err, "failed to list Openshift Assisted configs")
 	}
 
-	log.V(logutil.TraceLevel).Info("listing agentBoostrapConfigs", "items found", len(agentBootstrapConfigs.Items), "LIST AgentBootstrapConfigs", agentBootstrapConfigs)
+	log.V(logutil.TraceLevel).Info("listing openshiftassistedconfigs", "items found", len(openshiftAssistedConfig.Items), "LIST OpenshiftAssistedConfigs", openshiftAssistedConfig)
 	downloadURL, err := r.getISOURL(ctx, infraEnv.Status.ISODownloadURL)
 	log.V(logutil.TraceLevel).Info("ISO URL from INFRAENV", "ISO URL", downloadURL)
 
@@ -137,18 +130,18 @@ func (r *InfraEnvReconciler) attachISOToAgentBootstrapConfigs(ctx context.Contex
 	}
 
 	var errorIfSkipped error = nil
-	for _, agentBootstrapConfig := range agentBootstrapConfigs.Items {
-		if agentBootstrapConfig.Status.InfraEnvRef == nil {
-			log.V(logutil.TraceLevel).Info("skipping agentbootstrapconfig because no infraenv ref", "abc", agentBootstrapConfig.Name)
+	for _, oac := range openshiftAssistedConfig.Items {
+		if oac.Status.InfraEnvRef == nil {
+			log.V(logutil.TraceLevel).Info("skipping openshiftassistedconfig because no infraenv ref", "oac", oac.Name)
 			errorIfSkipped = errors.New("skipped an infraenv, need to retry") // infraenv would change and retrigger though
 			continue
 		}
 
-		agentBootstrapConfig.Status.ISODownloadURL = downloadURL
-		if err := r.Client.Status().Update(ctx, &agentBootstrapConfig); err != nil {
-			return errors.Wrap(err, "failed to update agentbootstrapconfig")
+		oac.Status.ISODownloadURL = downloadURL
+		if err := r.Client.Status().Update(ctx, &oac); err != nil {
+			return errors.Wrap(err, "failed to update openshiftassistedconfig")
 		}
-		log.V(logutil.TraceLevel).Info("setting infraenv ref to agentbootstrapconfig", "abc", agentBootstrapConfig.Name)
+		log.V(logutil.TraceLevel).Info("setting infraenv ref to openshiftassistedconfig", "oac", oac.Name)
 	}
 	return errorIfSkipped
 }

@@ -269,7 +269,7 @@ func (r *AgentBootstrapConfigReconciler) Reconcile(ctx context.Context, req ctrl
 		)
 		return ctrl.Result{}, err
 	}
-	log.V(logutil.TraceLevel).Info("metal3machine has ISO url", "abc", config)
+
 	secret, err := r.createUserDataSecret(ctx, config)
 	if err != nil {
 		log.Error(err, "couldn't create user data secret", "name", config.Name)

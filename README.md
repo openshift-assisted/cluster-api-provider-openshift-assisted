@@ -211,8 +211,9 @@ To run e2e tests we need to fulfill the following requirements:
 * kubernetes controlplane running in an environment with connectivity with libvirt network. NOTE: for now controlplane is required to run on the same host as the one used for VMs. See future improvements
   * connection is required, so make sure in `kind.yaml` `networking.apiServerAddress` is set to a reachable IP address and `networking.apiServerPort` is accessible
 
-Run `REMOTE_HOSTNAME=<hostname> REMOTE_USERNAME=<username> SSH_AUTHORIZED_KEY=<ssh public key> PULLSECRET=<base64 encoded pullsecret> KUBECONFIG=<path to kubeconfig> make test-e2e`
+Run `REMOTE_HOST_NETWORK_INTERFACE=<network interface> REMOTE_HOSTNAME=<hostname> REMOTE_USERNAME=<username> SSH_AUTHORIZED_KEY=<ssh public key> PULLSECRET=<base64 encoded pullsecret> KUBECONFIG=<path to kubeconfig> make test-e2e`
 
+`REMOTE_HOST_NETWORK_INTERFACE` is the network interface that will be used for the remote host.
 `REMOTE_HOSTNAME` is the host where VMs will be spun.
 `REMOTE_USERNAME` is the username to connect to `REMOTE_HOSTNAME`.
 `SSH_AUTHORIZED_KEY` is the key that would be configured to access the workload cluster's nodes.

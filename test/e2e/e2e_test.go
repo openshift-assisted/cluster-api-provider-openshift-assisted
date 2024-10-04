@@ -28,8 +28,7 @@ import (
 )
 
 const (
-	defaultNIC = "eno3"
-	namespace  = "test-capi"
+	namespace = "test-capi"
 
 	libvirtnetNameserver = "192.168.222.1"
 	defaultNameserver    = "8.8.8.8"
@@ -38,9 +37,11 @@ const (
 
 var _ = Describe("Libvirt Test", func() {
 	var (
-		ctx                    context.Context = context.Background()
-		username               string          = os.Getenv("REMOTE_USERNAME")
-		hostname               string          = os.Getenv("REMOTE_HOSTNAME")
+		ctx              = context.Background()
+		username         = os.Getenv("REMOTE_USERNAME")
+		hostname         = os.Getenv("REMOTE_HOSTNAME")
+		networkInterface = os.Getenv("REMOTE_HOST_NETWORK_INTERFACE")
+
 		conn                   *libvirt.Connect
 		network                *libvirt.Network
 		k8sClient              client.Client
@@ -85,7 +86,7 @@ var _ = Describe("Libvirt Test", func() {
 		_ = CleanupDomains(conn)
 
 		_, _ = fmt.Fprintf(GinkgoWriter, "[DEBUG] Setting up DNS server")
-		Expect(SetDNS(username, hostname, defaultNIC, defaultNameserver)).ToNot(HaveOccurred())
+		Expect(SetDNS(username, hostname, networkInterface, defaultNameserver)).ToNot(HaveOccurred())
 		_, _ = fmt.Fprintf(GinkgoWriter, "OK\n")
 		// setup infra workloads
 		_, _ = fmt.Fprintf(GinkgoWriter, "[DEBUG] Installing cert-manager...")
@@ -127,7 +128,7 @@ var _ = Describe("Libvirt Test", func() {
 		Expect(err).NotTo(HaveOccurred())
 		_, _ = fmt.Fprintf(GinkgoWriter, "OK\n")
 		_, _ = fmt.Fprintf(GinkgoWriter, "[DEBUG] Setting up DNS server")
-		Expect(SetDNS(username, hostname, defaultNIC, libvirtnetNameserver)).ToNot(HaveOccurred())
+		Expect(SetDNS(username, hostname, networkInterface, libvirtnetNameserver)).ToNot(HaveOccurred())
 		_, _ = fmt.Fprintf(GinkgoWriter, "OK\n")
 		// spin up sushy tools
 		_, _ = fmt.Fprintf(GinkgoWriter, "[DEBUG] Setting up SushyTools")

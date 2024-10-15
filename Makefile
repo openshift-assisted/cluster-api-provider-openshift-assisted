@@ -3,6 +3,7 @@ PROVIDER ?= bootstrap
 CONTAINER_REPOSITORY_ORG ?= edge-infrastructure
 CONTAINER_REPOSITORY ?= quay.io/$(CONTAINER_REPOSITORY_ORG)/openshift-capi-agent-$(PROVIDER)
 CONTAINER_TAG ?= latest
+DIST_DIR ?= ./dist
 # Image URL to use all building/pushing image targets
 IMG ?= $(CONTAINER_REPOSITORY):$(CONTAINER_TAG)
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
@@ -163,9 +164,9 @@ build-installer:
 
 .PHONY: build-installer-provider
 build-installer-provider: manifests generate kustomize ## Generate a consolidated YAML with CRDs and deployment.
-	mkdir -p dist
+	mkdir -p $(DIST_DIR)
 	cd $(PROVIDER)/config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
-	$(KUSTOMIZE) build $(PROVIDER)/config/default > dist/$(PROVIDER)_install.yaml
+	$(KUSTOMIZE) build $(PROVIDER)/config/default > ${DIST_DIR}/$(PROVIDER)_install.yaml
 
 ##@ Deployment
 

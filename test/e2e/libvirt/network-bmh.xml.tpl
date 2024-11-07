@@ -27,6 +27,7 @@
     <dnsmasq:option value='address=/.apps.test-multinode.lab.home/192.168.222.41'/>
     <dnsmasq:option value='address=/assisted-service.assisted-installer.com/<LOADBALANCER_IP>'/>
     <dnsmasq:option value='address=/assisted-image.assisted-installer.com/<LOADBALANCER_IP>'/>
+    <dnsmasq:option value='server=/registry-proxy.engineering.redhat.com/10.11.5.160'/>
     <dnsmasq:option value='server=8.8.8.8'/>
   </dnsmasq:options>
 </network>

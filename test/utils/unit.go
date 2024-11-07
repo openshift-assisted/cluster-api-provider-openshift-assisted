@@ -189,6 +189,9 @@ func NewInfraEnv(namespace, name string) *v1beta1.InfraEnv {
 			Namespace: namespace,
 			Name:      name,
 		},
+		Status: v1beta1.InfraEnvStatus{
+			ISODownloadURL: "example.com/foobar/?api_key=abcde1234567890",
+		},
 	}
 }
 
@@ -201,14 +204,9 @@ func NewAgent(namespace, name string) *v1beta1.Agent {
 	}
 }
 
-func NewAgentWithInterface(namespace, name, macAddress string) *v1beta1.Agent {
+func NewAgentWithInfraEnvLabel(namespace, name, infraEnvName string) *v1beta1.Agent {
 	agent := NewAgent(namespace, name)
-	agent.Status.Inventory.Interfaces = []v1beta1.HostInterface{
-		{
-			Name:       "test-interface",
-			MacAddress: macAddress,
-		},
-	}
+	agent.Labels = map[string]string{"infraenvs.agent-install.openshift.io": infraEnvName}
 	return agent
 }
 

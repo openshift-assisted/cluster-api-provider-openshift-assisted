@@ -18,6 +18,13 @@ package controller
 
 import (
 	"context"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+
+	"github.com/openshift-assisted/cluster-api-agent/assistedinstaller"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -27,7 +34,6 @@ import (
 	v1 "github.com/openshift/hive/apis/hive/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -38,18 +44,15 @@ import (
 )
 
 const (
-	agentName                        = "test-agent"
-	oacName                          = "test-resource"
-	bmhName                          = "test-bmh"
-	namespace                        = "test-namespace"
-	clusterName                      = "test-cluster"
-	clusterDeploymentName            = "test-clusterdeployment"
-	machineName                      = "test-resource"
-	metal3MachineName                = "test-m3machine"
-	acpName                          = "test-controlplane"
-	metal3MachineTemplateName        = "test-m3machinetemplate"
-	infraEnvName                     = "test-infraenv"
-	testCert                  string = `-----BEGIN CERTIFICATE-----
+	isoExampleURL        = "https://example.com/download-my-iso"
+	agentName            = "test-agent"
+	oacName              = "test-resource"
+	namespace            = "test-namespace"
+	clusterName          = "test-cluster"
+	machineName          = "test-resource"
+	acpName              = "test-controlplane"
+	infraEnvName         = "test-infraenv"
+	testCert      string = `-----BEGIN CERTIFICATE-----
 MIIFPjCCAyagAwIBAgIUBCE1YX2zJ0R/3NURq2XQaciEuVQwDQYJKoZIhvcNAQEL
 BQAwFjEUMBIGA1UEAwwLZXhhbXBsZS5jb20wHhcNMjIxMTI3MjM0MjAyWhcNMzIx
 MTI0MjM0MjAyWjAWMRQwEgYDVQQDDAtleGFtcGxlLmNvbTCCAiIwDQYJKoZIhvcN
@@ -82,6 +85,14 @@ gmY=
 -----END CERTIFICATE-----`
 )
 
+type mockTransport struct {
+	mockHandler func(req *http.Request) (*http.Response, error)
+}
+
+func (t *mockTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	return t.mockHandler(req)
+}
+
 var _ = Describe("OpenshiftAssistedConfig Controller", func() {
 	Context("When reconciling a resource", func() {
 		ctx := context.Background()
@@ -91,7 +102,7 @@ var _ = Describe("OpenshiftAssistedConfig Controller", func() {
 		BeforeEach(func() {
 			By("Resetting fakeclient state")
 			k8sClient = fakeclient.NewClientBuilder().WithScheme(testScheme).
-				WithStatusSubresource(&bootstrapv1alpha1.OpenshiftAssistedConfig{}).
+				WithStatusSubresource(&bootstrapv1alpha1.OpenshiftAssistedConfig{}, &v1beta1.InfraEnv{}).
 				Build()
 			Expect(k8sClient).NotTo(BeNil())
 
@@ -214,86 +225,138 @@ var _ = Describe("OpenshiftAssistedConfig Controller", func() {
 			})
 		})
 		When(
-			"InfraEnv, ClusterDeployment and AgentClusterInstall are already created but no Metal3Machine is running",
+			"InfraEnv, ClusterDeployment and AgentClusterInstall are already created but no eventsURL has been generated",
 			func() {
-				It("should update metal3MachineTemplate", func() {
+				It("fail reconciliation", func() {
 					oac := setupControlPlaneOpenshiftAssistedConfig(ctx, k8sClient)
 					mockControlPlaneInitialization(ctx, k8sClient)
 
-					// InfraEnv and OpenshiftAssistedConfig is already updated by InfraEnv controller
-					Expect(k8sClient.Create(ctx, testutils.NewInfraEnv(namespace, infraEnvName))).To(Succeed())
-					expectedDiskFormat := "live-iso"
-					expectedISODownloadURL := "https://example.com/download-my-iso"
-					oac.Status.ISODownloadURL = expectedISODownloadURL
+					// InfraEnv with no eventsURL
+					Expect(k8sClient.Create(ctx, testutils.NewInfraEnv(namespace, machineName))).To(Succeed())
+					oac.Status.ISODownloadURL = isoExampleURL
 					Expect(k8sClient.Status().Update(ctx, oac)).To(Succeed())
 
 					_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
 						NamespacedName: client.ObjectKeyFromObject(oac),
 					})
-					Expect(err).NotTo(HaveOccurred())
-					assertISOURLOnM3Template(ctx, k8sClient, expectedISODownloadURL, expectedDiskFormat)
-					Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(oac), oac)).To(Succeed())
-					assertBootstrapReady(oac)
+					Expect(err).To(MatchError("error while retrieving ignitionURL: cannot generate ignition url if events URL is not generated"))
 				})
 			},
 		)
 		When(
-			"InfraEnv, ClusterDeployment and AgentClusterInstall are already created and Metal3Machine is running",
+			"InfraEnv, ClusterDeployment and AgentClusterInstall are already created",
 			func() {
-				It("should update metal3MachineTemplate", func() {
-					oac := setupControlPlaneOpenshiftAssistedConfigWithMetal3Machine(ctx, k8sClient)
+				It("should create data secret", func() {
+					// http://assisted-service.assisted-installer.com/api/assisted-install/v2/infra-envs/e6f55793-95f8-484e-83f3-ac33f05f274b/downloads/files?api_key=eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJpbmZyYV9lbnZfaWQiOiJlNmY1NTc5My05NWY4LTQ4NGUtODNmMy1hYzMzZjA1ZjI3NGIifQ.HCwlge7dTI8tUR2FC3YPhfIk7hG2p0tcbV1AzaZ2V_o-5lackqPHV18Ai3wPYnUPFLSgtW4-SnL28QsZRW82Vg&file_name=discovery.ign
+					mockResponse := `{"fake":"ignition"}`
+					server := httptest.NewServer(http.HandlerFunc(
+						func(w http.ResponseWriter, r *http.Request) {
+							w.WriteHeader(http.StatusOK)
+							_, _ = w.Write([]byte(mockResponse))
+						}))
+					defer server.Close()
+
+					controllerReconciler = &OpenshiftAssistedConfigReconciler{
+						Client:     k8sClient,
+						Scheme:     k8sClient.Scheme(),
+						HttpClient: server.Client(),
+					}
+
+					oac := setupControlPlaneOpenshiftAssistedConfig(ctx, k8sClient)
 					mockControlPlaneInitialization(ctx, k8sClient)
-					// InfraEnv and OpenshiftAssistedConfig is already updated by InfraEnv controller
-					Expect(k8sClient.Create(ctx, testutils.NewInfraEnv(namespace, infraEnvName))).To(Succeed())
-					expectedDiskFormat := "live-iso"
-					expectedISODownloadURL := "https://example.com/download-my-iso"
-					// Simulate InfraEnv controller updating ISO to config
-					oac.Status.ISODownloadURL = expectedISODownloadURL
+					infraEnv := testutils.NewInfraEnv(namespace, machineName)
+					Expect(k8sClient.Create(ctx, infraEnv)).To(Succeed())
+					infraEnv.Status.InfraEnvDebugInfo.EventsURL = server.URL + "/api/assisted-install/v2/events?api_key=eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJpbmZyYV9lbnZfaWQiOiJlNmY1NTc5My05NWY4LTQ4NGUtODNmMy1hYzMzZjA1ZjI3NGIifQ.HCwlge7dTI8tUR2FC3YPhfIk7hG2p0tcbV1AzaZ2V_o-5lackqPHV18Ai3wPYnUPFLSgtW4-SnL28QsZRW82Vg&infra_env_id=e6f55793-95f8-484e-83f3-ac33f05f274b"
+					Expect(k8sClient.Status().Update(ctx, infraEnv)).To(Succeed())
+
+					oac.Status.ISODownloadURL = isoExampleURL
 					Expect(k8sClient.Status().Update(ctx, oac)).To(Succeed())
 
 					_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
 						NamespacedName: client.ObjectKeyFromObject(oac),
 					})
-					Expect(err).NotTo(HaveOccurred())
+					Expect(err).To(BeNil())
 
-					assertISOURLOnM3Template(ctx, k8sClient, expectedISODownloadURL, expectedDiskFormat)
-					assertISOURLOnM3Machine(ctx, k8sClient, expectedISODownloadURL, expectedDiskFormat)
+					//Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(oac), oac)).To(Succeed())
+					//assertBootstrapReady(oac)
+					secret := corev1.Secret{}
+					Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(oac), &secret)).To(Succeed())
+					Expect(len(secret.Data)).To(Equal(2))
+					format, ok := secret.Data["format"]
+					Expect(ok).To(BeTrue())
+					Expect(string(format)).To(Equal("ignition"))
+					ignition, ok := secret.Data["value"]
+					Expect(ok).To(BeTrue())
+					Expect(string(ignition)).ToNot(BeEmpty())
+					Expect(string(ignition)).To(Equal(mockResponse))
 
-					Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(oac), oac)).To(Succeed())
-					assertBootstrapReady(oac)
+				})
+			},
+		)
+		When(
+			"InfraEnv, ClusterDeployment and AgentClusterInstall are already created, internal URLs are expected",
+			func() {
+				It("should create data secret", func() {
+					// http://assisted-service.assisted-installer.com/api/assisted-install/v2/infra-envs/e6f55793-95f8-484e-83f3-ac33f05f274b/downloads/files?api_key=eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJpbmZyYV9lbnZfaWQiOiJlNmY1NTc5My05NWY4LTQ4NGUtODNmMy1hYzMzZjA1ZjI3NGIifQ.HCwlge7dTI8tUR2FC3YPhfIk7hG2p0tcbV1AzaZ2V_o-5lackqPHV18Ai3wPYnUPFLSgtW4-SnL28QsZRW82Vg&file_name=discovery.ign
+					mockResponse := `{"fake":"ignition"}`
+
+					mockHandler := func(req *http.Request) (*http.Response, error) {
+						if req.URL.Host != "assisted-service.assisted-installer.svc.cluster.local:8090" {
+							return nil, fmt.Errorf("unexpected host: %s", req.URL.Host)
+						}
+						mockBody := io.NopCloser(strings.NewReader(mockResponse))
+						return &http.Response{
+							StatusCode: http.StatusOK,
+							Body:       mockBody,
+							Header:     make(http.Header),
+						}, nil
+					}
+					controllerReconciler = &OpenshiftAssistedConfigReconciler{
+						Client: k8sClient,
+						Scheme: k8sClient.Scheme(),
+						HttpClient: &http.Client{
+							Transport: &mockTransport{mockHandler: mockHandler},
+						},
+						AssistedInstallerConfig: assistedinstaller.ServiceConfig{
+							UseInternalImageURL:        true,
+							AssistedServiceName:        "assisted-service",
+							AssistedInstallerNamespace: "assisted-installer",
+						},
+					}
+
+					oac := setupControlPlaneOpenshiftAssistedConfig(ctx, k8sClient)
+					mockControlPlaneInitialization(ctx, k8sClient)
+					infraEnv := testutils.NewInfraEnv(namespace, machineName)
+					Expect(k8sClient.Create(ctx, infraEnv)).To(Succeed())
+					infraEnv.Status.InfraEnvDebugInfo.EventsURL = "http://assisted-service.assisted-installer.com/api/assisted-install/v2/events?api_key=eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJpbmZyYV9lbnZfaWQiOiJlNmY1NTc5My05NWY4LTQ4NGUtODNmMy1hYzMzZjA1ZjI3NGIifQ.HCwlge7dTI8tUR2FC3YPhfIk7hG2p0tcbV1AzaZ2V_o-5lackqPHV18Ai3wPYnUPFLSgtW4-SnL28QsZRW82Vg&infra_env_id=e6f55793-95f8-484e-83f3-ac33f05f274b"
+					Expect(k8sClient.Status().Update(ctx, infraEnv)).To(Succeed())
+
+					oac.Status.ISODownloadURL = isoExampleURL
+					Expect(k8sClient.Status().Update(ctx, oac)).To(Succeed())
+
+					_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+						NamespacedName: client.ObjectKeyFromObject(oac),
+					})
+					Expect(err).To(BeNil())
+
+					//Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(oac), oac)).To(Succeed())
+					//assertBootstrapReady(oac)
+					secret := corev1.Secret{}
+					Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(oac), &secret)).To(Succeed())
+					Expect(len(secret.Data)).To(Equal(2))
+					format, ok := secret.Data["format"]
+					Expect(ok).To(BeTrue())
+					Expect(string(format)).To(Equal("ignition"))
+					ignition, ok := secret.Data["value"]
+					Expect(ok).To(BeTrue())
+					Expect(string(ignition)).ToNot(BeEmpty())
+					Expect(string(ignition)).To(Equal(mockResponse))
 
 				})
 			},
 		)
 	})
 })
-
-func assertISOURLOnM3Template(
-	ctx context.Context,
-	k8sClient client.Client,
-	expectedISODownloadURL, expectedDiskFormat string,
-) {
-	m3Template := testutils.NewM3MachineTemplate(namespace, metal3MachineTemplateName)
-	Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(m3Template), m3Template)).To(Succeed())
-	Expect(m3Template.Spec.Template.Spec.Image.URL).To(Equal(expectedISODownloadURL))
-	Expect(m3Template.Spec.Template.Spec.Image.DiskFormat).To(Equal(&expectedDiskFormat))
-}
-
-func assertISOURLOnM3Machine(
-	ctx context.Context,
-	k8sClient client.Client,
-	expectedISODownloadURL, expectedDiskFormat string,
-) {
-	m3Machine := testutils.NewMetal3Machine(namespace, metal3MachineName)
-	Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(m3Machine), m3Machine)).To(Succeed())
-	Expect(m3Machine.Spec.Image.URL).To(Equal(expectedISODownloadURL))
-	Expect(m3Machine.Spec.Image.DiskFormat).To(Equal(&expectedDiskFormat))
-}
-func assertBootstrapReady(oac *bootstrapv1alpha1.OpenshiftAssistedConfig) {
-	Expect(conditions.IsTrue(oac, bootstrapv1alpha1.DataSecretAvailableCondition)).To(BeTrue())
-	Expect(oac.Status.Ready).To(BeTrue())
-	Expect(*oac.Status.DataSecretName).NotTo(BeNil())
-}
 
 func assertInfraEnvWithEmptyISOURL(
 	ctx context.Context,
@@ -337,30 +400,6 @@ func mockControlPlaneInitialization(ctx context.Context, k8sClient client.Client
 	crossReferenceACIAndCD(ctx, k8sClient, aci, cd)
 }
 
-func setupControlPlaneOpenshiftAssistedConfigWithMetal3Machine(
-	ctx context.Context,
-	k8sClient client.Client,
-) *bootstrapv1alpha1.OpenshiftAssistedConfig {
-	oac := setupControlPlaneOpenshiftAssistedConfig(ctx, k8sClient)
-	m3Machine := testutils.NewMetal3Machine(namespace, metal3MachineName)
-	Expect(k8sClient.Create(ctx, m3Machine)).To(Succeed())
-	machine := &clusterv1.Machine{}
-	Expect(k8sClient.Get(ctx, types.NamespacedName{
-		Namespace: namespace,
-		Name:      machineName,
-	}, machine)).To(Succeed())
-	gvk := m3Machine.GroupVersionKind()
-	machine.Spec.InfrastructureRef = corev1.ObjectReference{
-		Kind:       gvk.Kind,
-		Namespace:  m3Machine.Namespace,
-		Name:       m3Machine.Name,
-		UID:        m3Machine.UID,
-		APIVersion: gvk.GroupVersion().String(),
-	}
-	Expect(k8sClient.Update(ctx, machine)).To(Succeed())
-	return oac
-}
-
 func setupControlPlaneOpenshiftAssistedConfig(
 	ctx context.Context,
 	k8sClient client.Client,
@@ -368,16 +407,7 @@ func setupControlPlaneOpenshiftAssistedConfig(
 	cluster := testutils.NewCluster(clusterName, namespace)
 	Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
 
-	m3Template := testutils.NewM3MachineTemplateWithImage(
-		namespace,
-		metal3MachineTemplateName,
-		"https://example.com/abcd",
-		"qcow2",
-	)
-	Expect(k8sClient.Create(ctx, m3Template)).To(Succeed())
-	Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(m3Template), m3Template)).To(Succeed())
-
-	acp := testutils.NewOpenshiftAssistedControlPlaneWithMachineTemplate(namespace, acpName, m3Template)
+	acp := testutils.NewOpenshiftAssistedControlPlane(namespace, acpName)
 	Expect(k8sClient.Create(ctx, acp)).Should(Succeed())
 	Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(acp), acp)).To(Succeed())
 

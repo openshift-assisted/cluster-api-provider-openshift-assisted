@@ -75,6 +75,21 @@ type OpenshiftAssistedConfigSpec struct {
 	// Note: OSImageVersion can't be specified along with ClusterRef.
 	// +optional
 	OSImageVersion string `json:"osImageVersion,omitempty"`
+
+	// NodeRegistrationOption holds fields related to registering nodes to the cluster
+	// +optional
+	NodeRegistration NodeRegistrationOptions `json:"nodeRegistration,omitempty"`
+}
+
+// NodeRegistrationOption holds fields related to registering nodes to the cluster
+type NodeRegistrationOptions struct {
+	// Defaults to the hostname of the node if not provided.
+	// +optional
+	Name string `json:"name,omitempty"`
+
+	// KubeletExtraLabels passes extra labels to kubelet.
+	// +optional
+	KubeletExtraLabels []string `json:"kubeletExtraLabels,omitempty"`
 }
 
 // OpenshiftAssistedConfigStatus defines the observed state of OpenshiftAssistedConfig

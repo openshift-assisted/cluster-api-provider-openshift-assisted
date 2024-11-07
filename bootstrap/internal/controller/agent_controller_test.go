@@ -18,10 +18,7 @@ package controller
 
 import (
 	"context"
-	"strings"
 
-	"github.com/metal3-io/baremetal-operator/apis/metal3.io/v1alpha1"
-	"github.com/metal3-io/cluster-api-provider-metal3/baremetal"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	bootstrapv1alpha1 "github.com/openshift-assisted/cluster-api-agent/bootstrap/api/v1alpha1"
@@ -37,8 +34,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
-
-const agentInterfaceMACAddress = "00-B0-D0-63-C2-26"
 
 var _ = Describe("Agent Controller", func() {
 	Context("When reconciling a resource", func() {
@@ -70,7 +65,7 @@ var _ = Describe("Agent Controller", func() {
 			k8sClient = nil
 			controllerReconciler = nil
 		})
-		When("No agent resources exist", func() {
+		When("No agent resources exists", func() {
 			It("should reconcile with no errors", func() {
 				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
 					NamespacedName: types.NamespacedName{
@@ -81,7 +76,7 @@ var _ = Describe("Agent Controller", func() {
 				Expect(err).NotTo(HaveOccurred())
 			})
 		})
-		When("an Agent resource exist, but with no interfaces", func() {
+		When("an Agent resource exists, but with no infraenv", func() {
 			It("should reconcile with an error", func() {
 				agent := testutils.NewAgent(namespace, agentName)
 				Expect(k8sClient.Create(ctx, agent)).To(Succeed())
@@ -90,28 +85,37 @@ var _ = Describe("Agent Controller", func() {
 					NamespacedName: client.ObjectKeyFromObject(agent),
 				})
 				Expect(err).To(HaveOccurred())
-				Expect(err.Error()).To(Equal("agent doesn't have inventory yet"))
+				Expect(err.Error()).To(Equal("no infraenvs.agent-install.openshift.io label on Agent test-namespace/test-agent"))
 			})
 		})
-		When("an Agent resource exists with a machine has no OAC reference", func() {
-			It("should reconcile with no errors", func() {
-				By("Creating the Agent")
-				agent := testutils.NewAgentWithInterface(namespace, agentName, agentInterfaceMACAddress)
+		When("an Agent resource exists with an infraEnv, but with no machine owner", func() {
+			It("should reconcile with an error", func() {
+				agent := testutils.NewAgentWithInfraEnvLabel(namespace, agentName, infraEnvName)
 				Expect(k8sClient.Create(ctx, agent)).To(Succeed())
 
-				By("Creating the BMH, Metal3Machine, and Machine")
-				bmh := testutils.NewBareMetalHost(namespace, bmhName)
-				bmh.Spec.BootMACAddress = agentInterfaceMACAddress
-				m3machine := testutils.NewMetal3Machine(namespace, metal3MachineName)
-				m3machine.Annotations = map[string]string{
-					baremetal.HostAnnotation: strings.Join([]string{namespace, bmhName}, "/"),
-				}
+				By("Creating InfraEnv")
+				infraEnv := testutils.NewInfraEnv(namespace, infraEnvName)
+				Expect(k8sClient.Create(ctx, infraEnv)).To(Succeed())
+
+				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: client.ObjectKeyFromObject(agent),
+				})
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(Equal("couldn't find *v1beta1.Machine owner for *v1beta1.InfraEnv"))
+			})
+		})
+		When("an Agent resource exists with an infraenv, but machine has no OAC reference", func() {
+			It("should reconcile with no errors", func() {
+				By("Creating the Agent")
+				agent := testutils.NewAgentWithInfraEnvLabel(namespace, agentName, machineName)
+				Expect(k8sClient.Create(ctx, agent)).To(Succeed())
+				By("Creating InfraEnv")
+				infraEnv := testutils.NewInfraEnv(namespace, machineName)
+
 				machine := testutils.NewMachine(namespace, machineName, clusterName)
-				Expect(controllerutil.SetOwnerReference(m3machine, bmh, testScheme)).To(Succeed())
-				Expect(controllerutil.SetOwnerReference(machine, m3machine, testScheme)).To(Succeed())
-				Expect(k8sClient.Create(ctx, m3machine)).To(Succeed())
+				Expect(controllerutil.SetOwnerReference(machine, infraEnv, testScheme)).To(Succeed())
 				Expect(k8sClient.Create(ctx, machine)).To(Succeed())
-				Expect(k8sClient.Create(ctx, bmh)).To(Succeed())
+				Expect(k8sClient.Create(ctx, infraEnv)).To(Succeed())
 
 				By("Reconciling the Agent")
 				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
@@ -123,26 +127,19 @@ var _ = Describe("Agent Controller", func() {
 		When("an Agent resource with a valid Machine reference but the OAC does not exist", func() {
 			It("should reconcile with an error", func() {
 				By("Creating the Agent")
-				agent := testutils.NewAgentWithInterface(namespace, agentName, agentInterfaceMACAddress)
+				agent := testutils.NewAgentWithInfraEnvLabel(namespace, agentName, machineName)
 				Expect(k8sClient.Create(ctx, agent)).To(Succeed())
+				By("Creating InfraEnv")
+				infraEnv := testutils.NewInfraEnv(namespace, machineName)
 
-				By("Creating the BMH, Metal3Machine and Machine")
-				bmh := testutils.NewBareMetalHost(namespace, bmhName)
-				bmh.Spec.BootMACAddress = agentInterfaceMACAddress
-				m3machine := testutils.NewMetal3Machine(namespace, metal3MachineName)
-				m3machine.Annotations = map[string]string{
-					baremetal.HostAnnotation: strings.Join([]string{namespace, bmhName}, "/"),
-				}
 				machine := testutils.NewMachine(namespace, machineName, clusterName)
 				machine.Spec.Bootstrap.ConfigRef = &corev1.ObjectReference{
 					Name:      oacName,
 					Namespace: namespace,
 				}
-				Expect(controllerutil.SetOwnerReference(machine, m3machine, testScheme)).To(Succeed())
-				Expect(controllerutil.SetOwnerReference(m3machine, bmh, testScheme)).To(Succeed())
-				Expect(k8sClient.Create(ctx, m3machine)).To(Succeed())
+				Expect(controllerutil.SetOwnerReference(machine, infraEnv, testScheme)).To(Succeed())
 				Expect(k8sClient.Create(ctx, machine)).To(Succeed())
-				Expect(k8sClient.Create(ctx, bmh)).To(Succeed())
+				Expect(k8sClient.Create(ctx, infraEnv)).To(Succeed())
 
 				By("Reconciling the Agent")
 				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
@@ -154,151 +151,89 @@ var _ = Describe("Agent Controller", func() {
 				).To(Equal("openshiftassistedconfigs.bootstrap.cluster.x-k8s.io \"test-resource\" not found"))
 			})
 		})
-		When("an Agent resource with a valid Machine with OACs, and reported interfaces", func() {
-			It("should return error if BMH is not found", func() {
+		When("an Agent resource with a valid Machine with OACs, and no agent ref", func() {
+			It("should add the agent ref to OAC status", func() {
 				By("Creating the OpenshiftAssistedConfig")
 				oac := NewOpenshiftAssistedConfig(namespace, oacName, clusterName)
 				Expect(k8sClient.Create(ctx, oac)).To(Succeed())
 
-				By("Creating the Agent")
-				agent := testutils.NewAgentWithInterface(namespace, agentName, agentInterfaceMACAddress)
+				agent := testutils.NewAgentWithInfraEnvLabel(namespace, agentName, machineName)
 				Expect(k8sClient.Create(ctx, agent)).To(Succeed())
 
-				By("Creating the Metal3Machine, and Machine")
-				m3machine := testutils.NewMetal3Machine(namespace, metal3MachineName)
-				m3machine.Annotations = map[string]string{
-					baremetal.HostAnnotation: strings.Join([]string{namespace, bmhName}, "/"),
-				}
-				machine := testutils.NewMachine(namespace, machineName, clusterName)
-				Expect(controllerutil.SetOwnerReference(machine, m3machine, testScheme)).To(Succeed())
-				Expect(k8sClient.Create(ctx, m3machine)).To(Succeed())
-				Expect(k8sClient.Create(ctx, machine)).To(Succeed())
-
-				By("Reconciling the Agent")
-				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-					NamespacedName: client.ObjectKeyFromObject(agent),
-				})
-				Expect(err).To(HaveOccurred())
-				Expect(
-					err.Error(),
-				).To(Equal("found 0 BMHs, but none matched any of the MacAddresses from the agent's 1 interfaces"))
-
-				By("Checking the results of reconciliation")
-				postOAC := &bootstrapv1alpha1.OpenshiftAssistedConfig{}
-				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(oac), postOAC)).To(Succeed())
-				Expect(postOAC.Status.AgentRef).To(BeNil())
-			})
-		})
-		When("an Agent resource with a valid Machine with OACs, reported interfaces", func() {
-			It("should return error if no matching BMH is not found", func() {
-				oac := NewOpenshiftAssistedConfig(namespace, oacName, clusterName)
-				Expect(k8sClient.Create(ctx, oac)).To(Succeed())
-
-				By("Creating the BMH, Metal3Machine, and Machine")
-				bmh := testutils.NewBareMetalHost(namespace, bmhName)
-				bmh.Spec.BootMACAddress = "00-B0-D0-63-C1-11"
-				m3machine := testutils.NewMetal3Machine(namespace, metal3MachineName)
-				m3machine.Annotations = map[string]string{
-					baremetal.HostAnnotation: strings.Join([]string{namespace, bmhName}, "/"),
-				}
-				machine := testutils.NewMachine(namespace, machineName, clusterName)
-				Expect(controllerutil.SetOwnerReference(m3machine, bmh, testScheme)).To(Succeed())
-				Expect(controllerutil.SetOwnerReference(machine, m3machine, testScheme)).To(Succeed())
-				Expect(k8sClient.Create(ctx, m3machine)).To(Succeed())
-				Expect(k8sClient.Create(ctx, machine)).To(Succeed())
-				Expect(k8sClient.Create(ctx, bmh)).To(Succeed())
-
-				By("Creating the Agent")
-				agent := testutils.NewAgentWithInterface(namespace, agentName, agentInterfaceMACAddress)
-				Expect(k8sClient.Create(ctx, agent)).To(Succeed())
-
-				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-					NamespacedName: client.ObjectKeyFromObject(agent),
-				})
-				Expect(err).To(HaveOccurred())
-				Expect(
-					err.Error(),
-				).To(Equal("found 1 BMHs, but none matched any of the MacAddresses from the agent's 1 interfaces"))
-			})
-		})
-		When("an Agent resource with a valid Machine with OACs, reported interfaces", func() {
-			It("should return error if matching BMH is found, but no metal3machine is found", func() {
-				By("Creating the BMH")
-				bmh := testutils.NewBareMetalHost(namespace, bmhName)
-				bmh.Spec.BootMACAddress = agentInterfaceMACAddress
-				Expect(k8sClient.Create(ctx, bmh))
-
-				By("Creating the Agent")
-				agent := testutils.NewAgentWithInterface(namespace, agentName, agentInterfaceMACAddress)
-				Expect(k8sClient.Create(ctx, agent)).To(Succeed())
-
-				By("Reconciling the Agent")
-				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-					NamespacedName: client.ObjectKeyFromObject(agent),
-				})
-				Expect(err).To(HaveOccurred())
-				Expect(err.Error()).To(Equal("couldn't find *v1beta1.Metal3Machine owner for *v1alpha1.BareMetalHost"))
-			})
-		})
-
-		When("an Agent resource with a valid Machine with OACs, reported interfaces", func() {
-			It("should return error if matching BMH+metal3machine is found, but no machine is found", func() {
-				By("Creating the OpenshiftAssistedConfig")
-				oac := NewOpenshiftAssistedConfig(namespace, oacName, clusterName)
-				Expect(k8sClient.Create(ctx, oac)).To(Succeed())
-
-				By("Creating the BMH and Metal3Machine")
-				bmh := testutils.NewBareMetalHost(namespace, bmhName)
-				bmh.Spec.BootMACAddress = agentInterfaceMACAddress
-				m3machine := testutils.NewMetal3Machine(namespace, metal3MachineName)
-				m3machine.Annotations = map[string]string{
-					baremetal.HostAnnotation: strings.Join([]string{namespace, bmhName}, "/"),
-				}
-				Expect(controllerutil.SetOwnerReference(m3machine, bmh, testScheme)).To(Succeed())
-				Expect(k8sClient.Create(ctx, m3machine)).To(Succeed())
-				Expect(k8sClient.Create(ctx, bmh)).To(Succeed())
-
-				By("Creating the Agent")
-				agent := testutils.NewAgentWithInterface(namespace, agentName, agentInterfaceMACAddress)
-				Expect(k8sClient.Create(ctx, agent)).To(Succeed())
-
-				By("Reconciling the Agent")
-				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-					NamespacedName: client.ObjectKeyFromObject(agent),
-				})
-				Expect(err).To(HaveOccurred())
-				Expect(
-					err.Error(),
-				).To(Equal("couldn't find *v1beta1.Machine owner for *v1beta1.Metal3Machine"))
-			})
-		})
-
-		When("an Agent resource with matching matching BMH, metal3machine, machine (worker)", func() {
-			It("should reconcile with a valid accepted worker agent", func() {
-				By("Creating the OpenshiftAssistedConfig")
-				oac := NewOpenshiftAssistedConfig(namespace, oacName, clusterName)
-				Expect(k8sClient.Create(ctx, oac)).To(Succeed())
-
-				By("Creating the BMH, Metal3Machine and Machine")
-				bmh := testutils.NewBareMetalHost(namespace, bmhName)
-				bmh.Spec.BootMACAddress = agentInterfaceMACAddress
-				m3machine := testutils.NewMetal3Machine(namespace, metal3MachineName)
-				m3machine.Annotations = map[string]string{
-					baremetal.HostAnnotation: strings.Join([]string{namespace, bmhName}, "/"),
-				}
+				infraEnv := testutils.NewInfraEnv(namespace, machineName)
 				machine := testutils.NewMachine(namespace, machineName, clusterName)
 				machine.Spec.Bootstrap.ConfigRef = &corev1.ObjectReference{
 					Name:      oacName,
 					Namespace: namespace,
 				}
-				Expect(controllerutil.SetOwnerReference(machine, m3machine, testScheme)).To(Succeed())
-				Expect(controllerutil.SetOwnerReference(m3machine, bmh, testScheme)).To(Succeed())
-				Expect(k8sClient.Create(ctx, m3machine)).To(Succeed())
+				Expect(controllerutil.SetOwnerReference(machine, infraEnv, testScheme)).To(Succeed())
 				Expect(k8sClient.Create(ctx, machine)).To(Succeed())
-				Expect(k8sClient.Create(ctx, bmh)).To(Succeed())
+				Expect(k8sClient.Create(ctx, infraEnv)).To(Succeed())
+
+				By("Reconciling the Agent")
+				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: client.ObjectKeyFromObject(agent),
+				})
+				Expect(err).NotTo(HaveOccurred())
+				expectedOAC := bootstrapv1alpha1.OpenshiftAssistedConfig{}
+				Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: oacName}, &expectedOAC)).To(Succeed())
+				Expect(expectedOAC.Status.AgentRef).NotTo(BeNil())
+				Expect(expectedOAC.Status.AgentRef.Name).To(Equal(agentName))
+			})
+		})
+		When("an Agent resource with a valid Machine with OACs, and agent ref", func() {
+			It("should add the agent ref to OAC status", func() {
+
+				agent := testutils.NewAgentWithInfraEnvLabel(namespace, agentName, machineName)
+				Expect(k8sClient.Create(ctx, agent)).To(Succeed())
+
+				By("Creating the OpenshiftAssistedConfig")
+				oac := NewOpenshiftAssistedConfig(namespace, oacName, clusterName)
+				oac.Status.AgentRef = &corev1.LocalObjectReference{Name: agent.Name}
+				Expect(k8sClient.Create(ctx, oac)).To(Succeed())
+
+				infraEnv := testutils.NewInfraEnv(namespace, machineName)
+				machine := testutils.NewMachine(namespace, machineName, clusterName)
+				machine.Spec.Bootstrap.ConfigRef = &corev1.ObjectReference{
+					Name:      oacName,
+					Namespace: namespace,
+				}
+				Expect(controllerutil.SetOwnerReference(machine, infraEnv, testScheme)).To(Succeed())
+				Expect(k8sClient.Create(ctx, machine)).To(Succeed())
+				Expect(k8sClient.Create(ctx, infraEnv)).To(Succeed())
+
+				By("Reconciling the Agent")
+				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: client.ObjectKeyFromObject(agent),
+				})
+				Expect(err).NotTo(HaveOccurred())
+				expectedOAC := bootstrapv1alpha1.OpenshiftAssistedConfig{}
+				Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: oacName}, &expectedOAC)).To(Succeed())
+				Expect(expectedOAC.Status.AgentRef).NotTo(BeNil())
+				Expect(expectedOAC.Status.AgentRef.Name).To(Equal(agentName))
+			})
+		})
+
+		When("an Agent resource with matching InfraEnv, and machine (worker)", func() {
+			It("should reconcile with a valid accepted worker agent", func() {
+				By("Creating the OpenshiftAssistedConfig")
+				oac := NewOpenshiftAssistedConfig(namespace, oacName, clusterName)
+				Expect(k8sClient.Create(ctx, oac)).To(Succeed())
+
+				machine := testutils.NewMachine(namespace, machineName, clusterName)
+				machine.Spec.Bootstrap.ConfigRef = &corev1.ObjectReference{
+					Name:      oacName,
+					Namespace: namespace,
+				}
+				Expect(k8sClient.Create(ctx, machine)).To(Succeed())
+
+				By("Creating the matching InfraEnv")
+				infraEnv := testutils.NewInfraEnv(namespace, machineName)
+				Expect(controllerutil.SetOwnerReference(machine, infraEnv, testScheme)).To(Succeed())
+				Expect(k8sClient.Create(ctx, infraEnv)).To(Succeed())
 
 				By("Creating the Agent")
-				agent := testutils.NewAgentWithInterface(namespace, agentName, agentInterfaceMACAddress)
+				agent := testutils.NewAgentWithInfraEnvLabel(namespace, agentName, machineName)
 				Expect(k8sClient.Create(ctx, agent)).To(Succeed())
 
 				By("Reconciling the Agent")
@@ -309,36 +244,30 @@ var _ = Describe("Agent Controller", func() {
 
 				By("Checking the result of the reconciliation")
 				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(agent), agent)).To(Succeed())
-				assertAgentIsReadyWithRole(agent, bmh, models.HostRoleWorker)
+				assertAgentIsReadyWithRole(agent, models.HostRoleWorker)
 			})
 		})
-		When("an Agent resource with matching matching BMH, metal3machine, machine (master)", func() {
+		When("an Agent resource with matching InfraEnv, and machine (master)", func() {
 			It("should reconcile with a valid accepted master agent", func() {
 				By("Creating the OpenshiftAssistedConfig")
 				oac := NewOpenshiftAssistedConfig(namespace, oacName, clusterName)
 				Expect(k8sClient.Create(ctx, oac)).To(Succeed())
 
-				By("Creating the BMH, Metal3Machine and Machine")
-				bmh := testutils.NewBareMetalHost(namespace, bmhName)
-				bmh.Spec.BootMACAddress = agentInterfaceMACAddress
-				m3machine := testutils.NewMetal3Machine(namespace, metal3MachineName)
-				m3machine.Annotations = map[string]string{
-					baremetal.HostAnnotation: strings.Join([]string{namespace, bmhName}, "/"),
-				}
 				machine := testutils.NewMachine(namespace, machineName, clusterName)
 				machine.Spec.Bootstrap.ConfigRef = &corev1.ObjectReference{
 					Name:      oacName,
 					Namespace: namespace,
 				}
 				machine.Labels[clusterv1.MachineControlPlaneLabel] = "control-plane"
-				Expect(controllerutil.SetOwnerReference(machine, m3machine, testScheme)).To(Succeed())
-				Expect(controllerutil.SetOwnerReference(m3machine, bmh, testScheme)).To(Succeed())
-				Expect(k8sClient.Create(ctx, m3machine)).To(Succeed())
 				Expect(k8sClient.Create(ctx, machine)).To(Succeed())
-				Expect(k8sClient.Create(ctx, bmh)).To(Succeed())
+
+				By("Creating the matching InfraEnv")
+				infraEnv := testutils.NewInfraEnv(namespace, machineName)
+				Expect(controllerutil.SetOwnerReference(machine, infraEnv, testScheme)).To(Succeed())
+				Expect(k8sClient.Create(ctx, infraEnv)).To(Succeed())
 
 				By("Creating the Agent")
-				agent := testutils.NewAgentWithInterface(namespace, agentName, agentInterfaceMACAddress)
+				agent := testutils.NewAgentWithInfraEnvLabel(namespace, agentName, machineName)
 				Expect(k8sClient.Create(ctx, agent)).To(Succeed())
 
 				By("Reconciling the Agent")
@@ -349,7 +278,7 @@ var _ = Describe("Agent Controller", func() {
 
 				By("Checking the result of the reconciliation")
 				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(agent), agent)).To(Succeed())
-				assertAgentIsReadyWithRole(agent, bmh, models.HostRoleMaster)
+				assertAgentIsReadyWithRole(agent, models.HostRoleMaster)
 				postOAC := &bootstrapv1alpha1.OpenshiftAssistedConfig{}
 				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(oac), postOAC)).To(Succeed())
 				Expect(postOAC.Status.AgentRef).NotTo(BeNil())
@@ -359,8 +288,7 @@ var _ = Describe("Agent Controller", func() {
 	})
 })
 
-func assertAgentIsReadyWithRole(agent *v1beta1.Agent, bmh *v1alpha1.BareMetalHost, role models.HostRole) {
-	Expect(agent.Spec.NodeLabels).To(HaveKeyWithValue(metal3ProviderIDLabelKey, string(bmh.GetUID())))
+func assertAgentIsReadyWithRole(agent *v1beta1.Agent, role models.HostRole) {
 	Expect(agent.Spec.Role).To(Equal(role))
 	Expect(agent.Spec.IgnitionConfigOverrides).NotTo(BeEmpty())
 	Expect(agent.Spec.Approved).To(BeTrue())

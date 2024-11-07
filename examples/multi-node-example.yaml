@@ -52,12 +52,16 @@ spec:
     pullSecretRef:
       name: "pull-secret"
     sshAuthorizedKey: <SSH_AUTHORIZED_KEY>
+    nodeRegistration:
+      kubeletExtraLabels:
+      - 'metal3.io/uuid="${METADATA_UUID}"'
   config:
     apiVIPs:
     - 192.168.222.40
     ingressVIPs:
     - 192.168.222.41
-    releaseImage: quay.io/openshift-release-dev/ocp-release:4.17.0-rc.2-x86_64 #registry.ci.openshift.org/ocp/release:4.17.0-0.nightly-2024-08-06-034102 #quay.io/openshift-release-dev/ocp-release:4.17.0-ec.2-x86_64
+    # should include https://github.com/openshift/machine-config-operator/pull/4794
+    releaseImage: registry.build05.ci.openshift.org/ci-ln-39xp7rk/release:latest
     baseDomain: lab.home
     pullSecretRef:
       name: "pull-secret"
@@ -84,10 +88,10 @@ spec:
       dataTemplate:
         name: test-multinode-controlplane-template
       image:
-        checksum: null
-        checksumType: null
-        format: live-iso
-        url: https://abcde
+        checksum: https://mirror.openshift.com/pub/openshift-v4/dependencies/rhcos/4.17/4.17.0/sha256sum.txt
+        checksumType: sha256
+        format: qcow2
+        url: https://mirror.openshift.com/pub/openshift-v4/dependencies/rhcos/4.17/4.17.0/rhcos-4.17.0-x86_64-nutanix.x86_64.qcow2
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
 kind: Metal3MachineTemplate
@@ -102,10 +106,10 @@ spec:
       dataTemplate:
         name: test-multinode-workers-template
       image:
-        checksum: null
-        checksumType: null
-        format: live-iso
-        url: https://abcde
+        checksum: https://mirror.openshift.com/pub/openshift-v4/dependencies/rhcos/4.17/4.17.0/sha256sum.txt
+        checksumType: sha256
+        format: qcow2
+        url: https://mirror.openshift.com/pub/openshift-v4/dependencies/rhcos/4.17/4.17.0/rhcos-4.17.0-x86_64-nutanix.x86_64.qcow2
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
 kind: Metal3DataTemplate
@@ -161,10 +165,10 @@ metadata:
 spec:
   template:
     spec:
+      nodeRegistration:
+        # name: '${METADATA_NAME}'
+        kubeletExtraLabels:
+          - 'metal3.io/uuid="${METADATA_UUID}"'
       pullSecretRef:
         name: "pull-secret"
       sshAuthorizedKey: <SSH_AUTHORIZED_KEY>
-
-
-      # quay.io/eranco74/ocp:4.16.0-0.ci.test-2024-06-18-154755-ci-ln-mkd6npb-latest-x86_64
-      # bug ASSISTED INSTALLER STUCK with old images (registry03...)

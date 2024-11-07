@@ -1,6 +1,9 @@
 package assistedinstaller
 
 import (
+	"fmt"
+	"net/url"
+
 	bootstrapv1alpha1 "github.com/openshift-assisted/cluster-api-agent/bootstrap/api/v1alpha1"
 	aiv1beta1 "github.com/openshift/assisted-service/api/v1beta1"
 	hivev1 "github.com/openshift/hive/apis/hive/v1"
@@ -50,4 +53,59 @@ func GetInfraEnvFromConfig(
 		SSHAuthorizedKey:           config.Spec.SSHAuthorizedKey,
 	}
 	return infraEnv
+}
+
+// Query ignition and set it as user data secret
+func GetIgnitionURLFromInfraEnv(config ServiceConfig, infraEnv aiv1beta1.InfraEnv) (*url.URL, error) {
+	if infraEnv.Status.InfraEnvDebugInfo.EventsURL == "" {
+		return nil, fmt.Errorf("cannot generate ignition url if events URL is not generated")
+	}
+	advertisedURL, err := url.Parse(infraEnv.Status.InfraEnvDebugInfo.EventsURL)
+	if err != nil {
+		return nil, err
+	}
+	scheme := advertisedURL.Scheme
+	hostname := advertisedURL.Hostname()
+	port := advertisedURL.Port()
+	if port != "" {
+		hostname = hostname + ":" + port
+	}
+	if config.UseInternalImageURL {
+		scheme = "http"
+		port = "8090"
+		ns := config.AssistedInstallerNamespace
+		if ns == "" {
+			ns = infraEnv.Namespace
+		}
+		svc := config.AssistedServiceName
+
+		hostname = fmt.Sprintf("%s.%s.svc.cluster.local:%s", svc, ns, port)
+	}
+	q, err := url.ParseQuery(advertisedURL.RawQuery)
+	if err != nil {
+		return nil, err
+	}
+
+	qApiKey, ok := q["api_key"]
+	if !ok || len(qApiKey) < 1 {
+		return nil, fmt.Errorf("no api_key found in query string")
+	}
+	apiKey := qApiKey[0]
+
+	qInfraEnvID := q["infra_env_id"]
+	if !ok || len(qInfraEnvID) < 1 {
+		return nil, fmt.Errorf("no infra_env_id found in query string")
+	}
+	infraEnvID := qInfraEnvID[0]
+
+	ignitionURL := &url.URL{
+		Scheme: scheme,
+		Host:   hostname,
+		Path:   fmt.Sprintf("/api/assisted-install/v2/infra-envs/%s/downloads/files", infraEnvID),
+	}
+	queryValues := url.Values{}
+	queryValues.Set("file_name", "discovery.ign")
+	queryValues.Set("api_key", apiKey)
+	ignitionURL.RawQuery = queryValues.Encode()
+	return ignitionURL, nil
 }

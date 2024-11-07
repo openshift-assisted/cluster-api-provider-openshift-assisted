@@ -13,6 +13,7 @@
     </dhcp>
   </ip>
   <dnsmasq:options>
+    <dnsmasq:option value='server=/registry-proxy.engineering.redhat.com/10.11.5.160'/>
     <dnsmasq:option value='server=8.8.8.8'/>
   </dnsmasq:options>
 </network>

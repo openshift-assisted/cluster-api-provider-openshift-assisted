@@ -19,6 +19,8 @@ package controller
 import (
 	"context"
 
+	"github.com/openshift-assisted/cluster-api-agent/assistedinstaller"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	bootstrapv1alpha1 "github.com/openshift-assisted/cluster-api-agent/bootstrap/api/v1alpha1"
@@ -201,7 +203,7 @@ var _ = Describe("InfraEnv Controller", func() {
 			controllerReconciler = &InfraEnvReconciler{
 				Client: k8sClient,
 				Scheme: k8sClient.Scheme(),
-				Config: InfraEnvControllerConfig{
+				Config: assistedinstaller.ServiceConfig{
 					UseInternalImageURL:   true,
 					ImageServiceNamespace: assistedNamespace,
 					ImageServiceName:      "assisted-image-service",

@@ -10,6 +10,9 @@ github.com/blang/semver/v4
 # github.com/cespare/xxhash/v2 v2.2.0
 ## explicit; go 1.11
 github.com/cespare/xxhash/v2
+# github.com/coreos/go-json v0.0.0-20230131223807-18775e0fb4fb
+## explicit; go 1.18
+github.com/coreos/go-json
 # github.com/coreos/go-semver v0.3.1
 ## explicit; go 1.8
 github.com/coreos/go-semver/semver
@@ -18,16 +21,25 @@ github.com/coreos/go-semver/semver
 github.com/coreos/go-systemd/v22/unit
 # github.com/coreos/ignition/v2 v2.18.0
 ## explicit; go 1.20
+github.com/coreos/ignition/v2/config/merge
 github.com/coreos/ignition/v2/config/shared/errors
 github.com/coreos/ignition/v2/config/shared/parse
 github.com/coreos/ignition/v2/config/shared/validations
+github.com/coreos/ignition/v2/config/translate
 github.com/coreos/ignition/v2/config/util
+github.com/coreos/ignition/v2/config/v3_0
+github.com/coreos/ignition/v2/config/v3_0/types
+github.com/coreos/ignition/v2/config/v3_1
+github.com/coreos/ignition/v2/config/v3_1/translate
 github.com/coreos/ignition/v2/config/v3_1/types
+github.com/coreos/ignition/v2/config/validate
 # github.com/coreos/vcontext v0.0.0-20230201181013-d72178a18687
 ## explicit; go 1.18
+github.com/coreos/vcontext/json
 github.com/coreos/vcontext/path
 github.com/coreos/vcontext/report
 github.com/coreos/vcontext/tree
+github.com/coreos/vcontext/validate
 # github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc
 ## explicit
 github.com/davecgh/go-spew/spew
@@ -166,10 +178,6 @@ github.com/metal3-io/baremetal-operator/apis/metal3.io/v1alpha1
 # github.com/metal3-io/baremetal-operator/pkg/hardwareutils v0.6.0
 ## explicit; go 1.21
 github.com/metal3-io/baremetal-operator/pkg/hardwareutils/bmc
-# github.com/metal3-io/cluster-api-provider-metal3 v1.7.0
-## explicit; go 1.21
-github.com/metal3-io/cluster-api-provider-metal3/baremetal
-github.com/metal3-io/cluster-api-provider-metal3/baremetal/remote
 # github.com/metal3-io/cluster-api-provider-metal3/api v1.7.0
 ## explicit; go 1.21
 github.com/metal3-io/cluster-api-provider-metal3/api/v1beta1
@@ -314,8 +322,6 @@ go.uber.org/zap/internal/exit
 go.uber.org/zap/internal/pool
 go.uber.org/zap/internal/stacktrace
 go.uber.org/zap/zapcore
-# golang.org/x/crypto v0.31.0
-## explicit; go 1.20
 # golang.org/x/exp v0.0.0-20230905200255-921286631fa9
 ## explicit; go 1.20
 golang.org/x/exp/maps
@@ -333,15 +339,15 @@ golang.org/x/net/idna
 ## explicit; go 1.18
 golang.org/x/oauth2
 golang.org/x/oauth2/internal
-# golang.org/x/sys v0.28.0
+# golang.org/x/sys v0.22.0
 ## explicit; go 1.18
 golang.org/x/sys/plan9
 golang.org/x/sys/unix
 golang.org/x/sys/windows
-# golang.org/x/term v0.27.0
+# golang.org/x/term v0.22.0
 ## explicit; go 1.18
 golang.org/x/term
-# golang.org/x/text v0.21.0
+# golang.org/x/text v0.16.0
 ## explicit; go 1.18
 golang.org/x/text/encoding
 golang.org/x/text/encoding/charmap
@@ -746,21 +752,16 @@ sigs.k8s.io/cluster-api/controllers/external
 sigs.k8s.io/cluster-api/controlplane/kubeadm/api/v1beta1
 sigs.k8s.io/cluster-api/errors
 sigs.k8s.io/cluster-api/exp/api/v1beta1
-sigs.k8s.io/cluster-api/exp/ipam/api/v1alpha1
-sigs.k8s.io/cluster-api/exp/ipam/api/v1beta1
 sigs.k8s.io/cluster-api/feature
 sigs.k8s.io/cluster-api/util
 sigs.k8s.io/cluster-api/util/annotations
-sigs.k8s.io/cluster-api/util/certs
 sigs.k8s.io/cluster-api/util/collections
 sigs.k8s.io/cluster-api/util/conditions
 sigs.k8s.io/cluster-api/util/contract
-sigs.k8s.io/cluster-api/util/kubeconfig
 sigs.k8s.io/cluster-api/util/labels
 sigs.k8s.io/cluster-api/util/labels/format
 sigs.k8s.io/cluster-api/util/patch
 sigs.k8s.io/cluster-api/util/predicates
-sigs.k8s.io/cluster-api/util/secret
 sigs.k8s.io/cluster-api/util/version
 # sigs.k8s.io/controller-runtime v0.17.3
 ## explicit; go 1.21

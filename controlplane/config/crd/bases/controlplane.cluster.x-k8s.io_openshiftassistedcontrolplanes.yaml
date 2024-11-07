@@ -404,6 +404,19 @@ spec:
                         type: object
                     type: object
                     x-kubernetes-map-type: atomic
+                  nodeRegistration:
+                    description: NodeRegistrationOption holds fields related to registering
+                      nodes to the cluster
+                    properties:
+                      kubeletExtraLabels:
+                        description: KubeletExtraLabels passes extra labels to kubelet.
+                        items:
+                          type: string
+                        type: array
+                      name:
+                        description: Defaults to the hostname of the node if not provided.
+                        type: string
+                    type: object
                   osImageVersion:
                     description: |-
                       OSImageVersion is the version of OS image to use when generating the InfraEnv.

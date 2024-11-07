@@ -23,6 +23,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/openshift-assisted/cluster-api-agent/assistedinstaller"
+
 	bootstrapv1alpha1 "github.com/openshift-assisted/cluster-api-agent/bootstrap/api/v1alpha1"
 	logutil "github.com/openshift-assisted/cluster-api-agent/util/log"
 	aiv1beta1 "github.com/openshift/assisted-service/api/v1beta1"
@@ -41,22 +43,11 @@ const (
 	oacInfraEnvRefFieldNamespace = ".status.infraEnvRef.namespace"
 )
 
-type InfraEnvControllerConfig struct {
-	// UseInternalImageURL when set to false means that we'll use the InfraEnv's iso download URL
-	// as is. When set to true, it'll use the assisted-image-service's internal IP as part of the
-	// download URL.
-	UseInternalImageURL bool `envconfig:"USE_INTERNAL_IMAGE_URL" default:"false"`
-	// ImageServiceName is the Service CR name for the assisted-image-service
-	ImageServiceName string `envconfig:"IMAGE_SERVICE_NAME" default:"assisted-image-service"`
-	// ImageServiceNamespace is the namespace that the Service CR for the assisted-image-service is in
-	ImageServiceNamespace string `envconfig:"IMAGE_SERVICE_NAMESPACE"`
-}
-
 // InfraEnvReconciler reconciles a InfraEnv object
 type InfraEnvReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
-	Config InfraEnvControllerConfig
+	Config assistedinstaller.ServiceConfig
 }
 
 func filterRefName(rawObj client.Object) []string {

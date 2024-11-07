@@ -1,7 +1,17 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: assisted-installer-config-override
+  namespace: assisted-installer
+data:
+  INSTALL_TO_EXISTING_ROOT: "true"
+---
 apiVersion: agent-install.openshift.io/v1beta1
 kind: AgentServiceConfig
 metadata:
   name: agent
+  annotations:
+    unsupported.agent-install.openshift.io/assisted-service-configmap: "assisted-installer-config-override"
 spec:
   ingress:
     className: nginx
@@ -44,3 +54,7 @@ spec:
     cpuArchitecture: "x86_64"
     url: "https://mirror.openshift.com/pub/openshift-v4/x86_64/dependencies/rhcos/pre-release/4.17.0-ec.2/rhcos-4.17.0-ec.2-x86_64-live.x86_64.iso"
     version: "417.94.202407010929-0"
+  - openshiftVersion: "4.18"
+    cpuArchitecture: "x86_64"
+    url: "https://mirror.openshift.com/pub/openshift-v4/x86_64/dependencies/rhcos/pre-release/4.18.0-ec.3/rhcos-4.18.0-ec.3-x86_64-live.x86_64.iso"
+    version: "4.18.0-0.ci.test-2024-12-11-150606-ci-ln-x70sndb-latest"

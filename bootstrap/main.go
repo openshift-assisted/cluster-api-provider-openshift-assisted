@@ -19,7 +19,10 @@ package main
 import (
 	"crypto/tls"
 	"flag"
+	"net/http"
 	"os"
+
+	"github.com/openshift-assisted/cluster-api-agent/assistedinstaller"
 
 	"github.com/kelseyhightower/envconfig"
 
@@ -57,7 +60,7 @@ var (
 )
 
 var Options struct {
-	InfraEnvControllerConfig controller.InfraEnvControllerConfig
+	AssistedInstallerServiceConfig assistedinstaller.ServiceConfig
 }
 
 func init() {
@@ -150,8 +153,10 @@ func main() {
 	}
 
 	if err = (&controller.OpenshiftAssistedConfigReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:                  mgr.GetClient(),
+		Scheme:                  mgr.GetScheme(),
+		AssistedInstallerConfig: Options.AssistedInstallerServiceConfig,
+		HttpClient:              &http.Client{},
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "OpenshiftAssistedConfig")
 		os.Exit(1)
@@ -159,7 +164,7 @@ func main() {
 	if err = (&controller.InfraEnvReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
-		Config: Options.InfraEnvControllerConfig,
+		Config: Options.AssistedInstallerServiceConfig,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "InfraEnv")
 		os.Exit(1)

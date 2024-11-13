@@ -72,11 +72,6 @@ vet: ## Run go vet against code.
 test: manifests generate fmt vet envtest ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test $(TEST) -coverprofile cover.out
 
-# Utilize Kind or modify the e2e tests to load the image locally, enabling compatibility with other vendors.
-.PHONY: test-e2e  # Run the e2e tests against a Kind k8s instance that is spun up.
-test-e2e:
-	go test -timeout 0 ./test/e2e/ -v -ginkgo.v
-
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter & yamllint
 	$(GOLANGCI_LINT) run

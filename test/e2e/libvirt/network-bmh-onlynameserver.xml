@@ -1,0 +1,18 @@
+<network xmlns:dnsmasq='http://libvirt.org/schemas/network/dnsmasq/1.0' connections='5'>
+  <name>bmh</name>
+  <forward mode='nat'>
+    <nat>
+      <port start='1024' end='65535'/>
+    </nat>
+  </forward>
+  <bridge name='bmh' stp='on' delay='0'/>
+  <mac address='52:54:00:fb:8a:5f'/>
+  <ip address='192.168.222.1' netmask='255.255.255.0'>
+    <dhcp>
+      <range start='192.168.222.2' end='192.168.222.254'/>
+    </dhcp>
+  </ip>
+  <dnsmasq:options>
+    <dnsmasq:option value='server=8.8.8.8'/>
+  </dnsmasq:options>
+</network>

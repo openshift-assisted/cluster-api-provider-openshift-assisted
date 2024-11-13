@@ -203,29 +203,18 @@ kubectl apply -f https://raw.githubusercontent.com/<org>/cluster-api-agent/<tag 
 
 ### E2E testing
 
-To run e2e tests we need to fulfill the following requirements:
-* host with libvirt exposing qemu+ssh protocol. hostname and username are required (`qemu+ssh://<username>@<hostname>/system`)
-  * sshd running
-  * libvirtd running (ssh+qemu protocol should also be enabled)
-  * podman, networkmanager required
-* kubernetes controlplane running in an environment with connectivity with libvirt network. NOTE: for now controlplane is required to run on the same host as the one used for VMs. See future improvements
-  * connection is required, so make sure in `kind.yaml` `networking.apiServerAddress` is set to a reachable IP address and `networking.apiServerPort` is accessible
+E2E tests can be executed through ansible tasks in a target remote host.
 
-Run `REMOTE_HOST_NETWORK_INTERFACE=<network interface> REMOTE_HOSTNAME=<hostname> REMOTE_USERNAME=<username> SSH_AUTHORIZED_KEY=<ssh public key> PULLSECRET=<base64 encoded pullsecret> KUBECONFIG=<path to kubeconfig> make test-e2e`
+The following env vars are needed:
+`SSH_KEY_FILE` key file to access the remote host
+`REMOTE_HOST` remote host where to execute the tests
+`PULLSECRET` base64 encoded pullsecret to inject into the tests
 
-`REMOTE_HOST_NETWORK_INTERFACE` is the network interface that will be used for the remote host.
-`REMOTE_HOSTNAME` is the host where VMs will be spun.
-`REMOTE_USERNAME` is the username to connect to `REMOTE_HOSTNAME`.
-`SSH_AUTHORIZED_KEY` is the key that would be configured to access the workload cluster's nodes.
-`PULLSECRET` will be used to pull images that require authentication.
+Then we can run:
 
-Note that `SSH_AUTHORIZED_KEY` expects the content of the key, for example `SSH_AUTHORIZED_KEY="$(cat $HOME/.ssh/id_rsa.pub)"`
-The tests will use qemu connection to create necessary VMs, and will setup the nameserver on the same host.
-
-#### Future improvement
-* decouple where k8s controlplane is running from the host running the VMs
-  * Connectivity with VM host
-  * specific DNS settings will be required (maybe DNS settings can be patched to coredns?)
+```
+ansible-playbook test/ansible/run_test.yaml -i test/ansible/inventory.yaml
+```
 
 ## Contributing
 // TODO(user): Add detailed information on how you would like others to contribute to this project

@@ -160,10 +160,10 @@
   # files generated before ansible
   - name: copy distfiles
     copy:
-      src: ../../dist
-      dest: "{{ src_dir }}"
+      src: "{{ dist_dir }}"
+      dest: "/tmp/dist"
   - name: set imagePullPolicy CAPBCOA
-    shell: "cat {{ src_dir }}/dist/bootstrap_install.yaml | sed 's/imagePullPolicy: Always/imagePullPolicy: Never/g' > /tmp/bootstrap_install.yaml && cat {{ src_dir }}/dist/controlplane_install.yaml | sed 's/imagePullPolicy: Always/imagePullPolicy: Never/g' > /tmp/controlplane_install.yaml"
+    shell: "cat /tmp/dist/bootstrap_install.yaml | sed 's/imagePullPolicy: Always/imagePullPolicy: Never/g' > /tmp/bootstrap_install.yaml && cat /tmp/dist/controlplane_install.yaml | sed 's/imagePullPolicy: Always/imagePullPolicy: Never/g' > /tmp/controlplane_install.yaml"
 
   - name: deploy CAPBCOA
     shell: kubectl apply -f /tmp/controlplane_install.yaml && kubectl apply -f /tmp/bootstrap_install.yaml

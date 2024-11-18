@@ -161,7 +161,7 @@
   - name: copy distfiles
     copy:
       src: "{{ dist_dir }}"
-      dest: "/tmp/dist"
+      dest: "/tmp"
   - name: set imagePullPolicy CAPBCOA
     shell: "cat /tmp/dist/bootstrap_install.yaml | sed 's/imagePullPolicy: Always/imagePullPolicy: Never/g' > /tmp/bootstrap_install.yaml && cat /tmp/dist/controlplane_install.yaml | sed 's/imagePullPolicy: Always/imagePullPolicy: Never/g' > /tmp/controlplane_install.yaml"
 

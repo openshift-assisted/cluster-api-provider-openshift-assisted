@@ -1,6 +1,4 @@
 ---
-# TEST replace 127.0.0.1 with internal IP
-
 - name: Setup and run tests
   hosts: test_runner
   vars:
@@ -9,12 +7,16 @@
     cert_manager_version: v1.5.3
     remote_manifests_path: /tmp/manifests
     test_namespace: test-capi
-    example_manifest: multi-node-example.yaml
+    example_manifest: "{{ lookup('ansible.builtin.env', 'EXAMPLE_MANIFEST', default='multi-node-example.yaml') }}"
+    number_of_nodes: "{{ lookup('ansible.builtin.env', 'NUMBER_OF_NODES', default='5') }}"
+
     capi_version: v1.7.1
     capm3_version: v1.6.0
     dist_dir: "{{ lookup('ansible.builtin.env', 'DIST_DIR') }}"
     src_dir: /tmp/capbcoa
     kind_cluster_name: capi-baremetal-provider
+    ssh_authorized_key: "{{ lookup('ansible.builtin.env', 'SSH_AUTHORIZED_KEY') }}"
+    pullsecret: "{{ lookup('ansible.builtin.env', 'PULLSECRET') }}"
   tasks:
   - name: Install EPEL
     ansible.builtin.dnf:
@@ -26,7 +28,6 @@
   - name: enable libvirtd
     command: systemctl enable --now libvirtd
 
-  # remove all other copies once CI branch is merged in app repo
   - name: copy src
     synchronize:
       src: ../../../
@@ -42,15 +43,15 @@
   - name: Debug tests output
     debug: "msg={{ internalip.stdout }}"
 
-  # set dns server to 192.168.222.1 in containers
   - name: change default dns_servers for containers
     shell: sed -i 's/#dns_servers = \[\]/dns_servers = \["192.168.222.1", "8.8.8.8"\]/g' /usr/share/containers/containers.conf
-    # create libvirt network with dns server (only recursive)
+
+  # create libvirt network with dns server (only recursive)
   - name: create libvirt network
     shell: "(virsh net-destroy bmh || true) && (virsh net-undefine bmh || true) && virsh net-define {{ src_dir}}/test/e2e/libvirt/network-bmh-onlynameserver.xml"
   - name: start libvirt network
     shell: virsh net-start bmh
-  # set dns server in
+
   - name: create resolv.conf.tmp
     shell: cat /dev/null > /etc/resolv.conf.tmp
   - name: Set DNS nameservers in /etc/resolv.conf
@@ -78,12 +79,6 @@
       -v "/tmp/sushy-emulator.conf:/etc/sushy/sushy-emulator.conf:z" \
       -e SUSHY_EMULATOR_CONFIG=/etc/sushy/sushy-emulator.conf \
       quay.io/metal3-io/sushy-tools:latest sushy-emulator
-
-  # why backing up if we keep overriding
-  - name: backup current resolv.conf
-    shell: cp /etc/resolv.conf /etc/resolv.conf.bak
-  - name: replace resolv.conf
-    shell: cp /etc/resolv.conf.tmp /etc/resolv.conf
 
   # install kind
   - name: install kind
@@ -174,10 +169,10 @@
   - name: start libvirt network
     shell: virsh net-start bmh
 
-    # create BMHs
-  - name: Copy BMH creation script
+    # create VMs
+  - name: Copy VM creation script
     copy:
-      dest: "/tmp/bmh_functions"
+      dest: "/tmp/vm_functions"
       content: |
         #!/bin/bash
         function create_vm {
@@ -189,16 +184,12 @@
         }
 
   - name: Create BMHs
-    shell: "source /tmp/bmh_functions && create_vm bmh-vm-{{ item.id }} {{ item.mac }}"
-    loop:
-      - {id: "01", mac: "00:60:2f:31:81:01"}
-      - {id: "02", mac: "00:60:2f:31:81:02"}
-      - {id: "03", mac: "00:60:2f:31:81:03"}
-      - {id: "04", mac: "00:60:2f:31:81:04"}
-      - {id: "05", mac: "00:60:2f:31:81:05"}
+    shell: 'source /tmp/vm_functions && create_vm bmh-vm-0{{ item }} "00:60:2f:31:81:{{ item }}"'
+    with_sequence: count="{{ number_of_nodes }}" format="%02x"
 
   - name: create test namespace
     shell: "kubectl create ns {{ test_namespace }}"
+
   # create BMHs
   - name: Copy BMH creation script
     copy:
@@ -217,13 +208,8 @@
   - name: create bmhs
     shell: chmod +x /tmp/create_bmhs && /tmp/create_bmhs
   - name: wait for BMHs to be available
-    shell: "kubectl -n {{ test_namespace }} wait --for=jsonpath='{.status.provisioning.state}'=available bmh/bmh-vm-{{ item.id }}"
-    loop:
-      - { id: "01" }
-      - { id: "02" }
-      - { id: "03" }
-      - { id: "04" }
-      - { id: "05" }
+    shell: "kubectl -n {{ test_namespace }} wait --for=jsonpath='{.status.provisioning.state}'=available bmh/bmh-vm-{{ item }}"
+    with_sequence: count="{{ number_of_nodes }}" format="%02x"
 
   # setup test env vars
   - name: Clean current test vars
@@ -231,13 +217,13 @@
   - name: Define SSH_AUTHORIZED_KEY
     lineinfile:
       path: ~/.test-config
-      line: "export SSH_AUTHORIZED_KEY='ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDZnhCSkG1N4RkRKD+0XxoXfzMuTysmQUSmZ3UY4VOWZQsC5i4J75VKg4BhXmdEHL1ibW1b2Ys58RDjeOTBPu2tE93BpKPgfUqWAcqF/3Ecf3BRpdc2Uj0SY6ELJeyXEBze1ODDja/rI0QRPRmd4y0VuUlrGJlBOugcwA88ECigEnSDU9M3UgMHaAjA+HyD7X7mv41CIHZMUES/0YB0m7UGP1GMPpbPxdDx4DtZ1CC+ba1LyNm7Kdv8pxj2lFfLpDW4BZF3p33mlRyO6AfBJn/zpjrt5q6iuf4IzRxiu3R0x1Y34hgSRPYWH3gDM5lBnfqqdycr32uWT/gibLqBdHqH3lJBjOhjs7AxQ1Ll74BZ0ngUL64lrpJ7OzLXsruOc0uFsuNBp37Uu9FK7q+lHyO4nURyK6yeXtpOoVPJn0VleNNSjL6aKDvxxAO78MsKDLgn0cthAmLRw6YOZHPOIQze4yUkaM+DrIPc/HgOQpJXtUqArjz9X2JPn8OBmVQzjV0= root@rdu-infra-edge-03.infra-edge.lab.eng.rdu2.redhat.com'"
+      line: "export SSH_AUTHORIZED_KEY='{{ ssh_authorized_key }}'"
       create: true
       state: present
   - name: Define PULLSECRET
     lineinfile:
       path: ~/.test-config
-      line: "export PULLSECRET='{{ lookup('ansible.builtin.env', 'PULLSECRET') }}'"
+      line: "export PULLSECRET='{{ pullsecret }}'"
       create: true
       state: present
 

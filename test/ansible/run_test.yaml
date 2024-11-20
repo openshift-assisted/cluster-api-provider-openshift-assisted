@@ -184,7 +184,7 @@
         }
 
   - name: Create BMHs
-    shell: 'source /tmp/vm_functions && create_vm bmh-vm-0{{ item }} "00:60:2f:31:81:{{ item }}"'
+    shell: 'source /tmp/vm_functions && create_vm bmh-vm-{{ item }} "00:60:2f:31:81:{{ item }}"'
     with_sequence: count="{{ number_of_nodes }}" format="%02x"
 
   - name: create test namespace
@@ -207,6 +207,8 @@
 
   - name: create bmhs
     shell: chmod +x /tmp/create_bmhs && /tmp/create_bmhs
+  - name: wait until BMHs
+    shell: "until kubectl get -n {{ test_namespace }} bmh; do sleep 1; done"
   - name: wait for BMHs to be available
     shell: "kubectl -n {{ test_namespace }} wait --for=jsonpath='{.status.provisioning.state}'=available bmh/bmh-vm-{{ item }}"
     with_sequence: count="{{ number_of_nodes }}" format="%02x"

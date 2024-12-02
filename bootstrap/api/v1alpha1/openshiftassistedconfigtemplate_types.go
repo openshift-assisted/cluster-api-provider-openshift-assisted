@@ -52,7 +52,7 @@ type OpenshiftAssistedConfigTemplateStatus struct {
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
 
-// OpenshiftAssistedConfigTemplate is the Schema for the agentbootstrapconfigtemplates API
+// OpenshiftAssistedConfigTemplate is the Schema for the openshiftassistedconfigtemplates API
 type OpenshiftAssistedConfigTemplate struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

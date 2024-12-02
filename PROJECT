@@ -15,7 +15,7 @@ resources:
   controller: true
   domain: cluster.x-k8s.io
   group: bootstrap
-  kind: AgentBootstrapConfig
+  kind: OpenshiftAssistedConfig
   path: github.com/openshift-assisted/cluster-api-agent/api/v1alpha1
   version: v1alpha1
 - api:
@@ -24,7 +24,7 @@ resources:
   controller: true
   domain: cluster.x-k8s.io
   group: bootstrap
-  kind: AgentBootstrapConfigTemplate
+  kind: OpenshiftAssistedConfigTemplate
   path: github.com/openshift-assisted/cluster-api-agent/api/v1alpha1
   version: v1alpha1
 - api:
@@ -33,7 +33,7 @@ resources:
   controller: true
   domain: cluster.x-k8s.io
   group: controlplane
-  kind: AgentControlPlane
+  kind: OpenshiftAssistedControlPlane
   path: github.com/openshift-assisted/cluster-api-agent/api/controlplane/v1alpha1
   version: v1alpha1
 version: "3"

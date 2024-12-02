@@ -1,0 +1,11 @@
+apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+kind: OpenshiftAssistedControlPlane
+metadata:
+  labels:
+    app.kubernetes.io/name: cluster-api-agent
+    app.kubernetes.io/managed-by: kustomize
+  name: openshiftassistedcontrolplane-sample
+spec:
+  agentConfigSpec:
+
+  # TODO(user): Add fields here

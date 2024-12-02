@@ -160,7 +160,7 @@ var _ = Describe("OpenshiftAssistedConfig Controller", func() {
 			It("should wait with no error", func() {
 				// Given
 				oac := setupControlPlaneOpenshiftAssistedConfig(ctx, k8sClient)
-				// and AgentControlPlane provider did not create CD and ACI
+				// and OpenshiftAssistedControlPlane provider did not create CD and ACI
 
 				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
 					NamespacedName: client.ObjectKeyFromObject(oac),

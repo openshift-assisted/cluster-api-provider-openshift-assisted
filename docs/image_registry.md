@@ -4,7 +4,7 @@ Additional image registries for the workload cluster encapsulates mirror registr
 
 ## Instructions
 
-1. Create a `ConfigMap` CR in the same namespace as your `AgentControlPlane` CR that contains your image registry configuration. 
+1. Create a `ConfigMap` CR in the same namespace as your `OpenshiftAssistedControlPlane` CR that contains your image registry configuration.
     ```yaml
     apiVersion: v1
     kind: ConfigMap
@@ -32,10 +32,10 @@ Additional image registries for the workload cluster encapsulates mirror registr
     `registries.conf` is required and contains the image registry configuration in toml format.
     `ca-bundle.crt` is optional and should define the additional certificate(s) used to authenticate against the image registry.
 
-2. Add or update the `AgentControlPlane` CR to point to this `ConfigMap`
+2. Add or update the `OpenshiftAssistedControlPlane` CR to point to this `ConfigMap`
     ```yaml
     apiVersion: controlplane.cluster.x-k8s.io/v1alpha1
-    kind: AgentControlPlane
+    kind: OpenshiftAssistedControlPlane
     metadata:
       name: example-cluster
       namespace: example-cluster
@@ -47,7 +47,7 @@ Additional image registries for the workload cluster encapsulates mirror registr
 
 ## Details
 
-After creating the `ConfigMap` and referencing it in the `AgentControlPlane`, the `AgentControlPlane` controller will create the following `ConfigMap`  in the `AgentControlPlane` namespace.
+After creating the `ConfigMap` and referencing it in the `OpenshiftAssistedControlPlane`, the `OpenshiftAssistedControlPlane` controller will create the following `ConfigMap`  in the `OpenshiftAssistedControlPlane` namespace.
 
 ```yaml
 apiVersion: v1
@@ -62,7 +62,7 @@ data:
   image-digest-mirror-set.json: '{"kind":"ImageDigestMirrorSet","apiVersion":"config.openshift.io/v1","metadata":{"name":"additional-registry","creationTimestamp":null},"spec":{"imageDigestMirrors":[{"source":"quay.io/example","mirrors":["10.1.178.25:5000/example"]}]},"status":{}}'
 ```
 
-The `AgentControlPlane` controller adds the `additional-registry-config` `ConfigMap` as an additional manifest to the `AgentClusterInstall` which can be verified by viewing the `AgentClusterInstall` CR:
+The `OpenshiftAssistedControlPlane` controller adds the `additional-registry-config` `ConfigMap` as an additional manifest to the `AgentClusterInstall` which can be verified by viewing the `AgentClusterInstall` CR:
 
 ```yaml
 apiVersion: extensions.hive.openshift.io/v1beta1

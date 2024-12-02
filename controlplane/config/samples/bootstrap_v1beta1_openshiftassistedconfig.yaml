@@ -1,9 +1,9 @@
 apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
-kind: AgentBootstrapConfigTemplate
+kind: OpenshiftAssistedConfig
 metadata:
   labels:
     app.kubernetes.io/name: cluster-api-agent
     app.kubernetes.io/managed-by: kustomize
-  name: agentbootstrapconfigtemplate-sample
+  name: openshiftassistedconfig-sample
 spec:
   # TODO(user): Add fields here

@@ -28,16 +28,16 @@ with assisted installer to install nodes.
 #### Custom Resources
 
 TODO: if possible, generate from openapi CRDs below
-* [AgentBootstrapConfig](./crd/agent_bootstrap_config.md)
-* [AgentBootstrapConfigTemplate](./crd/agent_bootstrap_config_template.md)
+* [OpenshiftAssistedConfig](./crd/agent_bootstrap_config.md)
+* [OpenshiftAssistedConfigTemplate](./crd/agent_bootstrap_config_template.md)
 
 #### Flow
 
 ![agent bootstrap provider flow](./diagrams/agent_bootstrap_provider.jpg)
 
-AB watches [AgentBootstrapConfig](./crd/agent_bootstrap_config.md), Machines, InfraEnvs and Agents resources 
+AB watches [OpenshiftAssistedConfig](./crd/agent_bootstrap_config.md), Machines, InfraEnvs and Agents resources
 
-* creates an InfraEnv resource for each AgentBootstrapConfig and passes the LiveISOURL to the Machine's InfrastructureReference (Metal3Machine)
+* creates an InfraEnv resource for each OpenshiftAssistedConfig and passes the LiveISOURL to the Machine's InfrastructureReference (Metal3Machine)
   * 1 infraenv each metal3machinetemplate
 * add iso to template (we need to make sure machine don't escape)
 * create BootstrapData secret (empty), to allow machine to boot
@@ -55,18 +55,18 @@ The Agent Control Plane (ACP) provider is responsible for orchestrating the clus
 #### Custom Resources
 
 TODO: if possible, generate from openapi CRDs below
-* [AgentControlPlane](./crd/agent_control_plane.md)
+* [OpenshiftAssistedControlPlane](./crd/agent_control_plane.md)
 
 
 #### Flow
 
 ![agent controlplane provider flow](./diagrams/agent_controlplane_provider.jpg)
 
-ACP watches [AgentControlPlane](./crd/agent_control_plane.md), ClusterDeployment, AgentClusterInstall 
+ACP watches [OpenshiftAssistedControlPlane](./crd/agent_control_plane.md), ClusterDeployment, AgentClusterInstall
 
 * creates ClusterDeployment
 * creates AgentClusterInstall (ACI) and sets control plane and workers number of replicas, according to what's defined in CAPI core components
-* creates Machines and AgentBootstrapConfigs for the control plane
+* creates Machines and OpenshiftAssistedConfigs for the control plane
 * once ACI installs successfully, it creates a kubeconfig secret and sets status' Initialized and Ready for CAPI core components to read 
 
 

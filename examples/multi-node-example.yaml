@@ -69,7 +69,6 @@ spec:
       name: test-multinode-controlplane
       namespace: test-capi
   replicas: 3
-  version: 4.17.0
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
 kind: Metal3MachineTemplate
@@ -141,7 +140,7 @@ spec:
         cluster.x-k8s.io/cluster-name: test-multinode
     spec:
       clusterName: test-multinode
-      version: 4.17.0
+      version: "1.30.0"
       bootstrap:
         configRef:
           name: test-multinode-worker

@@ -453,7 +453,6 @@ spec:
                 type: string
             required:
             - machineTemplate
-            - version
             type: object
           status:
             description: OpenshiftAssistedControlPlaneStatus defines the observed

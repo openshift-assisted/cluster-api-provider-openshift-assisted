@@ -65,7 +65,8 @@ type OpenshiftAssistedControlPlaneSpec struct {
 	MachineTemplate             OpenshiftAssistedControlPlaneMachineTemplate `json:"machineTemplate"`
 	OpenshiftAssistedConfigSpec bootstrapv1beta1.OpenshiftAssistedConfigSpec `json:"openshiftAssistedConfigSpec,omitempty"`
 	Replicas                    int32                                        `json:"replicas,omitempty"`
-	Version                     string                                       `json:"version"`
+	// +optional
+	Version string `json:"version"`
 }
 
 // OpenshiftAssistedControlPlaneConfigSpec defines configuration for the agent-provisioned cluster

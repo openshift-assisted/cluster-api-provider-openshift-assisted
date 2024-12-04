@@ -106,6 +106,7 @@ var _ = Describe("OpenshiftAssistedControlPlane Controller", func() {
 				Expect(err).NotTo(HaveOccurred())
 				err = k8sClient.Get(ctx, typeNamespacedName, openshiftAssistedControlPlane)
 				Expect(err).NotTo(HaveOccurred())
+				Expect(openshiftAssistedControlPlane.Spec.Version).To(Equal("1.30.0"))
 				Expect(openshiftAssistedControlPlane.Status.ClusterDeploymentRef).NotTo(BeNil())
 				Expect(openshiftAssistedControlPlane.Status.ClusterDeploymentRef.Name).Should(Equal(openshiftAssistedControlPlane.Name))
 
@@ -221,11 +222,13 @@ var _ = Describe("OpenshiftAssistedControlPlane Controller", func() {
 			Expect(openshiftAssistedControlPlane.Finalizers).NotTo(BeEmpty())
 			Expect(openshiftAssistedControlPlane.Finalizers).To(ContainElement(acpFinalizer))
 		})
-		When("an invalid version is set on the OpenshiftAssistedControlPlane", func() {
+		When("an invalid version for releaseImage is set on the OpenshiftAssistedControlPlane", func() {
 			It("should return error", func() {
 				By("setting the cluster as the owner ref on the OpenshiftAssistedControlPlane")
 				openshiftAssistedControlPlane := getOpenshiftAssistedControlPlane()
-				openshiftAssistedControlPlane.Spec.Version = "4.12.0"
+				openshiftAssistedControlPlane.Spec.Config.ReleaseImage = "quay.io/openshift-release-dev/ocp-release:4.12.0-multi"
+				// set version to expected version to avoid reconciliation on version conversion
+				openshiftAssistedControlPlane.Spec.Version = "1.25.0"
 				openshiftAssistedControlPlane.SetOwnerReferences(
 					[]metav1.OwnerReference{
 						*metav1.NewControllerRef(cluster, clusterv1.GroupVersion.WithKind(clusterv1.ClusterKind)),
@@ -244,8 +247,30 @@ var _ = Describe("OpenshiftAssistedControlPlane Controller", func() {
 					controlplanev1alpha1.MachinesCreatedCondition,
 				)
 				Expect(condition).NotTo(BeNil())
-				Expect(condition.Message).To(Equal("version 4.12.0 is not supported, the minimum supported version is 4.14.0"))
+				Expect(condition.Message).To(Equal("version 1.25.0 is not supported, the minimum supported version is 1.27.0"))
+			})
+		})
+		When("release image does not match expected spec version", func() {
+			It("should reconcile version field", func() {
+				By("setting the cluster as the owner ref on the OpenshiftAssistedControlPlane")
+				openshiftAssistedControlPlane := getOpenshiftAssistedControlPlane()
+				// set version to wrong version to expect reconciliation
+				openshiftAssistedControlPlane.Spec.Version = "1.10.0"
+				openshiftAssistedControlPlane.SetOwnerReferences(
+					[]metav1.OwnerReference{
+						*metav1.NewControllerRef(cluster, clusterv1.GroupVersion.WithKind(clusterv1.ClusterKind)),
+					},
+				)
+				Expect(k8sClient.Create(ctx, openshiftAssistedControlPlane)).To(Succeed())
+				By("checking if the condition of invalid version")
+				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: typeNamespacedName,
+				})
+				Expect(err).NotTo(HaveOccurred())
 
+				Expect(k8sClient.Get(ctx, typeNamespacedName, openshiftAssistedControlPlane)).To(Succeed())
+
+				Expect(openshiftAssistedControlPlane.Spec.Version).To(Equal("1.30.0"))
 			})
 		})
 	})
@@ -258,7 +283,10 @@ func getOpenshiftAssistedControlPlane() *controlplanev1alpha1.OpenshiftAssistedC
 			Namespace: namespace,
 		},
 		Spec: controlplanev1alpha1.OpenshiftAssistedControlPlaneSpec{
-			Version: "4.16.0",
+			Config: controlplanev1alpha1.OpenshiftAssistedControlPlaneConfigSpec{
+				ReleaseImage: "quay.io/openshift-release-dev/ocp-release:4.17.0-rc.2-x86_64",
+			},
+			Version: "1.30.0",
 		},
 	}
 }

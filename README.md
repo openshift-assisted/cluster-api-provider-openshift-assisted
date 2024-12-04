@@ -34,6 +34,13 @@ After this we will be able to initialize clusterctl:
 ```bash
 clusterctl init --bootstrap openshift-agent --control-plane openshift-agent -i  metal3:v1.7.0
 ```
+## ControlPlane version
+
+Version of the ControlPlane is determined by `OpenShiftAssistedControlPlane.Spec.Config.ReleaseImage`.
+It will extract OKD/OCP version from it and convert it to kubernetes version, in order to set it to `OpenShiftAssistedControlPlane.Spec.Version`,
+which needs to be kubernetes version as expected by Core CAPI components.
+
+
 
 ## Architecture Design
 

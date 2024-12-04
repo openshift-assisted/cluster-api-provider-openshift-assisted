@@ -22,7 +22,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/coreos/go-semver/semver"
+	"github.com/openshift-assisted/cluster-api-agent/util/version"
+
+	"github.com/blang/semver/v4"
+
 	"github.com/openshift-assisted/cluster-api-agent/assistedinstaller"
 	bootstrapv1alpha1 "github.com/openshift-assisted/cluster-api-agent/bootstrap/api/v1alpha1"
 	controlplanev1alpha1 "github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1alpha1"
@@ -54,7 +57,7 @@ import (
 )
 
 const (
-	minOpenShiftVersion               = "4.14.0"
+	minK8sVersion                     = "1.27.0" // equivalent to 4.14
 	openshiftAssistedControlPlaneKind = "OpenshiftAssistedControlPlane"
 	acpFinalizer                      = "openshiftassistedcontrolplane." + controlplanev1alpha1.Group + "/deprovision"
 	placeholderPullSecretName         = "placeholder-pull-secret"
@@ -66,7 +69,7 @@ type OpenshiftAssistedControlPlaneReconciler struct {
 	Scheme *runtime.Scheme
 }
 
-var minVersion = semver.New(minOpenShiftVersion)
+var minVersion = semver.MustParse(minK8sVersion)
 
 // +kubebuilder:rbac:groups=bootstrap.cluster.x-k8s.io,resources=openshiftassistedconfigs,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=metal3machines,verbs=get;list;watch;create;update;patch;delete
@@ -124,18 +127,27 @@ func (r *OpenshiftAssistedControlPlaneReconciler) Reconcile(ctx context.Context,
 		return ctrl.Result{}, r.handleDeletion(ctx, acp)
 	}
 
+	hasVersionChanged, err := setK8sVersion(acp)
+	if err != nil {
+		log.Error(err, "failed to set k8s version")
+		return ctrl.Result{}, err
+	}
+	if hasVersionChanged {
+		return ctrl.Result{Requeue: true, RequeueAfter: 0}, nil
+	}
+
 	if !controllerutil.ContainsFinalizer(acp, acpFinalizer) {
 		controllerutil.AddFinalizer(acp, acpFinalizer)
 	}
 
-	acpVersion, err := semver.NewVersion(acp.Spec.Version)
+	acpVersion, err := semver.ParseTolerant(acp.Spec.Version)
 	if err != nil {
 		log.Error(err, "invalid OpenShift version", "version", acp.Spec.Version)
 		return ctrl.Result{}, err
 	}
-	if acpVersion.LessThan(*minVersion) {
+	if acpVersion.LT(minVersion) {
 		conditions.MarkFalse(acp, controlplanev1alpha1.MachinesCreatedCondition, controlplanev1alpha1.MachineGenerationFailedReason,
-			clusterv1.ConditionSeverityError, fmt.Sprintf("version %v is not supported, the minimum supported version is %s", acp.Spec.Version, minOpenShiftVersion))
+			clusterv1.ConditionSeverityError, fmt.Sprintf("version %v is not supported, the minimum supported version is %s", acp.Spec.Version, minK8sVersion))
 		return ctrl.Result{}, nil
 	}
 
@@ -169,6 +181,24 @@ func (r *OpenshiftAssistedControlPlaneReconciler) Reconcile(ctx context.Context,
 	}
 
 	return ctrl.Result{}, r.reconcileReplicas(ctx, acp, cluster)
+}
+
+func setK8sVersion(acp *controlplanev1alpha1.OpenshiftAssistedControlPlane) (bool, error) {
+
+	if acp.Spec.Config.ReleaseImage == "" {
+		return false, errors.New("release image must be specified")
+	}
+	v, err := version.GetK8sVersionFromOpenShiftImage(acp.Spec.Config.ReleaseImage)
+	if err != nil {
+		return false, err
+	}
+
+	changed := false
+	if v != acp.Spec.Version {
+		changed = true
+	}
+	acp.Spec.Version = v
+	return changed, nil
 }
 
 // Ensures dependencies are deleted before allowing the OpenshiftAssistedControlPlane to be deleted

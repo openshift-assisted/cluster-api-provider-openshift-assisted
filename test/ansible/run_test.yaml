@@ -23,8 +23,13 @@
       enablerepo: powertools
       name:
       - epel-release
+    when: ansible_distribution != "RedHat"
   - name: Install dependencies
     command: dnf --enablerepo=crb -y install git make podman distrobox qemu-kvm libvirt virt-install containernetworking-plugins
+    when: ansible_distribution != "RedHat"
+  - name: Install dependencies RHEL
+    command: dnf -y install git make podman distrobox qemu-kvm libvirt virt-install containernetworking-plugins
+    when: ansible_distribution == "RedHat"
   - name: enable libvirtd
     command: systemctl enable --now libvirtd
 

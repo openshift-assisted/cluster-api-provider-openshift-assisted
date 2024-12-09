@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	controlplanev1alpha1 "github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1alpha1"
+	controlplanev1alpha2 "github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1alpha2"
 	logutil "github.com/openshift-assisted/cluster-api-agent/util/log"
 
 	"k8s.io/apimachinery/pkg/types"
@@ -39,7 +39,7 @@ func GetTypedOwner(ctx context.Context, k8sClient client.Client, obj client.Obje
 // ControlPlaneMachineLabelsForCluster returns a set of labels to add
 // to a control plane machine for this specific cluster.
 func ControlPlaneMachineLabelsForCluster(
-	acp *controlplanev1alpha1.OpenshiftAssistedControlPlane,
+	acp *controlplanev1alpha2.OpenshiftAssistedControlPlane,
 	clusterName string,
 ) map[string]string {
 	labels := map[string]string{}

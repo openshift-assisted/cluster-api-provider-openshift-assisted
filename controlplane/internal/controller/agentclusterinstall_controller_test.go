@@ -22,7 +22,7 @@ import (
 	"github.com/golang/mock/gomock"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	controlplanev1alpha1 "github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1alpha1"
+	controlplanev1alpha2 "github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1alpha2"
 	hiveext "github.com/openshift/assisted-service/api/hiveextension/v1beta1"
 	aimodels "github.com/openshift/assisted-service/models"
 	hivev1 "github.com/openshift/hive/apis/hive/v1"
@@ -52,7 +52,7 @@ var _ = Describe("AgentClusterInstall Controller", func() {
 		var (
 			ctx                           = context.Background()
 			aciNamespacedName             types.NamespacedName
-			openshiftAssistedControlPlane *controlplanev1alpha1.OpenshiftAssistedControlPlane
+			openshiftAssistedControlPlane *controlplanev1alpha2.OpenshiftAssistedControlPlane
 			aci                           *hiveext.AgentClusterInstall
 			reconciler                    *AgentClusterInstallReconciler
 			mockCtrl                      *gomock.Controller
@@ -63,7 +63,7 @@ var _ = Describe("AgentClusterInstall Controller", func() {
 			mockCtrl = gomock.NewController(GinkgoT())
 			k8sClient = fakeclient.NewClientBuilder().
 				WithScheme(testScheme).
-				WithStatusSubresource(&controlplanev1alpha1.OpenshiftAssistedControlPlane{}, &hiveext.AgentClusterInstall{}).
+				WithStatusSubresource(&controlplanev1alpha2.OpenshiftAssistedControlPlane{}, &hiveext.AgentClusterInstall{}).
 				Build()
 			Expect(k8sClient).NotTo(BeNil())
 			aciNamespacedName = types.NamespacedName{
@@ -76,10 +76,10 @@ var _ = Describe("AgentClusterInstall Controller", func() {
 				Scheme: k8sClient.Scheme(),
 			}
 
-			openshiftAssistedControlPlane = &controlplanev1alpha1.OpenshiftAssistedControlPlane{
+			openshiftAssistedControlPlane = &controlplanev1alpha2.OpenshiftAssistedControlPlane{
 				TypeMeta: metav1.TypeMeta{
 					Kind:       "OpenshiftAssistedControlPlane",
-					APIVersion: controlplanev1alpha1.GroupVersion.String(),
+					APIVersion: controlplanev1alpha2.GroupVersion.String(),
 				},
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      openshiftAssistedControlPlaneName,
@@ -140,7 +140,7 @@ var _ = Describe("AgentClusterInstall Controller", func() {
 				Expect(res).To(Equal(ctrl.Result{}))
 
 				By("Checking that the OpenshiftAssistedControlPlane status was not changed")
-				acp := &controlplanev1alpha1.OpenshiftAssistedControlPlane{}
+				acp := &controlplanev1alpha2.OpenshiftAssistedControlPlane{}
 				Expect(
 					k8sClient.Get(ctx, types.NamespacedName{Name: openshiftAssistedControlPlaneName, Namespace: namespace}, acp),
 				).To(Succeed())
@@ -173,7 +173,7 @@ var _ = Describe("AgentClusterInstall Controller", func() {
 			).NotTo(Succeed())
 
 			By("Checking that the OpenshiftAssistedControlPlane status was not changed")
-			acp := &controlplanev1alpha1.OpenshiftAssistedControlPlane{}
+			acp := &controlplanev1alpha2.OpenshiftAssistedControlPlane{}
 			Expect(
 				k8sClient.Get(ctx, types.NamespacedName{Name: openshiftAssistedControlPlaneName, Namespace: namespace}, acp),
 			).To(Succeed())
@@ -230,7 +230,7 @@ var _ = Describe("AgentClusterInstall Controller", func() {
 			Expect(kubeconfig.Labels).To(HaveKeyWithValue(clusterv1.ClusterNameLabel, clusterName))
 
 			By("Checking that the OpenshiftAssistedControlPlane status is correct")
-			acp := &controlplanev1alpha1.OpenshiftAssistedControlPlane{}
+			acp := &controlplanev1alpha2.OpenshiftAssistedControlPlane{}
 			Expect(
 				k8sClient.Get(ctx, types.NamespacedName{Name: openshiftAssistedControlPlaneName, Namespace: namespace}, acp),
 			).To(Succeed())
@@ -272,7 +272,7 @@ var _ = Describe("AgentClusterInstall Controller", func() {
 			Expect(res).To(Equal(ctrl.Result{}))
 
 			By("Checking that the OpenshiftAssistedControlPlane status is correct")
-			acp := &controlplanev1alpha1.OpenshiftAssistedControlPlane{}
+			acp := &controlplanev1alpha2.OpenshiftAssistedControlPlane{}
 			Expect(
 				k8sClient.Get(ctx, types.NamespacedName{Name: openshiftAssistedControlPlaneName, Namespace: namespace}, acp),
 			).To(Succeed())

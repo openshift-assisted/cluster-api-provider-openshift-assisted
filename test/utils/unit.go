@@ -3,7 +3,7 @@ package utils
 import (
 	"github.com/metal3-io/baremetal-operator/apis/metal3.io/v1alpha1"
 	metal3 "github.com/metal3-io/cluster-api-provider-metal3/api/v1beta1"
-	controlplanev1alpha1 "github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1alpha1"
+	controlplanev1alpha2 "github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1alpha2"
 	hiveext "github.com/openshift/assisted-service/api/hiveextension/v1beta1"
 	"github.com/openshift/assisted-service/api/v1beta1"
 	hivev1 "github.com/openshift/hive/apis/hive/v1"
@@ -73,23 +73,6 @@ func NewCluster(clusterName, namespace string) *clusterv1.Cluster {
 	return cluster
 }
 
-func NewMachineWithInfraRef(
-	machineName, namespace, clusterName string,
-	acp *controlplanev1alpha1.OpenshiftAssistedControlPlane,
-	infraRef client.Object,
-) *clusterv1.Machine {
-	infraRefGVK := infraRef.GetObjectKind().GroupVersionKind()
-	machine := NewMachineWithOwner(namespace, machineName, clusterName, acp)
-	machine.Spec.InfrastructureRef = corev1.ObjectReference{
-		APIVersion: infraRefGVK.GroupVersion().String(),
-		Kind:       infraRefGVK.Kind,
-		Namespace:  infraRef.GetNamespace(),
-		Name:       infraRef.GetName(),
-		UID:        infraRef.GetUID(),
-	}
-	return machine
-}
-
 func NewMachine(namespace, name, clusterName string) *clusterv1.Machine {
 	machine := &clusterv1.Machine{
 		TypeMeta: metav1.TypeMeta{
@@ -138,11 +121,11 @@ func NewM3MachineTemplateWithImage(namespace, name, url, diskFormat string) *met
 	return m3Template
 }
 
-func NewOpenshiftAssistedControlPlane(namespace, name string) *controlplanev1alpha1.OpenshiftAssistedControlPlane {
-	return &controlplanev1alpha1.OpenshiftAssistedControlPlane{
+func NewOpenshiftAssistedControlPlane(namespace, name string) *controlplanev1alpha2.OpenshiftAssistedControlPlane {
+	return &controlplanev1alpha2.OpenshiftAssistedControlPlane{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "OpenshiftAssistedControlPlane",
-			APIVersion: controlplanev1alpha1.GroupVersion.String(),
+			APIVersion: controlplanev1alpha2.GroupVersion.String(),
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
@@ -154,7 +137,7 @@ func NewOpenshiftAssistedControlPlane(namespace, name string) *controlplanev1alp
 func NewOpenshiftAssistedControlPlaneWithMachineTemplate(
 	namespace, name string,
 	m3Template *metal3.Metal3MachineTemplate,
-) *controlplanev1alpha1.OpenshiftAssistedControlPlane {
+) *controlplanev1alpha2.OpenshiftAssistedControlPlane {
 	acp := NewOpenshiftAssistedControlPlane(namespace, name)
 	acp.Spec.MachineTemplate.InfrastructureRef = corev1.ObjectReference{
 		Kind:       m3Template.Kind,

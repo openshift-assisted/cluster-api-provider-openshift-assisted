@@ -21,7 +21,7 @@ spec:
       cidrBlocks:
         - 10.96.0.0/12
   controlPlaneRef:
-    apiVersion: controlplane.cluster.x-k8s.io/v1alpha1
+    apiVersion: controlplane.cluster.x-k8s.io/v1alpha2
     kind: OpenshiftAssistedControlPlane
     name: test-multinode
     namespace: test-capi
@@ -42,11 +42,13 @@ spec:
     port: 6443
   noCloudProvider: true
 ---
-apiVersion: controlplane.cluster.x-k8s.io/v1alpha1
+apiVersion: controlplane.cluster.x-k8s.io/v1alpha2
 kind: OpenshiftAssistedControlPlane
 metadata:
   name: test-multinode
   namespace: test-capi
+  annotations:
+    cluster.x-k8s.io/release-image-repository: "quay.io/openshift-release-dev/ocp-release"
 spec:
   openshiftAssistedConfigSpec:
     pullSecretRef:
@@ -57,7 +59,6 @@ spec:
     - 192.168.222.40
     ingressVIPs:
     - 192.168.222.41
-    releaseImage: quay.io/openshift-release-dev/ocp-release:4.17.0-rc.2-x86_64 #registry.ci.openshift.org/ocp/release:4.17.0-0.nightly-2024-08-06-034102 #quay.io/openshift-release-dev/ocp-release:4.17.0-ec.2-x86_64
     baseDomain: lab.home
     pullSecretRef:
       name: "pull-secret"
@@ -164,7 +165,3 @@ spec:
       pullSecretRef:
         name: "pull-secret"
       sshAuthorizedKey: <SSH_AUTHORIZED_KEY>
-
-
-      # quay.io/eranco74/ocp:4.16.0-0.ci.test-2024-06-18-154755-ci-ln-mkd6npb-latest-x86_64
-      # bug ASSISTED INSTALLER STUCK with old images (registry03...)

@@ -19,7 +19,9 @@ package controller
 import (
 	"context"
 
-	"github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1alpha1"
+	"k8s.io/apimachinery/pkg/types"
+
+	"github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1alpha2"
 	"github.com/openshift-assisted/cluster-api-agent/test/utils"
 	hiveext "github.com/openshift/assisted-service/api/hiveextension/v1beta1"
 	"github.com/openshift/assisted-service/models"
@@ -52,7 +54,7 @@ var _ = Describe("ClusterDeployment Controller", func() {
 
 	BeforeEach(func() {
 		k8sClient = fakeclient.NewClientBuilder().WithScheme(testScheme).
-			WithStatusSubresource(&hivev1.ClusterDeployment{}, &v1alpha1.OpenshiftAssistedControlPlane{}).
+			WithStatusSubresource(&hivev1.ClusterDeployment{}, &v1alpha2.OpenshiftAssistedControlPlane{}).
 			Build()
 		Expect(k8sClient).NotTo(BeNil())
 		controllerReconciler = &ClusterDeploymentReconciler{
@@ -139,6 +141,112 @@ var _ = Describe("ClusterDeployment Controller", func() {
 			Expect(aci.Spec.Proxy).To(Equal(acp.Spec.Config.Proxy))
 			Expect(aci.Spec.MastersSchedulable).To(Equal(acp.Spec.Config.MastersSchedulable))
 			Expect(aci.Spec.SSHPublicKey).To(Equal(acp.Spec.Config.SSHAuthorizedKey))
+
+			ci := hivev1.ClusterImageSet{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: cd.Name}, &ci)).To(Succeed())
+			Expect(ci.Spec.ReleaseImage).To(Equal("quay.io/openshift-release-dev/ocp-release:4.16.0-multi"))
+		})
+		When("A cluster deployment with OpenshiftAssistedControlPlanes overriding the release image", func() {
+			It("should successfully override it", func() {
+				cluster := utils.NewCluster(clusterName, namespace)
+				Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
+
+				cd := utils.NewClusterDeployment(namespace, clusterDeploymentName)
+				Expect(k8sClient.Create(ctx, cd)).To(Succeed())
+
+				oacp := utils.NewOpenshiftAssistedControlPlane(namespace, openshiftAssistedControlPlaneName)
+				oacp.Spec.Version = openShiftVersion
+				oacp.Annotations = map[string]string{
+					ReleaseImageOverrideAnnotation: "quay.io/foo/bar:qux",
+				}
+
+				Expect(controllerutil.SetOwnerReference(cluster, oacp, testScheme)).To(Succeed())
+				Expect(controllerutil.SetOwnerReference(oacp, cd, testScheme)).To(Succeed())
+				ref, _ := reference.GetReference(testScheme, cd)
+				oacp.Status.ClusterDeploymentRef = ref
+				Expect(k8sClient.Create(ctx, oacp)).To(Succeed())
+				Expect(k8sClient.Update(ctx, cd)).To(Succeed())
+
+				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: client.ObjectKeyFromObject(cd),
+				})
+				Expect(err).NotTo(HaveOccurred())
+
+				aci := &hiveext.AgentClusterInstall{}
+				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cd), aci)).To(Succeed())
+
+				ci := hivev1.ClusterImageSet{}
+				Expect(k8sClient.Get(ctx, types.NamespacedName{Name: cd.Name}, &ci)).To(Succeed())
+				Expect(ci.Spec.ReleaseImage).To(Equal("quay.io/foo/bar:qux"))
+			})
+		})
+		When("A cluster deployment with OpenshiftAssistedControlPlanes annotated as OKD", func() {
+			It("should set OKD repository and image pattern", func() {
+				cluster := utils.NewCluster(clusterName, namespace)
+				Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
+
+				cd := utils.NewClusterDeployment(namespace, clusterDeploymentName)
+				Expect(k8sClient.Create(ctx, cd)).To(Succeed())
+
+				oacp := utils.NewOpenshiftAssistedControlPlane(namespace, openshiftAssistedControlPlaneName)
+				oacp.Spec.Version = openShiftVersion
+				oacp.Annotations = map[string]string{
+					OpenShiftFlavourAnnotation: FlavourOKD,
+				}
+
+				Expect(controllerutil.SetOwnerReference(cluster, oacp, testScheme)).To(Succeed())
+				Expect(controllerutil.SetOwnerReference(oacp, cd, testScheme)).To(Succeed())
+				ref, _ := reference.GetReference(testScheme, cd)
+				oacp.Status.ClusterDeploymentRef = ref
+				Expect(k8sClient.Create(ctx, oacp)).To(Succeed())
+				Expect(k8sClient.Update(ctx, cd)).To(Succeed())
+
+				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: client.ObjectKeyFromObject(cd),
+				})
+				Expect(err).NotTo(HaveOccurred())
+
+				aci := &hiveext.AgentClusterInstall{}
+				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cd), aci)).To(Succeed())
+
+				ci := hivev1.ClusterImageSet{}
+				Expect(k8sClient.Get(ctx, types.NamespacedName{Name: cd.Name}, &ci)).To(Succeed())
+				Expect(ci.Spec.ReleaseImage).To(Equal("quay.io/okd/scos-release:4.16.0"))
+			})
+		})
+		When("A cluster deployment with OpenshiftAssistedControlPlanes with image repository override", func() {
+			It("should override image repository, but keep image tag", func() {
+				cluster := utils.NewCluster(clusterName, namespace)
+				Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
+
+				cd := utils.NewClusterDeployment(namespace, clusterDeploymentName)
+				Expect(k8sClient.Create(ctx, cd)).To(Succeed())
+
+				oacp := utils.NewOpenshiftAssistedControlPlane(namespace, openshiftAssistedControlPlaneName)
+				oacp.Spec.Version = openShiftVersion
+				oacp.Annotations = map[string]string{
+					ReleaseImageRepositoryAnnotation: "quay.io/foobar/qux",
+				}
+
+				Expect(controllerutil.SetOwnerReference(cluster, oacp, testScheme)).To(Succeed())
+				Expect(controllerutil.SetOwnerReference(oacp, cd, testScheme)).To(Succeed())
+				ref, _ := reference.GetReference(testScheme, cd)
+				oacp.Status.ClusterDeploymentRef = ref
+				Expect(k8sClient.Create(ctx, oacp)).To(Succeed())
+				Expect(k8sClient.Update(ctx, cd)).To(Succeed())
+
+				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: client.ObjectKeyFromObject(cd),
+				})
+				Expect(err).NotTo(HaveOccurred())
+
+				aci := &hiveext.AgentClusterInstall{}
+				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cd), aci)).To(Succeed())
+
+				ci := hivev1.ClusterImageSet{}
+				Expect(k8sClient.Get(ctx, types.NamespacedName{Name: cd.Name}, &ci)).To(Succeed())
+				Expect(ci.Spec.ReleaseImage).To(Equal("quay.io/foobar/qux:4.16.0-multi"))
+			})
 		})
 		When("ACP with ingressVIPs and apiVIPs", func() {
 			It("should start a multinode cluster install", func() {

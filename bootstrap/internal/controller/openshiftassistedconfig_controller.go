@@ -24,7 +24,6 @@ import (
 	"github.com/openshift-assisted/cluster-api-agent/assistedinstaller"
 	"k8s.io/client-go/tools/reference"
 
-	controlplanev1alpha1 "github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1alpha1"
 	"github.com/openshift/assisted-service/api/hiveextension/v1beta1"
 	aimodels "github.com/openshift/assisted-service/models"
 	"github.com/pkg/errors"
@@ -43,6 +42,7 @@ import (
 
 	metal3 "github.com/metal3-io/cluster-api-provider-metal3/api/v1beta1"
 	bootstrapv1alpha1 "github.com/openshift-assisted/cluster-api-agent/bootstrap/api/v1alpha1"
+	controlplanev1alpha2 "github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1alpha2"
 	aiv1beta1 "github.com/openshift/assisted-service/api/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -458,7 +458,7 @@ func (r *OpenshiftAssistedConfigReconciler) getInfrastructureRefKey(
 	ctx context.Context,
 	machine *clusterv1.Machine,
 ) (types.NamespacedName, error) {
-	acp := controlplanev1alpha1.OpenshiftAssistedControlPlane{}
+	acp := controlplanev1alpha2.OpenshiftAssistedControlPlane{}
 	namespace := machine.Namespace
 	err := util.GetTypedOwner(ctx, r.Client, machine, &acp)
 	if err != nil {

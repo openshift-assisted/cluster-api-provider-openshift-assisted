@@ -1,7 +1,7 @@
 package assistedinstaller
 
 import (
-	"github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1alpha1"
+	"github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1alpha2"
 	"github.com/openshift-assisted/cluster-api-agent/util"
 	hivev1 "github.com/openshift/hive/apis/hive/v1"
 	"github.com/openshift/hive/apis/hive/v1/agent"
@@ -9,7 +9,7 @@ import (
 )
 
 func GetClusterDeploymentFromConfig(
-	acp *v1alpha1.OpenshiftAssistedControlPlane,
+	acp *v1alpha2.OpenshiftAssistedControlPlane,
 	clusterName string,
 ) *hivev1.ClusterDeployment {
 	assistedClusterName := clusterName

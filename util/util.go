@@ -3,8 +3,13 @@ package util
 import (
 	"context"
 	"fmt"
+	"strings"
 
-	controlplanev1alpha1 "github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1alpha1"
+	"github.com/openshift-assisted/cluster-api-agent/pkg/containers"
+	imageapi "github.com/openshift/api/image/v1"
+	yaml "sigs.k8s.io/yaml/goyaml.v2"
+
+	controlplanev1alpha1 "github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1alpha2"
 	logutil "github.com/openshift-assisted/cluster-api-agent/util/log"
 
 	"k8s.io/apimachinery/pkg/types"
@@ -57,4 +62,49 @@ func ControlPlaneMachineLabelsForCluster(
 	// longer than 63 characters.
 	labels[clusterv1.MachineControlPlaneNameLabel] = format.MustFormatValue(acp.Name)
 	return labels
+}
+
+func GetK8sVersionFromImageRef(imageRef, pullsecret string) (string, error) {
+	const filepath = "/release-manifests/image-references"
+	auth, err := containers.PullSecretKeyChainFromString(pullsecret)
+	if err != nil {
+		return "", fmt.Errorf("unable to load auth from pull-secret: %v", err)
+	}
+	extractor, err := containers.NewImageExtractor(imageRef, auth)
+	if err != nil {
+		return "", fmt.Errorf("unable to create extractor: %v", err)
+	}
+	fileContent, err := extractor.ExtractFileFromImage(filepath)
+	if err != nil {
+		return "", fmt.Errorf("unable to extract file %s from imageRef %s : %v", filepath, imageRef, err)
+	}
+
+	is := &imageapi.ImageStream{}
+	if err := yaml.Unmarshal(fileContent, &is); err != nil {
+		return "", fmt.Errorf("unable to load release image-references: %v", err)
+	}
+	k8sVersion, err := getK8sVersionFromImageStream(*is)
+	if err != nil {
+		return "", fmt.Errorf("unable to extract k8s from release image-references: %v", err)
+	}
+	return k8sVersion, nil
+}
+
+func getK8sVersionFromImageStream(is imageapi.ImageStream) (string, error) {
+	const annotationBuildVersions = "io.openshift.build.versions"
+
+	for _, tag := range is.Spec.Tags {
+		versions, ok := tag.Annotations[annotationBuildVersions]
+		if !ok {
+			continue
+		}
+		parts := strings.Split(versions, "=")
+		if len(parts) != 2 {
+			continue
+		}
+		if parts[0] == "kubernetes" {
+			return parts[1], nil
+		}
+	}
+	return "", fmt.Errorf("unable to find kubernetes version")
 }

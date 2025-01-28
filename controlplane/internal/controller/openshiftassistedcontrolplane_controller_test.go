@@ -31,12 +31,20 @@ import (
 	fakeclient "sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	controlplanev1alpha1 "github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1alpha1"
+	controlplanev1alpha2 "github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1alpha2"
 	testutils "github.com/openshift-assisted/cluster-api-agent/test/utils"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 )
+
+type mockOpenShiftVersioner struct {
+}
+
+func (m *mockOpenShiftVersioner) GetK8sVersionFromReleaseImage(ctx context.Context, releaseImage string, oacp *controlplanev1alpha2.OpenshiftAssistedControlPlane) (*string, error) {
+	version := "1.30.0"
+	return &version, nil
+}
 
 var _ = Describe("OpenshiftAssistedControlPlane Controller", func() {
 	Context("When reconciling a resource", func() {
@@ -57,7 +65,7 @@ var _ = Describe("OpenshiftAssistedControlPlane Controller", func() {
 		BeforeEach(func() {
 			k8sClient = fakeclient.NewClientBuilder().
 				WithScheme(testScheme).
-				WithStatusSubresource(&controlplanev1alpha1.OpenshiftAssistedControlPlane{}).Build()
+				WithStatusSubresource(&controlplanev1alpha2.OpenshiftAssistedControlPlane{}).Build()
 
 			mockCtrl = gomock.NewController(GinkgoT())
 			ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespace}}
@@ -66,10 +74,10 @@ var _ = Describe("OpenshiftAssistedControlPlane Controller", func() {
 				Name:      openshiftAssistedControlPlaneName,
 				Namespace: namespace,
 			}
-
 			controllerReconciler = &OpenshiftAssistedControlPlaneReconciler{
-				Client: k8sClient,
-				Scheme: k8sClient.Scheme(),
+				Client:           k8sClient,
+				Scheme:           k8sClient.Scheme(),
+				OpenShiftVersion: &mockOpenShiftVersioner{},
 			}
 
 			By("creating a cluster")
@@ -103,12 +111,13 @@ var _ = Describe("OpenshiftAssistedControlPlane Controller", func() {
 				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
 					NamespacedName: typeNamespacedName,
 				})
+				expectedVersion := "1.30.0"
 				Expect(err).NotTo(HaveOccurred())
 				err = k8sClient.Get(ctx, typeNamespacedName, openshiftAssistedControlPlane)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(openshiftAssistedControlPlane.Status.ClusterDeploymentRef).NotTo(BeNil())
 				Expect(openshiftAssistedControlPlane.Status.ClusterDeploymentRef.Name).Should(Equal(openshiftAssistedControlPlane.Name))
-
+				Expect(openshiftAssistedControlPlane.Status.Version).To(Equal(&expectedVersion))
 				By("checking that the cluster deployment was created")
 				cd := &hivev1.ClusterDeployment{}
 				err = k8sClient.Get(ctx, typeNamespacedName, cd)
@@ -225,7 +234,7 @@ var _ = Describe("OpenshiftAssistedControlPlane Controller", func() {
 			It("should return error", func() {
 				By("setting the cluster as the owner ref on the OpenshiftAssistedControlPlane")
 				openshiftAssistedControlPlane := getOpenshiftAssistedControlPlane()
-				openshiftAssistedControlPlane.Spec.Version = "4.12.0"
+				openshiftAssistedControlPlane.Spec.DistributionVersion = "4.12.0"
 				openshiftAssistedControlPlane.SetOwnerReferences(
 					[]metav1.OwnerReference{
 						*metav1.NewControllerRef(cluster, clusterv1.GroupVersion.WithKind(clusterv1.ClusterKind)),
@@ -241,7 +250,7 @@ var _ = Describe("OpenshiftAssistedControlPlane Controller", func() {
 				Expect(k8sClient.Get(ctx, typeNamespacedName, openshiftAssistedControlPlane)).To(Succeed())
 
 				condition := conditions.Get(openshiftAssistedControlPlane,
-					controlplanev1alpha1.MachinesCreatedCondition,
+					controlplanev1alpha2.MachinesCreatedCondition,
 				)
 				Expect(condition).NotTo(BeNil())
 				Expect(condition.Message).To(Equal("version 4.12.0 is not supported, the minimum supported version is 4.14.0"))
@@ -251,14 +260,14 @@ var _ = Describe("OpenshiftAssistedControlPlane Controller", func() {
 	})
 })
 
-func getOpenshiftAssistedControlPlane() *controlplanev1alpha1.OpenshiftAssistedControlPlane {
-	return &controlplanev1alpha1.OpenshiftAssistedControlPlane{
+func getOpenshiftAssistedControlPlane() *controlplanev1alpha2.OpenshiftAssistedControlPlane {
+	return &controlplanev1alpha2.OpenshiftAssistedControlPlane{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      openshiftAssistedControlPlaneName,
 			Namespace: namespace,
 		},
-		Spec: controlplanev1alpha1.OpenshiftAssistedControlPlaneSpec{
-			Version: "4.16.0",
+		Spec: controlplanev1alpha2.OpenshiftAssistedControlPlaneSpec{
+			DistributionVersion: "4.16.0",
 		},
 	}
 }

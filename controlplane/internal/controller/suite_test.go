@@ -28,7 +28,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	controlplanev1alpha1 "github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1alpha1"
+	controlplanev1alpha1 "github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1alpha2"
 	hiveext "github.com/openshift/assisted-service/api/hiveextension/v1beta1"
 	hivev1 "github.com/openshift/hive/apis/hive/v1"
 	corev1 "k8s.io/api/core/v1"

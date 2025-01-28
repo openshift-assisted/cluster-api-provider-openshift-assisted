@@ -51,6 +51,8 @@ func GetInfraEnvFromConfig(
 		Proxy:                      config.Spec.Proxy,
 		PullSecretRef:              pullSecret,
 		SSHAuthorizedKey:           config.Spec.SSHAuthorizedKey,
+		// Must be full-iso to ensure static networking settings is generated in the ignition
+		ImageType: "full-iso",
 	}
 	return infraEnv
 }

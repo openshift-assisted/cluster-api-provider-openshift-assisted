@@ -56,10 +56,10 @@ spec:
       name: Age
       type: date
     - description: OpenShift version associated with this control plane
-      jsonPath: .spec.version
-      name: Version
+      jsonPath: .spec.distributionVersion
+      name: DistributionVersion
       type: string
-    name: v1alpha1
+    name: v1alpha2
     schema:
       openAPIV3Schema:
         description: OpenshiftAssistedControlPlane is the Schema for the openshiftassistedcontrolplane
@@ -207,16 +207,17 @@ spec:
                         type: string
                     type: object
                     x-kubernetes-map-type: atomic
-                  releaseImage:
-                    type: string
                   sshAuthorizedKey:
                     description: SSHAuthorizedKey ssh key for accessing the cluster
                       nodes after reboot
                     type: string
                 required:
                 - baseDomain
-                - releaseImage
                 type: object
+              distributionVersion:
+                description: DistributionVersion describes the targeted OpenShift
+                  version
+                type: string
               machineTemplate:
                 properties:
                   infrastructureRef:
@@ -462,11 +463,9 @@ spec:
               replicas:
                 format: int32
                 type: integer
-              version:
-                type: string
             required:
+            - distributionVersion
             - machineTemplate
-            - version
             type: object
           status:
             description: OpenshiftAssistedControlPlaneStatus defines the observed

@@ -3,7 +3,7 @@ package utils
 import (
 	"github.com/metal3-io/baremetal-operator/apis/metal3.io/v1alpha1"
 	metal3 "github.com/metal3-io/cluster-api-provider-metal3/api/v1beta1"
-	controlplanev1alpha1 "github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1alpha1"
+	controlplanev1alpha1 "github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1alpha2"
 	hiveext "github.com/openshift/assisted-service/api/hiveextension/v1beta1"
 	"github.com/openshift/assisted-service/api/v1beta1"
 	hivev1 "github.com/openshift/hive/apis/hive/v1"
@@ -131,12 +131,6 @@ func NewM3MachineTemplate(namespace, name string) *metal3.Metal3MachineTemplate 
 		},
 	}
 }
-func NewM3MachineTemplateWithImage(namespace, name, url, diskFormat string) *metal3.Metal3MachineTemplate {
-	m3Template := NewM3MachineTemplate(namespace, name)
-	m3Template.Spec.Template.Spec.Image.URL = url
-	m3Template.Spec.Template.Spec.Image.DiskFormat = &diskFormat
-	return m3Template
-}
 
 func NewOpenshiftAssistedControlPlane(namespace, name string) *controlplanev1alpha1.OpenshiftAssistedControlPlane {
 	return &controlplanev1alpha1.OpenshiftAssistedControlPlane{
@@ -147,6 +141,9 @@ func NewOpenshiftAssistedControlPlane(namespace, name string) *controlplanev1alp
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: namespace,
+		},
+		Spec: controlplanev1alpha1.OpenshiftAssistedControlPlaneSpec{
+			DistributionVersion: "4.18.0",
 		},
 	}
 }

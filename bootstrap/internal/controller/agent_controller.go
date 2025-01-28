@@ -44,7 +44,7 @@ func (r *AgentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
 	agent := &aiv1beta1.Agent{}
-	if err := r.Get(ctx, req.NamespacedName, agent); err != nil {
+	if err := r.Client.Get(ctx, req.NamespacedName, agent); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 

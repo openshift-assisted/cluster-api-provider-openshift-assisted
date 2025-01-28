@@ -5,6 +5,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+const PullsecretDataKey = ".dockerconfigjson"
+
 // Assisted-service expects the pull secret to
 // 1. Have .dockerconfigjson as a key
 // 2. Have the value of .dockerconfigjson be a base64-encoded JSON
@@ -19,7 +21,7 @@ func GenerateFakePullSecret(name, namespace string) *corev1.Secret {
 			Namespace: namespace,
 		},
 		Data: map[string][]byte{
-			".dockerconfigjson": []byte(fakePullSecret),
+			PullsecretDataKey: []byte(fakePullSecret),
 		},
 	}
 }

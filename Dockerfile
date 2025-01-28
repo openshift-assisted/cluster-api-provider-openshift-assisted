@@ -1,5 +1,5 @@
 # Build the manager binary
-FROM docker.io/library/golang:1.22 AS builder
+FROM docker.io/library/golang:1.23 AS builder
 ARG TARGETOS
 ARG TARGETARCH
 ARG PROVIDER
@@ -17,6 +17,7 @@ COPY ${PROVIDER}/main.go ${PROVIDER}/main.go
 COPY bootstrap/api/ bootstrap/api/
 COPY controlplane/api/ controlplane/api/
 COPY util util
+COPY pkg pkg
 COPY assistedinstaller assistedinstaller
 COPY ${PROVIDER}/internal/ ${PROVIDER}/internal/
 

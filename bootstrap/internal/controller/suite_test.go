@@ -19,7 +19,7 @@ package controller
 import (
 	"testing"
 
-	controlplanev1alpha1 "github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1alpha1"
+	controlplanev1alpha2 "github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1alpha2"
 	hiveext "github.com/openshift/assisted-service/api/hiveextension/v1beta1"
 	aiv1beta1 "github.com/openshift/assisted-service/api/v1beta1"
 	hivev1 "github.com/openshift/hive/apis/hive/v1"
@@ -55,7 +55,7 @@ var _ = BeforeSuite(func() {
 	By("bootstrapping test environment")
 
 	utilruntime.Must(bootstrapv1alpha1.AddToScheme(testScheme))
-	utilruntime.Must(controlplanev1alpha1.AddToScheme(testScheme))
+	utilruntime.Must(controlplanev1alpha2.AddToScheme(testScheme))
 	utilruntime.Must(corev1.AddToScheme(testScheme))
 	utilruntime.Must(aiv1beta1.AddToScheme(testScheme))
 	utilruntime.Must(hiveext.AddToScheme(testScheme))

@@ -8,10 +8,10 @@
     remote_manifests_path: /tmp/manifests
     test_namespace: test-capi
     example_manifest: "{{ lookup('ansible.builtin.env', 'EXAMPLE_MANIFEST', default='multi-node-example.yaml') }}"
-    number_of_nodes: "{{ lookup('ansible.builtin.env', 'NUMBER_OF_NODES', default='5') }}"
+    number_of_nodes: "{{ lookup('ansible.builtin.env', 'NUMBER_OF_NODES', default='7') }}"
 
-    capi_version: v1.7.1
-    capm3_version: v1.6.0
+    capi_version: v1.9.4
+    capm3_version: v1.9.2
     dist_dir: "{{ lookup('ansible.builtin.env', 'DIST_DIR') }}"
     src_dir: /tmp/capbcoa
     kind_cluster_name: capi-baremetal-provider
@@ -27,10 +27,10 @@
       - epel-release
     when: ansible_distribution != "RedHat"
   - name: Install dependencies
-    command: dnf --enablerepo=crb -y install git make podman distrobox qemu-kvm libvirt virt-install containernetworking-plugins
+    command: dnf --enablerepo=crb -y install git make podman qemu-kvm libvirt virt-install containernetworking-plugins
     when: ansible_distribution != "RedHat"
   - name: Install dependencies RHEL
-    command: dnf -y install git make podman distrobox qemu-kvm libvirt virt-install containernetworking-plugins
+    command: dnf -y install git make podman qemu-kvm libvirt virt-install containernetworking-plugins
     when: ansible_distribution == "RedHat"
   - name: enable libvirtd
     command: systemctl enable --now libvirtd

@@ -330,7 +330,7 @@ func (r *OpenshiftAssistedConfigReconciler) ensureInfraEnv(ctx context.Context, 
 	_ = controllerutil.SetOwnerReference(config, infraEnv, r.Scheme)
 	_ = controllerutil.SetOwnerReference(machine, infraEnv, r.Scheme)
 
-	err := r.Create(ctx, infraEnv)
+	err := r.Client.Create(ctx, infraEnv)
 	if err != nil && !apierrors.IsAlreadyExists(err) {
 		log.V(logutil.DebugLevel).Error(err, "infra env error", "name", infraEnv.Name, "namespace", infraEnv.Namespace)
 		// something went wrong, let's not exist because we might be able to read it and reference it in the status

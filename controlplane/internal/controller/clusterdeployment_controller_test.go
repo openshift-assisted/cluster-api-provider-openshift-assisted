@@ -19,7 +19,9 @@ package controller
 import (
 	"context"
 
-	"github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1alpha1"
+	"k8s.io/apimachinery/pkg/types"
+
+	"github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1alpha2"
 	"github.com/openshift-assisted/cluster-api-agent/test/utils"
 	hiveext "github.com/openshift/assisted-service/api/hiveextension/v1beta1"
 	"github.com/openshift/assisted-service/models"
@@ -52,7 +54,7 @@ var _ = Describe("ClusterDeployment Controller", func() {
 
 	BeforeEach(func() {
 		k8sClient = fakeclient.NewClientBuilder().WithScheme(testScheme).
-			WithStatusSubresource(&hivev1.ClusterDeployment{}, &v1alpha1.OpenshiftAssistedControlPlane{}).
+			WithStatusSubresource(&hivev1.ClusterDeployment{}, &v1alpha2.OpenshiftAssistedControlPlane{}).
 			Build()
 		Expect(k8sClient).NotTo(BeNil())
 		controllerReconciler = &ClusterDeploymentReconciler{
@@ -84,9 +86,9 @@ var _ = Describe("ClusterDeployment Controller", func() {
 			cd := utils.NewClusterDeployment(namespace, clusterDeploymentName)
 			Expect(k8sClient.Create(ctx, cd)).To(Succeed())
 
-			acp := utils.NewOpenshiftAssistedControlPlane(namespace, openshiftAssistedControlPlaneName)
-			acp.Spec.Version = openShiftVersion
-			Expect(k8sClient.Create(ctx, acp)).To(Succeed())
+			oacp := utils.NewOpenshiftAssistedControlPlane(namespace, openshiftAssistedControlPlaneName)
+			oacp.Spec.DistributionVersion = openShiftVersion
+			Expect(k8sClient.Create(ctx, oacp)).To(Succeed())
 
 			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
 				NamespacedName: client.ObjectKeyFromObject(cd),
@@ -105,24 +107,24 @@ var _ = Describe("ClusterDeployment Controller", func() {
 
 			enableOn := models.DiskEncryptionEnableOnAll
 			mode := models.DiskEncryptionModeTang
-			acp := utils.NewOpenshiftAssistedControlPlane(namespace, openshiftAssistedControlPlaneName)
-			acp.Spec.Version = openShiftVersion
-			acp.Spec.Config.SSHAuthorizedKey = "mykey"
-			acp.Spec.Config.DiskEncryption = &hiveext.DiskEncryption{
+			oacp := utils.NewOpenshiftAssistedControlPlane(namespace, openshiftAssistedControlPlaneName)
+			oacp.Spec.DistributionVersion = openShiftVersion
+			oacp.Spec.Config.SSHAuthorizedKey = "mykey"
+			oacp.Spec.Config.DiskEncryption = &hiveext.DiskEncryption{
 				EnableOn:    &enableOn,
 				Mode:        &mode,
 				TangServers: " [{\"url\":\"http://tang.example.com:7500\",\"thumbprint\":\"PLjNyRdGw03zlRoGjQYMahSZGu9\"}, {\"url\":\"http://tang.example.com:7501\",\"thumbprint\":\"PLjNyRdGw03zlRoGjQYMahSZGu8\"}]",
 			}
-			acp.Spec.Config.Proxy = &hiveext.Proxy{
+			oacp.Spec.Config.Proxy = &hiveext.Proxy{
 				HTTPProxy: "https://example.com",
 			}
-			acp.Spec.Config.MastersSchedulable = true
+			oacp.Spec.Config.MastersSchedulable = true
 
-			Expect(controllerutil.SetOwnerReference(cluster, acp, testScheme)).To(Succeed())
-			Expect(controllerutil.SetOwnerReference(acp, cd, testScheme)).To(Succeed())
+			Expect(controllerutil.SetOwnerReference(cluster, oacp, testScheme)).To(Succeed())
+			Expect(controllerutil.SetOwnerReference(oacp, cd, testScheme)).To(Succeed())
 			ref, _ := reference.GetReference(testScheme, cd)
-			acp.Status.ClusterDeploymentRef = ref
-			Expect(k8sClient.Create(ctx, acp)).To(Succeed())
+			oacp.Status.ClusterDeploymentRef = ref
+			Expect(k8sClient.Create(ctx, oacp)).To(Succeed())
 			Expect(k8sClient.Update(ctx, cd)).To(Succeed())
 
 			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
@@ -134,11 +136,15 @@ var _ = Describe("ClusterDeployment Controller", func() {
 			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cd), aci)).To(Succeed())
 
 			// Assert exposed ACI fields are derived from ACP
-			Expect(aci.Spec.ManifestsConfigMapRefs).To(Equal(acp.Spec.Config.ManifestsConfigMapRefs))
-			Expect(aci.Spec.DiskEncryption).To(Equal(acp.Spec.Config.DiskEncryption))
-			Expect(aci.Spec.Proxy).To(Equal(acp.Spec.Config.Proxy))
-			Expect(aci.Spec.MastersSchedulable).To(Equal(acp.Spec.Config.MastersSchedulable))
-			Expect(aci.Spec.SSHPublicKey).To(Equal(acp.Spec.Config.SSHAuthorizedKey))
+			Expect(aci.Spec.ManifestsConfigMapRefs).To(Equal(oacp.Spec.Config.ManifestsConfigMapRefs))
+			Expect(aci.Spec.DiskEncryption).To(Equal(oacp.Spec.Config.DiskEncryption))
+			Expect(aci.Spec.Proxy).To(Equal(oacp.Spec.Config.Proxy))
+			Expect(aci.Spec.MastersSchedulable).To(Equal(oacp.Spec.Config.MastersSchedulable))
+			Expect(aci.Spec.SSHPublicKey).To(Equal(oacp.Spec.Config.SSHAuthorizedKey))
+
+			clusterImageSet := &hivev1.ClusterImageSet{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: cd.Name}, clusterImageSet)).To(Succeed())
+			Expect(clusterImageSet.Spec.ReleaseImage).To(Equal("quay.io/openshift-release-dev/ocp-release:4.16.0"))
 		})
 		When("ACP with ingressVIPs and apiVIPs", func() {
 			It("should start a multinode cluster install", func() {
@@ -148,7 +154,7 @@ var _ = Describe("ClusterDeployment Controller", func() {
 				cd := utils.NewClusterDeployment(namespace, clusterDeploymentName)
 
 				acp := utils.NewOpenshiftAssistedControlPlane(namespace, openshiftAssistedControlPlaneName)
-				acp.Spec.Version = openShiftVersion
+				acp.Spec.DistributionVersion = openShiftVersion
 				apiVIPs := []string{"1.2.3.4", "2.3.4.5"}
 				ingressVIPs := []string{"9.9.9.9", "10.10.10.10"}
 				acp.Spec.Config.APIVIPs = apiVIPs

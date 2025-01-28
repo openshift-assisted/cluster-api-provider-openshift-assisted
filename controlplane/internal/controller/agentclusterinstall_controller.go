@@ -20,7 +20,7 @@ import (
 	"context"
 	"fmt"
 
-	controlplanev1alpha1 "github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1alpha1"
+	controlplanev1alpha2 "github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1alpha2"
 	"github.com/openshift-assisted/cluster-api-agent/util"
 	logutil "github.com/openshift-assisted/cluster-api-agent/util/log"
 	hiveext "github.com/openshift/assisted-service/api/hiveextension/v1beta1"
@@ -62,7 +62,7 @@ func (r *AgentClusterInstallReconciler) Reconcile(ctx context.Context, req ctrl.
 	}
 	log.WithValues("agent_cluster_install", aci.Name, "agent_cluster_install_namespace", aci.Namespace)
 
-	acp := controlplanev1alpha1.OpenshiftAssistedControlPlane{}
+	acp := controlplanev1alpha2.OpenshiftAssistedControlPlane{}
 	if err := util.GetTypedOwner(ctx, r.Client, aci, &acp); err != nil {
 		return ctrl.Result{}, err
 	}
@@ -86,7 +86,7 @@ func (r *AgentClusterInstallReconciler) Reconcile(ctx context.Context, req ctrl.
 func (r *AgentClusterInstallReconciler) reconcile(
 	ctx context.Context,
 	aci *hiveext.AgentClusterInstall,
-	acp *controlplanev1alpha1.OpenshiftAssistedControlPlane,
+	acp *controlplanev1alpha2.OpenshiftAssistedControlPlane,
 ) error {
 	if !hasKubeconfigRef(aci) {
 		return nil
@@ -123,7 +123,7 @@ func (r *AgentClusterInstallReconciler) createKubeconfig(
 	ctx context.Context,
 	kubeconfigSecret *corev1.Secret,
 	clusterName string,
-	acp controlplanev1alpha1.OpenshiftAssistedControlPlane,
+	acp controlplanev1alpha2.OpenshiftAssistedControlPlane,
 ) error {
 	kubeconfig, ok := kubeconfigSecret.Data["kubeconfig"]
 	if !ok {
@@ -133,7 +133,7 @@ func (r *AgentClusterInstallReconciler) createKubeconfig(
 	clusterNameKubeconfigSecret := GenerateSecretWithOwner(
 		client.ObjectKey{Name: clusterName, Namespace: acp.Namespace},
 		kubeconfig,
-		*metav1.NewControllerRef(&acp, controlplanev1alpha1.GroupVersion.WithKind(openshiftAssistedControlPlaneKind)),
+		*metav1.NewControllerRef(&acp, controlplanev1alpha2.GroupVersion.WithKind(openshiftAssistedControlPlaneKind)),
 	)
 	if err := r.Client.Create(ctx, clusterNameKubeconfigSecret); err != nil {
 		if !apierrors.IsAlreadyExists(err) {
@@ -169,7 +169,7 @@ func (r *AgentClusterInstallReconciler) updateLabels(
 func (r *AgentClusterInstallReconciler) getACIKubeconfig(
 	ctx context.Context,
 	aci *hiveext.AgentClusterInstall,
-	openshiftAssistedCP controlplanev1alpha1.OpenshiftAssistedControlPlane,
+	openshiftAssistedCP controlplanev1alpha2.OpenshiftAssistedControlPlane,
 ) (*corev1.Secret, error) {
 	secretName := aci.Spec.ClusterMetadata.AdminKubeconfigSecretRef.Name
 

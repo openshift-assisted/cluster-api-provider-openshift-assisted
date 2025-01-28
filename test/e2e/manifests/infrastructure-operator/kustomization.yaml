@@ -21,25 +21,27 @@ patches:
     patch: |-
       - op: replace
         path: /spec/template/spec/containers/0/env/0/value
-        value: quay.io/edge-infrastructure/assisted-service@sha256:7d1a1739abcb331ba2229fee5fc102256ac2d9bad813d467419131cb04f00948
+        #value: quay.io/edge-infrastructure/assisted-service@sha256:7d1a1739abcb331ba2229fee5fc102256ac2d9bad813d467419131cb04f00948
+        #value: quay.io/edge-infrastructure/assisted-service@sha256:db6a010640b5039ed251a1df255d8d08e2f79ac87ace9d7bf1e9cfa2f23e9def
+        value: quay.io/edge-infrastructure/assisted-service@sha256:a78af04976f68f4e33b3a53001c959c15b7c350cb2b8836004066a40fd1e261d
       - op: replace
         path: /spec/template/spec/containers/0/env/1/value
-        value: quay.io/edge-infrastructure/assisted-service-el8@sha256:90a5a1d5cb0857874c4b5140c6610648516f4d6b67e59e3848e30a40f727e49d
+        value: quay.io/edge-infrastructure/assisted-service-el8@sha256:bb487fc7121a26be374792ccb6eeed7ac8a521fa78876eec87807a5da7da5121
       - op: replace
         path: /spec/template/spec/containers/0/env/2/value
-        value: quay.io/edge-infrastructure/assisted-image-service@sha256:29ac1a4bae20f09b5a4ac04835f809f7994c689dc9354bb2daf0616bdc79713c
+        value: quay.io/edge-infrastructure/assisted-image-service@sha256:007f0b23d6e3f52837f44d3b4f02565e0121967e8b64e75dc38ba1b1d48e58c2
       - op: replace
         path: /spec/template/spec/containers/0/env/3/value
         value: quay.io/sclorg/postgresql-12-c8s@sha256:663089471e999a4175341ac4d97dcff9cd15ec5f2e96b2309dc8de806106198b
       - op: replace
         path: /spec/template/spec/containers/0/env/4/value
-        value: quay.io/edge-infrastructure/assisted-installer-agent@sha256:983d3bb7b33b4d3e5da0cbca1403cf97c7ea24ee124c1545e99364286f5ec836
+        value: quay.io/edge-infrastructure/assisted-installer-agent@sha256:b9cf4a9246eb3eb2d71dc17f6034c875be9c7d63120fa5a683b975dd878e6b20
       - op: replace
         path: /spec/template/spec/containers/0/env/5/value
-        value: quay.io/edge-infrastructure/assisted-installer-controller@sha256:db8291a1eb0f0aba78888c172e87ff7836c00e5fcf751f84b8e892c0e292e103
+        value: quay.io/edge-infrastructure/assisted-installer-controller@sha256:6fd6d481b66b78853214fbce28acbd45fd9345480c70b8775078ce44ba3d2ab8
       - op: replace
         path: /spec/template/spec/containers/0/env/6/value
-        value: quay.io/edge-infrastructure/assisted-installer@sha256:76403b46ac94f30ec805b353936a11b1ea1eb821789b0672bc97d23c0994b3e1
+        value: quay.io/edge-infrastructure/assisted-installer@sha256:7c4e456c16d9f1171a8328485e89d63622a5d1bc24c6e553031119b8027f3384
 
   - target:
       version: v1

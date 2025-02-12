@@ -175,7 +175,37 @@ func (r *OpenshiftAssistedControlPlaneReconciler) Reconcile(ctx context.Context,
 		log.Error(err, "failed to get k8s version from release image")
 	}
 	oacp.Status.Version = k8sVersion
+	upgradeRequested := determineUpgrade(ctx, oacp)
+	if upgradeRequested {
+		//TODO: Handle upgrade request
+	}
 	return ctrl.Result{}, r.reconcileReplicas(ctx, oacp, cluster)
+}
+
+func determineUpgrade(ctx context.Context, oacp *controlplanev1alpha2.OpenshiftAssistedControlPlane) bool {
+	log := ctrl.LoggerFrom(ctx)
+	acpDistVersion, err := semver.NewVersion(oacp.Spec.DistributionVersion)
+	if err != nil {
+		log.Error(err, "failed to detect OpenShift version from ACP spec", "version", oacp.Spec.DistributionVersion)
+		return false
+	}
+
+	upgrade := false
+	if oacp.Status.DistributionVersion == "" {
+		return false
+	}
+	currentACPDistVersion, err := semver.NewVersion(oacp.Status.DistributionVersion)
+	if err != nil {
+		log.Error(err, "failed to detect OpenShift version from ACP status", "version", oacp.Spec.DistributionVersion)
+		return false
+	}
+
+	if acpDistVersion.Compare(*currentACPDistVersion) > 0 {
+		log.Info("Upgrade detected, new requested version is greater than current version",
+			"new requested version", acpDistVersion.String(), "current version", currentACPDistVersion.String())
+		upgrade = true
+	}
+	return upgrade
 }
 
 // Ensures dependencies are deleted before allowing the OpenshiftAssistedControlPlane to be deleted

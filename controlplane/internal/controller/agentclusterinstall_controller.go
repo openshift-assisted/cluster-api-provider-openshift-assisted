@@ -21,8 +21,10 @@ import (
 	"fmt"
 
 	controlplanev1alpha2 "github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1alpha2"
+	"github.com/openshift-assisted/cluster-api-agent/controlplane/internal/workloadclient"
 	"github.com/openshift-assisted/cluster-api-agent/util"
 	logutil "github.com/openshift-assisted/cluster-api-agent/util/log"
+	configv1 "github.com/openshift/api/config/v1"
 	hiveext "github.com/openshift/assisted-service/api/hiveextension/v1beta1"
 	aimodels "github.com/openshift/assisted-service/models"
 	"github.com/pkg/errors"
@@ -30,6 +32,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -77,6 +80,16 @@ func (r *AgentClusterInstallReconciler) Reconcile(ctx context.Context, req ctrl.
 		acp.Status.Ready = true
 		if err := r.Client.Status().Update(ctx, &acp); err != nil {
 			log.Error(err, "failed setting OpenshiftAssistedControlPlane to ready")
+			return ctrl.Result{}, err
+		}
+		//TODO: determine a better condition to add this
+		kubeConfigSecret, err := r.getACIKubeconfig(ctx, aci, acp)
+		if err != nil {
+			log.Error(err, "failed to get Kubeconfig secret for workload client")
+			return ctrl.Result{}, err
+		}
+		if err := setControlPlaneVersion(ctx, kubeConfigSecret, &acp); err != nil {
+			log.Error(err, "failed to set the control plane version based on the installed workload cluster version")
 			return ctrl.Result{}, err
 		}
 	}
@@ -187,6 +200,35 @@ func hasKubeconfigRef(aci *hiveext.AgentClusterInstall) bool {
 
 func isInstalled(aci *hiveext.AgentClusterInstall) bool {
 	return aci.Status.DebugInfo.State == aimodels.ClusterStatusAddingHosts
+}
+
+func setControlPlaneVersion(ctx context.Context, kubeconfigSecret *corev1.Secret, acp *controlplanev1alpha2.OpenshiftAssistedControlPlane) error {
+	log := ctrl.LoggerFrom(ctx)
+	if kubeconfigSecret == nil {
+		log.Info("unable to set version in status yet, kubeconfig secret not available")
+		return nil
+	}
+	kubeconfig, err := util.ExtractKubeconfigFromSecret(kubeconfigSecret)
+	if err != nil {
+		log.Error(err, "failed to extract kubeconfig from secret", "secret name", kubeconfigSecret.Name)
+		return errors.Wrapf(err, "failed to extract kubeconfig from secret %s", kubeconfigSecret.Name)
+	}
+
+	workloadClient, err := workloadclient.GetWorkloadClusterClient(kubeconfig)
+	if err != nil {
+		log.Error(err, "failed to establish client for workload cluster from kubeconfig")
+		return errors.Wrapf(err, "failed to establish client for workload cluster from kubeconfig")
+	}
+
+	var clusterVersion configv1.ClusterVersion
+	err = workloadClient.Get(ctx, types.NamespacedName{Name: "version"}, &clusterVersion)
+	if err != nil {
+		log.Error(err, "failed to get ClusterVersion from workload cluster")
+		return errors.Wrapf(err, "failed to get ClusterVersion from workload cluster")
+	}
+
+	acp.Status.DistributionVersion = clusterVersion.Status.Desired.Version
+	return nil
 }
 
 func (r *AgentClusterInstallReconciler) ClusterKubeconfigSecretExists(

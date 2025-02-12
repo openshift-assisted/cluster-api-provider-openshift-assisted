@@ -154,6 +154,10 @@ type OpenshiftAssistedControlPlaneStatus struct {
 	// +optional
 	Version *string `json:"version,omitempty"`
 
+	// DistributionVersion represents the current OpenShift version installed on the
+	// control plane machines in the cluster.
+	DistributionVersion string `json:"distributionVersion,omitempty"`
+
 	// Total number of non-terminated machines targeted by this control plane
 	// that have the desired template spec.
 	// +optional

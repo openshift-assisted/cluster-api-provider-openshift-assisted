@@ -2,6 +2,7 @@ package util
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -12,6 +13,7 @@ import (
 	controlplanev1alpha1 "github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1alpha2"
 	logutil "github.com/openshift-assisted/cluster-api-agent/util/log"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/util/labels/format"
@@ -107,4 +109,13 @@ func getK8sVersionFromImageStream(is imageapi.ImageStream) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("unable to find kubernetes version")
+}
+
+// ExtractKubeconfigFromSecret takes a kubernetes secret and returns the kubeconfig
+func ExtractKubeconfigFromSecret(kubeconfigSecret *corev1.Secret) ([]byte, error) {
+	kubeconfig, ok := kubeconfigSecret.Data["kubeconfig"]
+	if !ok {
+		return nil, errors.New("kubeconfig not found in secret")
+	}
+	return kubeconfig, nil
 }

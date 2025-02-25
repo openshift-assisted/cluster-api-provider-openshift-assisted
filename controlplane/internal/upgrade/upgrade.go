@@ -36,7 +36,6 @@ func IsUpgradeRequested(ctx context.Context, oacp *controlplanev1alpha2.Openshif
 		return false
 	}
 
-	upgrade := false
 	if oacp.Status.DistributionVersion == "" {
 		return false
 	}
@@ -49,9 +48,11 @@ func IsUpgradeRequested(ctx context.Context, oacp *controlplanev1alpha2.Openshif
 	if oacpDistVersion.Compare(*currentOACPDistVersion) > 0 {
 		log.Info("Upgrade detected, new requested version is greater than current version",
 			"new requested version", oacpDistVersion.String(), "current version", currentOACPDistVersion.String())
-		upgrade = true
+		return true
 	}
-	return upgrade
+	log.Info("Upgrade request failed: version requested is less than or equal to the current workload cluster version",
+		"new requested version", oacpDistVersion.String(), "current version", currentOACPDistVersion.String())
+	return false
 }
 
 func GetWorkloadClusterVersion(ctx context.Context, client client.Client,
@@ -66,6 +67,12 @@ func GetWorkloadClusterVersion(ctx context.Context, client client.Client,
 	if err := workloadClient.Get(ctx, types.NamespacedName{Name: "version"}, &clusterVersion); err != nil {
 		err = errors.Join(err, fmt.Errorf(("failed to get ClusterVersion from workload cluster")))
 		return "", err
+	}
+
+	for _, history := range clusterVersion.Status.History {
+		if history.State == configv1.CompletedUpdate {
+			return history.Version, nil
+		}
 	}
 
 	return clusterVersion.Status.Desired.Version, nil

@@ -56,5 +56,5 @@ spec:
     version: "417.94.202407010929-0"
   - openshiftVersion: "4.19"
     cpuArchitecture: "x86_64"
-    url: "https://mirror.openshift.com/pub/openshift-v4/x86_64/dependencies/rhcos/pre-release/dev-4.19/rhcos-dev-4.19-x86_64-live.x86_64.iso"
+    url: "https://mirror.openshift.com/pub/openshift-v4/x86_64/dependencies/rhcos/pre-release/dev-4.19/rhcos-dev-4.19-x86_64-live-iso.x86_64.iso"
     version: "4.19.0-0.nightly-2025-02-10-034243"

@@ -17,6 +17,9 @@ const (
 	// KubernetesVersionAvailableCondition documents that the Kubernetes version could be extracted from the OpenShift version.
 	KubernetesVersionAvailableCondition clusterv1.ConditionType = "KubernetesVersionAvailableCondition"
 
+	// Condition for upgrading workload cluster completion
+	UpgradeCompleteCondition clusterv1.ConditionType = "UpgradeComplete"
+
 	// ControlPlaneInstallingCOndition (Severity=Info) documents that the OpenshiftAssistedControlplane is installing.
 	ControlPlaneInstallingReason = "ControlPlaneInstalling"
 

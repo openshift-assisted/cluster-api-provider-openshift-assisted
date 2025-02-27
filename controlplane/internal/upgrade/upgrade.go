@@ -18,6 +18,7 @@ import (
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 const (
@@ -117,6 +118,61 @@ func isKubeconfigAvailable(oacp *controlplanev1alpha2.OpenshiftAssistedControlPl
 		return false
 	}
 	return kubeconfigFoundCondition.Status == corev1.ConditionTrue
+}
+
+func IsUpgradeCompleted(ctx context.Context, hubClient client.Client,
+	workloadClusterClientGenerator workloadclient.ClientGenerator,
+	oacp *controlplanev1alpha2.OpenshiftAssistedControlPlane) bool {
+	log := log.FromContext(ctx)
+	workloadClient, err := getWorkloadClient(ctx, hubClient, workloadClusterClientGenerator, oacp)
+	if err != nil {
+		return false
+	}
+
+	if workloadClient == nil {
+		return false
+	}
+
+	var clusterVersion configv1.ClusterVersion
+	if err := workloadClient.Get(ctx, types.NamespacedName{Name: "version"}, &clusterVersion); err != nil {
+		//err = errors.Join(err, fmt.Errorf(("failed to get ClusterVersion from workload cluster")))
+		return false
+	}
+	for _, history := range clusterVersion.Status.History {
+		if history.Version == oacp.Spec.DistributionVersion {
+			log.Info("Found history version that matches distribution version", "history", history.Version, "distributionVersion", oacp.Spec.DistributionVersion)
+			if history.State == configv1.CompletedUpdate {
+				log.Info("upgrade is complete!")
+				return true
+			}
+		}
+	}
+	log.Info("upgrade not complete")
+	return false
+}
+
+func CheckNodes(ctx context.Context, hubClient client.Client, workloadClusterClientGenerator workloadclient.ClientGenerator, oacp *controlplanev1alpha2.OpenshiftAssistedControlPlane) error {
+	log := log.FromContext(ctx)
+	workloadClient, err := getWorkloadClient(ctx, hubClient, workloadClusterClientGenerator, oacp)
+	if err != nil {
+		return err
+	}
+
+	if workloadClient == nil {
+		return fmt.Errorf("workload client is not available yet")
+	}
+	nodes := &corev1.NodeList{}
+	// TODO: limit list to control plane nodes only
+	if err := workloadClient.List(ctx, nodes, client.MatchingLabels{"node-role.kubernetes.io/control-plane": ""}); err != nil {
+		return err
+	}
+	for _, node := range nodes.Items {
+		log.Info("node", "name", node.Name, "os image", node.Status.NodeInfo.OSImage)
+		if node.Status.NodeInfo.OSImage == "" {
+			//TODO: get openshift version and use that as the equal
+		}
+	}
+	return nil
 }
 
 func UpgradeWorkloadCluster(ctx context.Context, client client.Client,

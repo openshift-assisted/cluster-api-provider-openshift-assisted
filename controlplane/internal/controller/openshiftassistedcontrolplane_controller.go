@@ -189,12 +189,33 @@ func (r *OpenshiftAssistedControlPlaneReconciler) Reconcile(ctx context.Context,
 		log.Error(err, "failed to set the openshift version in the control plane status")
 	}
 
+	if upgrading := util.FindStatusCondition(oacp.GetConditions(), controlplanev1alpha2.UpgradeCompleteCondition); upgrading != nil {
+		// in the middle of upgrading, let's check the status
+		if upgrade.IsUpgradeCompleted(ctx, r.Client, r.WorkloadClusterClientGenerator, oacp) {
+			log.Info("upgrade complete, check nodes")
+			// check nodes
+			if err := upgrade.CheckNodes(ctx, r.Client, r.WorkloadClusterClientGenerator, oacp); err != nil {
+				log.Error(err, "failed to check workload cluster nodes after upgrade is complete, requeueing")
+				return ctrl.Result{}, err
+			}
+			if upgrading.Status == corev1.ConditionFalse {
+				conditions.MarkTrue(oacp, controlplanev1alpha2.UpgradeCompleteCondition)
+				return ctrl.Result{Requeue: true, RequeueAfter: 30 * time.Second}, nil
+			}
+		}
+
+	}
 	if upgrade.IsUpgradeRequested(ctx, oacp) {
 		log.Info("workload cluster upgrade has been requested, starting upgrade", "current workload cluster version", oacp.Status.DistributionVersion, "new workload cluster version", oacp.Spec.DistributionVersion)
 		if err := upgrade.UpgradeWorkloadCluster(ctx, r.Client, r.WorkloadClusterClientGenerator, oacp); err != nil {
 			log.Error(err, "failed to upgrade workload cluster")
 		}
 		log.Info("workload cluster upgrade set on ClusterVersion, waiting completion")
+		conditions.MarkFalse(oacp, controlplanev1alpha2.UpgradeCompleteCondition, "Upgrade in progress", clusterv1.ConditionSeverityInfo, "Workload cluster upgrading from %s to %s", oacp.Status.DistributionVersion, oacp.Spec.DistributionVersion)
+		return ctrl.Result{
+			Requeue:      true,
+			RequeueAfter: 1 * time.Minute,
+		}, nil
 	}
 	return ctrl.Result{}, r.reconcileReplicas(ctx, oacp, cluster)
 }

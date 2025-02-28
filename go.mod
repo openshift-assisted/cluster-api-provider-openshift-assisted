@@ -5,6 +5,7 @@ go 1.23.0
 toolchain go1.23.6
 
 require (
+	github.com/blang/semver/v4 v4.0.0
 	github.com/coreos/go-semver v0.3.1
 	github.com/coreos/ignition/v2 v2.18.0
 	github.com/go-logr/logr v1.4.2
@@ -33,7 +34,6 @@ require (
 require (
 	github.com/asaskevich/govalidator v0.0.0-20210307081110-f21760c49a8d // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
-	github.com/blang/semver/v4 v4.0.0 // indirect
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect
 	github.com/containerd/stargz-snapshotter/estargz v0.16.3 // indirect
 	github.com/coreos/go-json v0.0.0-20230131223807-18775e0fb4fb // indirect

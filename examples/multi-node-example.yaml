@@ -47,8 +47,8 @@ kind: OpenshiftAssistedControlPlane
 metadata:
   name: test-multinode
   namespace: test-capi
-  annotations:
-    cluster.x-k8s.io/release-image-repository-override: registry.ci.openshift.org/ocp/release
+  annotations: {}
+    #cluster.x-k8s.io/release-image-repository-override: registry.ci.openshift.org/ocp/release
 spec:
   openshiftAssistedConfigSpec:
     pullSecretRef:
@@ -57,7 +57,7 @@ spec:
     nodeRegistration:
       kubeletExtraLabels:
       - 'metal3.io/uuid="${METADATA_UUID}"'
-  distributionVersion: 4.19.0-0.nightly-2025-02-10-034243
+  distributionVersion: 4.19.0-ec.1-x86_64
   config:
     apiVIPs:
     - 192.168.222.40
@@ -88,10 +88,10 @@ spec:
       dataTemplate:
         name: test-multinode-controlplane-template
       image:
-        checksum: https://mirror.openshift.com/pub/openshift-v4/dependencies/rhcos/4.17/4.17.0/sha256sum.txt
+        checksum: https://mirror.openshift.com/pub/openshift-v4/x86_64/dependencies/rhcos/pre-release/dev-4.19/sha256sum.txt
         checksumType: sha256
         format: qcow2
-        url: https://mirror.openshift.com/pub/openshift-v4/dependencies/rhcos/4.17/4.17.0/rhcos-4.17.0-x86_64-nutanix.x86_64.qcow2
+        url: https://mirror.openshift.com/pub/openshift-v4/x86_64/dependencies/rhcos/pre-release/dev-4.19/rhcos-dev-4.19-x86_64-nutanix.x86_64.qcow2
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
 kind: Metal3MachineTemplate
@@ -106,10 +106,10 @@ spec:
       dataTemplate:
         name: test-multinode-workers-template
       image:
-        checksum: https://mirror.openshift.com/pub/openshift-v4/dependencies/rhcos/4.17/4.17.0/sha256sum.txt
+        checksum: https://mirror.openshift.com/pub/openshift-v4/x86_64/dependencies/rhcos/pre-release/dev-4.19/sha256sum.txt
         checksumType: sha256
         format: qcow2
-        url: https://mirror.openshift.com/pub/openshift-v4/dependencies/rhcos/4.17/4.17.0/rhcos-4.17.0-x86_64-nutanix.x86_64.qcow2
+        url: https://mirror.openshift.com/pub/openshift-v4/x86_64/dependencies/rhcos/pre-release/dev-4.19/rhcos-dev-4.19-x86_64-nutanix.x86_64.qcow2
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
 kind: Metal3DataTemplate

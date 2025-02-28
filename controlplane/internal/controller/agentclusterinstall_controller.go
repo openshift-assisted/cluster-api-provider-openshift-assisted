@@ -27,7 +27,6 @@ import (
 	logutil "github.com/openshift-assisted/cluster-api-agent/util/log"
 	hiveext "github.com/openshift/assisted-service/api/hiveextension/v1beta1"
 	aimodels "github.com/openshift/assisted-service/models"
-	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -36,6 +35,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
+
+const kubeconfigSecretKey = "kubeconfig"
 
 // AgentClusterInstallReconciler reconciles a AgentClusterInstall object
 type AgentClusterInstallReconciler struct {
@@ -162,9 +163,9 @@ func (r *AgentClusterInstallReconciler) createKubeconfig(
 	clusterName string,
 	acp controlplanev1alpha2.OpenshiftAssistedControlPlane,
 ) error {
-	kubeconfig, ok := kubeconfigSecret.Data["kubeconfig"]
+	kubeconfig, ok := kubeconfigSecret.Data[kubeconfigSecretKey]
 	if !ok {
-		return errors.New("kubeconfig not found in secret")
+		return fmt.Errorf("kubeconfig with key `%s` not found in secret %s", kubeconfigSecretKey, kubeconfigSecret.Name)
 	}
 	// Create secret <cluster-name>-kubeconfig from original kubeconfig secret - this is what the CAPI Cluster looks for to set the control plane as initialized
 	clusterNameKubeconfigSecret := GenerateSecretWithOwner(

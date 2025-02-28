@@ -60,6 +60,4 @@ var _ = BeforeSuite(func() {
 	utilruntime.Must(hivev1.AddToScheme(testScheme))
 	utilruntime.Must(hiveext.AddToScheme(testScheme))
 
-	//+kubebuilder:scaffold:scheme
-
 })

@@ -10,7 +10,7 @@ type: kubernetes.io/dockerconfigjson
 apiVersion: cluster.x-k8s.io/v1beta1
 kind: Cluster
 metadata:
-  name: test-multinode
+  name: test-sno
   namespace: test-capi
 spec:
   clusterNetwork:
@@ -23,33 +23,32 @@ spec:
   controlPlaneRef:
     apiVersion: controlplane.cluster.x-k8s.io/v1alpha2
     kind: OpenshiftAssistedControlPlane
-    name: test-multinode
+    name: test-sno
     namespace: test-capi
   infrastructureRef:
     apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
     kind: Metal3Cluster
-    name: test-multinode
+    name: test-sno
     namespace: test-capi
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
 kind: Metal3Cluster
 metadata:
-  name: test-multinode
+  name: test-sno
   namespace: test-capi
 spec:
   controlPlaneEndpoint:
-    host: test-multinode.lab.home
+    host: test-sno.lab.home
     port: 6443
   noCloudProvider: true
 ---
 apiVersion: controlplane.cluster.x-k8s.io/v1alpha2
 kind: OpenshiftAssistedControlPlane
 metadata:
-  name: test-multinode
+  name: test-sno
   namespace: test-capi
-  annotations:
-    cluster.x-k8s.io/release-image-repository-override: registry.ci.openshift.org/ocp/release
-    #registry.build05.ci.openshift.org/ci-ln-39xp7rk/release
+  annotations: {}
+    #cluster.x-k8s.io/release-image-repository-override: registry.ci.openshift.org/ocp/release
 spec:
   openshiftAssistedConfigSpec:
     pullSecretRef:
@@ -58,8 +57,7 @@ spec:
     nodeRegistration:
       kubeletExtraLabels:
         - 'metal3.io/uuid="${METADATA_UUID}"'
-  distributionVersion: 4.19.0-0.nightly-2025-01-27-130640
-  #latest
+  distributionVersion: 4.19.0-ec.2-x86_64
   config:
     baseDomain: lab.home
     pullSecretRef:
@@ -69,14 +67,14 @@ spec:
     infrastructureRef:
       apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
       kind: Metal3MachineTemplate
-      name: test-multinode-controlplane
+      name: test-sno-controlplane
       namespace: test-capi
   replicas: 1
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
 kind: Metal3MachineTemplate
 metadata:
-  name: test-multinode-controlplane
+  name: test-sno-controlplane
   namespace: test-capi
 spec:
   nodeReuse: false
@@ -84,17 +82,17 @@ spec:
     spec:
       automatedCleaningMode: disabled
       dataTemplate:
-        name: test-multinode-controlplane-template
+        name: test-sno-controlplane-template
       image:
-        checksum: https://mirror.openshift.com/pub/openshift-v4/dependencies/rhcos/4.17/4.17.0/sha256sum.txt
+        checksum: https://mirror.openshift.com/pub/openshift-v4/x86_64/dependencies/rhcos/pre-release/dev-4.19/sha256sum.txt
         checksumType: sha256
         format: qcow2
-        url: https://mirror.openshift.com/pub/openshift-v4/dependencies/rhcos/4.17/4.17.0/rhcos-4.17.0-x86_64-nutanix.x86_64.qcow2
+        url: https://mirror.openshift.com/pub/openshift-v4/x86_64/dependencies/rhcos/pre-release/dev-4.19/rhcos-dev-4.19-x86_64-nutanix.x86_64.qcow2
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
 kind: Metal3DataTemplate
 metadata:
-  name: test-multinode-controlplane-template
+  name: test-sno-controlplane-template
   namespace: test-capi
 spec:
-  clusterName: test-multinode
+  clusterName: test-sno

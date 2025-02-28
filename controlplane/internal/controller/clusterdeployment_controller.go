@@ -18,11 +18,10 @@ package controller
 
 import (
 	"context"
-	"fmt"
-	"regexp"
 
 	controlplanev1alpha2 "github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1alpha2"
 	"github.com/openshift-assisted/cluster-api-agent/controlplane/internal/imageregistry"
+	"github.com/openshift-assisted/cluster-api-agent/controlplane/internal/release"
 	"github.com/openshift-assisted/cluster-api-agent/util"
 	logutil "github.com/openshift-assisted/cluster-api-agent/util/log"
 	configv1 "github.com/openshift/api/config/v1"
@@ -41,14 +40,8 @@ import (
 )
 
 const (
-	InstallConfigOverrides                   = aiv1beta1.Group + "/install-config-overrides"
-	ReleaseImageRepositoryOverrideAnnotation = "cluster.x-k8s.io/release-image-repository-override"
-
-	ocpRepository = "quay.io/openshift-release-dev/ocp-release"
-	okdRepository = "quay.io/okd/scos-release"
+	InstallConfigOverrides = aiv1beta1.Group + "/install-config-overrides"
 )
-
-var okdRegex = regexp.MustCompile(".*okd.*")
 
 // ClusterDeploymentReconciler reconciles a ClusterDeployment object
 type ClusterDeploymentReconciler struct {
@@ -137,16 +130,11 @@ func (r *ClusterDeploymentReconciler) ensureAgentClusterInstall(
 // quay.io/okd/scos-release:4.18.0-okd-scos.ec.1
 // Can be overridden with annotation: cluster.x-k8s.io/release-image-repository-override=quay.io/myorg/myrepo
 func getReleaseImage(oacp controlplanev1alpha2.OpenshiftAssistedControlPlane) string {
-	version := oacp.Spec.DistributionVersion
-	if releaseImageRepository, ok := oacp.Annotations[ReleaseImageRepositoryOverrideAnnotation]; ok {
-		return fmt.Sprintf("%s:%s", releaseImageRepository, version)
+	releaseImageRepository, ok := oacp.Annotations[release.ReleaseImageRepositoryOverrideAnnotation]
+	if !ok {
+		releaseImageRepository = ""
 	}
-
-	repository := ocpRepository
-	if okdRegex.MatchString(version) {
-		repository = okdRepository
-	}
-	return fmt.Sprintf("%s:%s", repository, version)
+	return release.GetReleaseImage(oacp.Spec.DistributionVersion, releaseImageRepository)
 }
 
 func (r *ClusterDeploymentReconciler) getWorkerNodesCount(ctx context.Context, cluster *clusterv1.Cluster) int {

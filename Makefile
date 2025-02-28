@@ -197,6 +197,12 @@ undeploy: kustomize ## Undeploy controller from the K8s cluster specified in ~/.
 LOCALBIN ?= $(shell pwd)/bin
 $(LOCALBIN):
 	mkdir -p $(LOCALBIN)
+## Tool Versions
+KUSTOMIZE_VERSION ?= v5.3.0
+CONTROLLER_TOOLS_VERSION ?= v0.14.0
+ENVTEST_VERSION ?= release-0.17
+GOLANGCI_LINT_VERSION ?= v1.63.4
+MOCKGEN_VERSION ?= v1.6.0
 
 ## Tool Binaries
 KUBECTL ?= kubectl
@@ -204,12 +210,9 @@ KUSTOMIZE ?= $(LOCALBIN)/kustomize-$(KUSTOMIZE_VERSION)
 CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen-$(CONTROLLER_TOOLS_VERSION)
 ENVTEST ?= $(LOCALBIN)/setup-envtest-$(ENVTEST_VERSION)
 GOLANGCI_LINT = $(LOCALBIN)/golangci-lint-$(GOLANGCI_LINT_VERSION)
+MOCKGEN = $(LOCALBIN)/mockgen-$(MOCKGEN_VERSION)
 
-## Tool Versions
-KUSTOMIZE_VERSION ?= v5.3.0
-CONTROLLER_TOOLS_VERSION ?= v0.14.0
-ENVTEST_VERSION ?= release-0.17
-GOLANGCI_LINT_VERSION ?= v1.63.4
+
 
 .PHONY: kustomize
 kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary.
@@ -230,6 +233,18 @@ $(ENVTEST): $(LOCALBIN)
 golangci-lint: $(GOLANGCI_LINT) ## Download golangci-lint locally if necessary.
 $(GOLANGCI_LINT): $(LOCALBIN)
 	$(call go-install-tool,$(GOLANGCI_LINT),github.com/golangci/golangci-lint/cmd/golangci-lint,${GOLANGCI_LINT_VERSION})
+
+.PHONY: mockgen
+mockgen: $(MOCKGEN) ## Download gomockgen locally if necessary.
+$(MOCKGEN): $(LOCALBIN)
+	$(call go-install-tool,$(MOCKGEN),github.com/golang/mock/mockgen,${MOCKGEN_VERSION})
+	@ln -sf $(MOCKGEN) $(LOCALBIN)/mockgen
+
+.PHONY: generate-mocks
+generate-mocks: mockgen
+	@find . -name 'mock_*.go' -type f -not -path './vendor/*' -delete
+	@export PATH=$(PATH):$(LOCALBIN) && go generate -v $(shell go list ./... | grep -v external_mocks)
+	@export PATH=$(PATH):$(LOCALBIN) && GOFLAGS=-mod=mod go generate -v $(shell go list ./external_mocks)
 
 # go-install-tool will 'go install' any package with custom target and name of binary, if it doesn't exist
 # $1 - target path with name of binary (ideally with version)

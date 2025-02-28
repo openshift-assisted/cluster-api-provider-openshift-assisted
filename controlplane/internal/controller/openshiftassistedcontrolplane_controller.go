@@ -19,17 +19,21 @@ package controller
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
-	"github.com/openshift-assisted/cluster-api-agent/controlplane/internal/upgrade"
-	"github.com/openshift-assisted/cluster-api-agent/controlplane/internal/version"
-	"github.com/openshift-assisted/cluster-api-agent/controlplane/internal/workloadclient"
+	"github.com/openshift-assisted/cluster-api-agent/pkg/containers"
 
-	"github.com/coreos/go-semver/semver"
+	"github.com/go-logr/logr"
+	"github.com/openshift-assisted/cluster-api-agent/controlplane/internal/release"
+	"github.com/openshift-assisted/cluster-api-agent/controlplane/internal/upgrade"
+
+	semver "github.com/blang/semver/v4"
 	"github.com/openshift-assisted/cluster-api-agent/assistedinstaller"
 	bootstrapv1alpha1 "github.com/openshift-assisted/cluster-api-agent/bootstrap/api/v1alpha1"
 	controlplanev1alpha2 "github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1alpha2"
 	"github.com/openshift-assisted/cluster-api-agent/controlplane/internal/auth"
+	"github.com/openshift-assisted/cluster-api-agent/controlplane/internal/version"
 	"github.com/openshift-assisted/cluster-api-agent/util"
 	logutil "github.com/openshift-assisted/cluster-api-agent/util/log"
 	hivev1 "github.com/openshift/hive/apis/hive/v1"
@@ -66,12 +70,12 @@ const (
 // OpenshiftAssistedControlPlaneReconciler reconciles a OpenshiftAssistedControlPlane object
 type OpenshiftAssistedControlPlaneReconciler struct {
 	client.Client
-	Scheme                         *runtime.Scheme
-	OpenShiftVersion               version.Versioner
-	WorkloadClusterClientGenerator workloadclient.ClientGenerator
+	K8sVersionDetector version.KubernetesVersionDetector
+	Scheme             *runtime.Scheme
+	UpgradeFactory     upgrade.ClusterUpgradeFactory
 }
 
-var minVersion = semver.New(minOpenShiftVersion)
+var minVersion = semver.MustParse(minOpenShiftVersion)
 
 // +kubebuilder:rbac:groups=bootstrap.cluster.x-k8s.io,resources=openshiftassistedconfigs,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=metal3machines,verbs=get;list;watch;create;update;patch;delete
@@ -142,12 +146,12 @@ func (r *OpenshiftAssistedControlPlaneReconciler) Reconcile(ctx context.Context,
 		controllerutil.AddFinalizer(oacp, acpFinalizer)
 	}
 
-	acpVersion, err := semver.NewVersion(oacp.Spec.DistributionVersion)
+	acpVersion, err := semver.ParseTolerant(oacp.Spec.DistributionVersion)
 	if err != nil {
 		// we accept any format (i.e. latest)
 		log.V(logutil.WarningLevel).Info("invalid OpenShift version", "version", oacp.Spec.DistributionVersion)
 	}
-	if err == nil && acpVersion.LessThan(*minVersion) {
+	if err == nil && acpVersion.LT(minVersion) {
 		conditions.MarkFalse(oacp, controlplanev1alpha2.MachinesCreatedCondition, controlplanev1alpha2.MachineGenerationFailedReason,
 			clusterv1.ConditionSeverityError, "version %v is not supported, the minimum supported version is %s", oacp.Spec.DistributionVersion, minOpenShiftVersion)
 		return ctrl.Result{}, nil
@@ -181,22 +185,119 @@ func (r *OpenshiftAssistedControlPlaneReconciler) Reconcile(ctx context.Context,
 		log.Error(err, "failed to ensure a ClusterDeployment exists")
 		return ctrl.Result{}, err
 	}
+	pullsecret, err := auth.GetPullSecret(r.Client, ctx, oacp)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
 	releaseImage := getReleaseImage(*oacp)
-	k8sVersion, err := r.OpenShiftVersion.GetK8sVersionFromReleaseImage(ctx, releaseImage, oacp)
+
+	k8sVersion, err := r.K8sVersionDetector.GetKubernetesVersion(releaseImage, string(pullsecret))
 	markKubernetesVersionCondition(oacp, err)
+	// if image not found, mark upgrade unavailable condition
+	if errors.Is(err, containers.ErrImageNotFound) {
+		conditions.MarkFalse(
+			oacp,
+			controlplanev1alpha2.UpgradeAvailableCondition,
+			controlplanev1alpha2.UpgradeImageUnavailableReason,
+			clusterv1.ConditionSeverityError,
+			"upgrade unavailable: %s", err.Error(),
+		)
+		return ctrl.Result{}, err
+	}
 	oacp.Status.Version = k8sVersion
-	if oacp.Status.DistributionVersion, err = upgrade.GetWorkloadClusterVersion(ctx, r.Client, r.WorkloadClusterClientGenerator, oacp); err != nil {
-		log.Error(err, "failed to set the openshift version in the control plane status")
+	result := ctrl.Result{}
+	if conditions.IsTrue(oacp, controlplanev1alpha2.KubeconfigAvailableCondition) {
+		// in case upgrade is still in progress, we want to requeue, however we also want to reconcile replicas
+		result, err = r.upgradeWorkloadCluster(ctx, cluster, oacp, log, pullsecret)
+		if err != nil {
+			return result, err
+		}
+	}
+	return result, r.reconcileReplicas(ctx, oacp, cluster)
+}
+
+func (r *OpenshiftAssistedControlPlaneReconciler) upgradeWorkloadCluster(ctx context.Context, cluster *clusterv1.Cluster, oacp *controlplanev1alpha2.OpenshiftAssistedControlPlane, log logr.Logger, pullSecret []byte) (ctrl.Result, error) {
+	// Retrieve KubeConfig
+	kubeConfig, err := util.GetWorkloadKubeconfig(ctx, r.Client, cluster.Name, cluster.Namespace)
+	if err != nil {
+		return ctrl.Result{}, err
 	}
 
-	if upgrade.IsUpgradeRequested(ctx, oacp) {
-		log.Info("workload cluster upgrade has been requested, starting upgrade", "current workload cluster version", oacp.Status.DistributionVersion, "new workload cluster version", oacp.Spec.DistributionVersion)
-		if err := upgrade.UpgradeWorkloadCluster(ctx, r.Client, r.WorkloadClusterClientGenerator, oacp); err != nil {
-			log.Error(err, "failed to upgrade workload cluster")
-		}
-		log.Info("workload cluster upgrade set on ClusterVersion, waiting completion")
+	upgrader, err := r.UpgradeFactory.NewUpgrader(kubeConfig)
+	if err != nil {
+		return ctrl.Result{}, err
 	}
-	return ctrl.Result{}, r.reconcileReplicas(ctx, oacp, cluster)
+	isUpdateInProgress, err := upgrader.IsUpgradeInProgress(ctx)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if isUpdateInProgress {
+		log.V(logutil.DebugLevel).Info("update is in progress...")
+		conditions.MarkFalse(
+			oacp,
+			controlplanev1alpha2.UpgradeCompletedCondition,
+			controlplanev1alpha2.UpgradeInProgressReason,
+			clusterv1.ConditionSeverityInfo,
+			"upgrade to version %s in progress",
+			oacp.Spec.DistributionVersion,
+		)
+	}
+	oacp.Status.DistributionVersion, err = upgrader.GetCurrentVersion(ctx)
+	if err != nil {
+		log.V(logutil.WarningLevel).Info("failed to get OpenShift version from ClusterVersion", "error", err.Error())
+	}
+
+	// TODO: check for upgrade errors, mark relevant conditions
+	isDesiredVersionUpdated, err := upgrader.IsDesiredVersionUpdated(ctx, oacp.Spec.DistributionVersion)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if isDesiredVersionUpdated && isUpdateInProgress {
+		log.V(logutil.WarningLevel).Info("desired version is updated, but did not complete upgrade yet. Re-reconciling")
+		return ctrl.Result{
+			Requeue:      true,
+			RequeueAfter: 1 * time.Minute,
+		}, nil
+	}
+
+	if isWorkloadClusterRunningDesiredVersion(oacp) && !isUpdateInProgress {
+		log.V(logutil.WarningLevel).Info("Cluster is now running expected version, upgraded completed")
+
+		conditions.MarkTrue(oacp, controlplanev1alpha2.UpgradeCompletedCondition)
+		return ctrl.Result{}, nil
+	}
+
+	// once updating, requeue to check update status
+	return ctrl.Result{
+			Requeue:      true,
+			RequeueAfter: 1 * time.Minute,
+		},
+		upgrader.UpdateClusterVersionDesiredUpdate(
+			ctx,
+			oacp.Spec.DistributionVersion,
+			getUpgradeOptions(oacp, pullSecret)...,
+		)
+}
+
+func getUpgradeOptions(oacp *controlplanev1alpha2.OpenshiftAssistedControlPlane, pullSecret []byte) []upgrade.ClusterUpgradeOption {
+	upgradeOptions := []upgrade.ClusterUpgradeOption{
+		{
+			Name:  upgrade.ReleaseImagePullSecretOption,
+			Value: string(pullSecret),
+		},
+	}
+	if repo, ok := oacp.Annotations[release.ReleaseImageRepositoryOverrideAnnotation]; ok {
+		upgradeOptions = append(upgradeOptions, upgrade.ClusterUpgradeOption{
+			Name:  upgrade.ReleaseImageRepositoryOverrideOption,
+			Value: repo,
+		})
+	}
+	return upgradeOptions
+}
+
+func isWorkloadClusterRunningDesiredVersion(oacp *controlplanev1alpha2.OpenshiftAssistedControlPlane) bool {
+	// TODO: Spec.DistributionVersion has architecture suffix, we need to remove it and compose it from arch field
+	return strings.HasPrefix(oacp.Spec.DistributionVersion, oacp.Status.DistributionVersion)
 }
 
 func markKubernetesVersionCondition(oacp *controlplanev1alpha2.OpenshiftAssistedControlPlane, err error) {

@@ -189,7 +189,7 @@ func (r *OpenshiftAssistedControlPlaneReconciler) Reconcile(ctx context.Context,
 		log.Error(err, "failed to set the openshift version in the control plane status")
 	}
 
-	if upgrading := util.FindStatusCondition(oacp.GetConditions(), controlplanev1alpha2.UpgradeCompleteCondition); upgrading != nil {
+	if upgrading := util.FindStatusCondition(oacp.GetConditions(), controlplanev1alpha2.UpgradeCompleteCondition); upgrading != nil && upgrading.Status == corev1.ConditionFalse {
 		// in the middle of upgrading, let's check the status
 		if upgrade.IsUpgradeCompleted(ctx, r.Client, r.WorkloadClusterClientGenerator, oacp) {
 			log.Info("upgrade complete, check nodes")
@@ -202,6 +202,11 @@ func (r *OpenshiftAssistedControlPlaneReconciler) Reconcile(ctx context.Context,
 				conditions.MarkTrue(oacp, controlplanev1alpha2.UpgradeCompleteCondition)
 				return ctrl.Result{Requeue: true, RequeueAfter: 30 * time.Second}, nil
 			}
+		} else {
+			return ctrl.Result{
+				Requeue:      true,
+				RequeueAfter: 1 * time.Minute,
+			}, nil
 		}
 
 	}

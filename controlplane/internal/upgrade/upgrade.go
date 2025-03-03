@@ -46,12 +46,18 @@ func IsUpgradeRequested(ctx context.Context, oacp *controlplanev1alpha2.Openshif
 		return false
 	}
 
-	if oacpDistVersion.Compare(*currentOACPDistVersion) > 0 {
+	versionComparison := oacpDistVersion.Compare(*currentOACPDistVersion)
+	if versionComparison == 0 {
+		log.Info("Versions are the same, no upgrade has been requested")
+		return false
+	}
+
+	if versionComparison > 0 {
 		log.Info("Upgrade detected, new requested version is greater than current version",
 			"new requested version", oacpDistVersion.String(), "current version", currentOACPDistVersion.String())
 		return true
 	}
-	log.Info("Upgrade request failed: version requested is less than or equal to the current workload cluster version",
+	log.Info("Upgrade request failed: upgrade version requested is less than the current workload cluster version",
 		"new requested version", oacpDistVersion.String(), "current version", currentOACPDistVersion.String())
 	return false
 }
@@ -162,16 +168,24 @@ func CheckNodes(ctx context.Context, hubClient client.Client, workloadClusterCli
 		return fmt.Errorf("workload client is not available yet")
 	}
 	nodes := &corev1.NodeList{}
-	// TODO: limit list to control plane nodes only
 	if err := workloadClient.List(ctx, nodes, client.MatchingLabels{"node-role.kubernetes.io/control-plane": ""}); err != nil {
 		return err
 	}
+	readyNodes := 0
 	for _, node := range nodes.Items {
 		log.Info("node", "name", node.Name, "os image", node.Status.NodeInfo.OSImage)
-		if node.Status.NodeInfo.OSImage == "" {
-			//TODO: get openshift version and use that as the equal
+		// It's difficult to determine which OCP version is running on this Node, so we will
+		// just ensure that the Node is ready
+		for _, condition := range node.Status.Conditions {
+			if condition.Type == corev1.NodeReady && condition.Status == corev1.ConditionTrue {
+				readyNodes++
+				break
+			}
 		}
 	}
+	log.Info("Finished checking workload cluster nodes", "ready control plane nodes", readyNodes, "total control plane nodes found", len(nodes.Items))
+	oacp.Status.ReadyReplicas = int32(readyNodes)
+	oacp.Status.UpdatedReplicas = int32(readyNodes)
 	return nil
 }
 

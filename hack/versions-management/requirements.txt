@@ -1,0 +1,4 @@
+pygithub==2.6.1
+pydantic==2.11.1
+ruamel.yaml==0.18.10
+pytest<=8.0

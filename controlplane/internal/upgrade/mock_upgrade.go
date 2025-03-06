@@ -9,6 +9,7 @@ import (
 	reflect "reflect"
 
 	gomock "github.com/golang/mock/gomock"
+	v1alpha2 "github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1alpha2"
 )
 
 // MockClusterUpgradeFactory is a mock of ClusterUpgradeFactory interface.
@@ -134,4 +135,18 @@ func (mr *MockClusterUpgradeMockRecorder) UpdateClusterVersionDesiredUpdate(ctx,
 	mr.mock.ctrl.T.Helper()
 	varargs := append([]interface{}{ctx, desiredVersion}, options...)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateClusterVersionDesiredUpdate", reflect.TypeOf((*MockClusterUpgrade)(nil).UpdateClusterVersionDesiredUpdate), varargs...)
+}
+
+// VerifyUpgradedNodes mocks base method.
+func (m *MockClusterUpgrade) VerifyUpgradedNodes(ctx context.Context, oacp *v1alpha2.OpenshiftAssistedControlPlane) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "VerifyUpgradedNodes", ctx, oacp)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// VerifyUpgradedNodes indicates an expected call of VerifyUpgradedNodes.
+func (mr *MockClusterUpgradeMockRecorder) VerifyUpgradedNodes(ctx, oacp interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "VerifyUpgradedNodes", reflect.TypeOf((*MockClusterUpgrade)(nil).VerifyUpgradedNodes), ctx, oacp)
 }

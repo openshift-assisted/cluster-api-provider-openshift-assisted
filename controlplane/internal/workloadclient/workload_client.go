@@ -8,6 +8,7 @@ import (
 	"github.com/openshift-assisted/cluster-api-agent/util"
 	configv1 "github.com/openshift/api/config/v1"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/clientcmd"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -36,9 +37,8 @@ func (w *WorkloadClusterClientGenerator) GetWorkloadClusterClient(kubeconfig []b
 	}
 
 	schemes := runtime.NewScheme()
-	if err := configv1.Install(schemes); err != nil {
-		return nil, err
-	}
+	configv1.AddToScheme(schemes)
+	corev1.AddToScheme(schemes)
 	targetClient, err := client.New(restConfig, client.Options{Scheme: schemes})
 	if err != nil {
 		return nil, err

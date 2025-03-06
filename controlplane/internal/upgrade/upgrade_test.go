@@ -7,10 +7,15 @@ import (
 	"github.com/golang/mock/gomock"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+
+	controlplanev1alpha2 "github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1alpha2"
+
 	"github.com/openshift-assisted/cluster-api-agent/controlplane/internal/upgrade"
 	"github.com/openshift-assisted/cluster-api-agent/controlplane/internal/workloadclient"
 	"github.com/openshift-assisted/cluster-api-agent/pkg/containers"
 	configv1 "github.com/openshift/api/config/v1"
+
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -25,13 +30,14 @@ const pullsecret string = `
 
 var _ = Describe("OpenShift Upgrader", func() {
 	var (
-		ctx             context.Context
-		mockCtrl        *gomock.Controller
-		mockRemoteImage *containers.MockRemoteImage
-		clientGenerator *workloadclient.MockClientGenerator
-		upgradeFactory  upgrade.ClusterUpgradeFactory
-		clusterVersion  configv1.ClusterVersion
-		fakeClient      client.Client
+		ctx              context.Context
+		mockCtrl         *gomock.Controller
+		mockRemoteImage  *containers.MockRemoteImage
+		clientGenerator  *workloadclient.MockClientGenerator
+		upgradeFactory   upgrade.ClusterUpgradeFactory
+		clusterVersion   configv1.ClusterVersion
+		controlplaneNode *corev1.Node
+		fakeClient       client.Client
 	)
 
 	BeforeEach(func() {
@@ -47,13 +53,21 @@ var _ = Describe("OpenShift Upgrader", func() {
 			},
 		}
 		clusterVersion = getClusterVersion(updateHistory)
+		controlplaneNode = &corev1.Node{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "controlplane-node",
+				Labels: map[string]string{
+					"node-role.kubernetes.io/control-plane": "",
+				},
+			},
+		}
 
 		upgradeFactory = upgrade.NewOpenshiftUpgradeFactory(mockRemoteImage, clientGenerator)
 
 		fakeClient = fake.NewClientBuilder().
 			WithScheme(testScheme).
-			WithObjects(&clusterVersion).
-			WithStatusSubresource(&configv1.ClusterVersion{}).
+			WithObjects(&clusterVersion, controlplaneNode).
+			WithStatusSubresource(&configv1.ClusterVersion{}, &corev1.Node{}).
 			Build()
 	})
 
@@ -158,6 +172,40 @@ var _ = Describe("OpenShift Upgrader", func() {
 				Expect(err).NotTo(HaveOccurred())
 				Expect(updatedCV.Spec.DesiredUpdate.Image).To(ContainSubstring("sha256:123456"))
 				Expect(updatedCV.Spec.DesiredUpdate.Force).To(BeTrue())
+			})
+		})
+		Context("VerifyUpgradedNodes", func() {
+			var (
+				oacp *controlplanev1alpha2.OpenshiftAssistedControlPlane
+			)
+			BeforeEach(func() {
+				oacp = &controlplanev1alpha2.OpenshiftAssistedControlPlane{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "controlplane",
+						Namespace: "example-namespace",
+					},
+					Spec: controlplanev1alpha2.OpenshiftAssistedControlPlaneSpec{
+						Replicas: 1,
+					},
+				}
+			})
+			It("should return an error if there are no ready controlplane nodes", func() {
+				err := upgrader.VerifyUpgradedNodes(ctx, oacp)
+				Expect(err).NotTo(BeNil())
+				Expect(err.Error()).To(Equal("number of ready control plane nodes in the workload cluster (0) after upgrading does not match number of nodes specified in the openshiftassistedcontrolplane spec (1)"))
+			})
+			It("should return nil and update the openshiftassistedcontrolplane replicas if the controlplane nodes are ready", func() {
+				By("Setting the Node to ready status")
+				controlplaneNode.Status.Conditions = []corev1.NodeCondition{{Type: corev1.NodeReady, Status: corev1.ConditionTrue}}
+				Expect(fakeClient.Status().Update(ctx, controlplaneNode)).NotTo(HaveOccurred())
+
+				By("calling the VerifyUpgradedNodes function")
+				err := upgrader.VerifyUpgradedNodes(ctx, oacp)
+				Expect(err).To(BeNil())
+
+				By("verifying the replica counts in the OACP status is correct")
+				Expect(oacp.Status.ReadyReplicas).To(Equal(int32(1)))
+				Expect(oacp.Status.UpdatedReplicas).To(Equal(int32(1)))
 			})
 		})
 	})

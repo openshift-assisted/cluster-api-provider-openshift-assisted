@@ -81,6 +81,7 @@ var _ = Describe("OpenshiftAssistedControlPlane Controller", func() {
 			mockUpgrader.EXPECT().IsUpgradeInProgress(gomock.Any()).Return(false, nil).AnyTimes()
 			mockUpgrader.EXPECT().GetCurrentVersion(gomock.Any()).Return("4.18.0", nil).AnyTimes()
 			mockUpgrader.EXPECT().IsDesiredVersionUpdated(gomock.Any(), gomock.Any()).Return(true, nil).AnyTimes()
+			mockUpgrader.EXPECT().VerifyUpgradedNodes(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 			mockUpgradeFactory = upgrade.NewMockClusterUpgradeFactory(ctrl)
 			mockUpgradeFactory.EXPECT().NewUpgrader(gomock.Any()).Return(mockUpgrader, nil).AnyTimes()
@@ -412,6 +413,7 @@ var _ = Describe("Upgrade scenarios", func() {
 
 		err = k8sClient.Get(ctx, typeNamespacedName, openshiftAssistedControlPlane)
 		Expect(err).NotTo(HaveOccurred())
+		Expect(openshiftAssistedControlPlane.Status.Ready).To(BeFalse())
 		condition := conditions.Get(openshiftAssistedControlPlane, controlplanev1alpha2.UpgradeCompletedCondition)
 		// we expect the upgrade to be in progress
 		Expect(condition).NotTo(BeNil())
@@ -424,6 +426,7 @@ var _ = Describe("Upgrade scenarios", func() {
 		mockUpgrader.EXPECT().IsUpgradeInProgress(gomock.Any()).Return(false, nil)
 		mockUpgrader.EXPECT().GetCurrentVersion(gomock.Any()).Return(desiredVersion, nil)
 		mockUpgrader.EXPECT().IsDesiredVersionUpdated(gomock.Any(), desiredVersion).Return(true, nil)
+		mockUpgrader.EXPECT().VerifyUpgradedNodes(gomock.Any(), gomock.Any()).Return(nil)
 
 		result, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
 		Expect(err).NotTo(HaveOccurred())
@@ -432,6 +435,7 @@ var _ = Describe("Upgrade scenarios", func() {
 		err = k8sClient.Get(ctx, typeNamespacedName, openshiftAssistedControlPlane)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(openshiftAssistedControlPlane.Status.DistributionVersion).To(Equal(desiredVersion))
+		Expect(openshiftAssistedControlPlane.Status.Ready).To(BeTrue())
 		condition := conditions.Get(openshiftAssistedControlPlane, controlplanev1alpha2.UpgradeCompletedCondition)
 		Expect(condition).NotTo(BeNil())
 		Expect(condition.Status).To(Equal(corev1.ConditionTrue))
@@ -455,10 +459,10 @@ var _ = Describe("Upgrade scenarios", func() {
 		mockUpgradeFactory.EXPECT().NewUpgrader(gomock.Any()).Return(mockUpgrader, nil)
 		mockUpgrader.EXPECT().IsUpgradeInProgress(gomock.Any()).Return(false, nil)
 		mockUpgrader.EXPECT().GetCurrentVersion(gomock.Any()).Return("", expectedError)
-		mockUpgrader.EXPECT().IsDesiredVersionUpdated(gomock.Any(), desiredVersion).Return(true, nil)
 
 		_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
-		Expect(err).NotTo(HaveOccurred())
+		Expect(err).To(HaveOccurred())
+		Expect(err).To(Equal(expectedError))
 
 		err = k8sClient.Get(ctx, typeNamespacedName, openshiftAssistedControlPlane)
 		Expect(err).NotTo(HaveOccurred())

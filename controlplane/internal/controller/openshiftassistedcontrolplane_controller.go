@@ -234,6 +234,7 @@ func (r *OpenshiftAssistedControlPlaneReconciler) upgradeWorkloadCluster(ctx con
 	}
 	if isUpdateInProgress {
 		log.V(logutil.DebugLevel).Info("update is in progress...")
+		oacp.Status.Ready = false
 		conditions.MarkFalse(
 			oacp,
 			controlplanev1alpha2.UpgradeCompletedCondition,
@@ -246,6 +247,7 @@ func (r *OpenshiftAssistedControlPlaneReconciler) upgradeWorkloadCluster(ctx con
 	oacp.Status.DistributionVersion, err = upgrader.GetCurrentVersion(ctx)
 	if err != nil {
 		log.V(logutil.WarningLevel).Info("failed to get OpenShift version from ClusterVersion", "error", err.Error())
+		return ctrl.Result{}, err
 	}
 
 	// TODO: check for upgrade errors, mark relevant conditions
@@ -263,8 +265,12 @@ func (r *OpenshiftAssistedControlPlaneReconciler) upgradeWorkloadCluster(ctx con
 
 	if isWorkloadClusterRunningDesiredVersion(oacp) && !isUpdateInProgress {
 		log.V(logutil.WarningLevel).Info("Cluster is now running expected version, upgraded completed")
-
 		conditions.MarkTrue(oacp, controlplanev1alpha2.UpgradeCompletedCondition)
+		oacp.Status.Ready = true
+		if err := upgrader.VerifyUpgradedNodes(ctx, oacp); err != nil {
+			log.Error(err, "failed to verify control plane nodes after upgrade")
+			return ctrl.Result{}, err
+		}
 		return ctrl.Result{}, nil
 	}
 

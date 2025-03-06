@@ -6,13 +6,16 @@ import (
 	"slices"
 	"strings"
 
+	controlplanev1alpha2 "github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1alpha2"
 	"github.com/openshift-assisted/cluster-api-agent/controlplane/internal/release"
 	"github.com/openshift-assisted/cluster-api-agent/pkg/containers"
 
 	"github.com/openshift-assisted/cluster-api-agent/controlplane/internal/workloadclient"
 	configv1 "github.com/openshift/api/config/v1"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -36,6 +39,7 @@ type ClusterUpgrade interface {
 	GetCurrentVersion(ctx context.Context) (string, error)
 	IsDesiredVersionUpdated(ctx context.Context, desiredVersion string) (bool, error)
 	UpdateClusterVersionDesiredUpdate(ctx context.Context, desiredVersion string, options ...ClusterUpgradeOption) error
+	VerifyUpgradedNodes(ctx context.Context, oacp *controlplanev1alpha2.OpenshiftAssistedControlPlane) error
 }
 
 func NewOpenshiftUpgradeFactory(remoteImage containers.RemoteImage, clientGenerator workloadclient.ClientGenerator) *OpenshiftUpgradeFactory {
@@ -148,6 +152,34 @@ func (u *OpenshiftUpgrader) UpdateClusterVersionDesiredUpdate(ctx context.Contex
 		clusterVersion.Spec.DesiredUpdate = &configv1.Update{Image: releaseImageWithDigest, Force: true}
 		return u.client.Update(ctx, &clusterVersion)
 	}
+	return nil
+}
+
+func (u *OpenshiftUpgrader) VerifyUpgradedNodes(ctx context.Context, oacp *controlplanev1alpha2.OpenshiftAssistedControlPlane) error {
+	log := ctrl.LoggerFrom(ctx)
+	nodes := &corev1.NodeList{}
+	if err := u.client.List(ctx, nodes, client.MatchingLabels{"node-role.kubernetes.io/control-plane": ""}); err != nil {
+		return err
+	}
+	readyNodes := 0
+	for _, node := range nodes.Items {
+		// It's difficult to determine which OCP version is running on this Node, so we will
+		// just ensure that the Node is ready
+		for _, condition := range node.Status.Conditions {
+			if condition.Type == corev1.NodeReady && condition.Status == corev1.ConditionTrue {
+				readyNodes++
+				break
+			}
+		}
+	}
+	log.Info("Finished checking workload cluster nodes", "ready control plane nodes", readyNodes, "total control plane nodes found", len(nodes.Items))
+	if oacp.Spec.Replicas != int32(readyNodes) {
+		return fmt.Errorf(
+			"number of ready control plane nodes in the workload cluster (%d) after upgrading does not match number of nodes specified in the openshiftassistedcontrolplane spec (%d)",
+			readyNodes, oacp.Spec.Replicas)
+	}
+	oacp.Status.ReadyReplicas = int32(readyNodes)
+	oacp.Status.UpdatedReplicas = int32(readyNodes)
 	return nil
 }
 

@@ -1,0 +1,45 @@
+---
+- name: Cleanup
+  hosts: test_runner
+  vars:
+    remote_manifests_path: /tmp/manifests
+    src_dir: /tmp/capbcoa
+    kind_cluster_name: capi-baremetal-provider
+  tasks:
+  # destroy all VMs
+  - name: Copy VM destruction script
+    copy:
+      dest: "/tmp/vm_functions"
+      content: |
+        #!/bin/bash
+        function destroy_vm {
+          virsh list --all --name | grep bmh-vm | while read vmName ; do  
+            virsh destroy "${vmName}" 2>/dev/null || true
+            virsh undefine --domain "${vmName}" --remove-all-storage --nvram 2>/dev/null || true
+          done
+        }
+        function destroy_volumes {
+          virsh vol-list --pool default | grep -e qcow2 -e img | while read volume ; do
+            volumeName=$(echo volume | awk '{print $1}')
+            virsh vol-delete --pool default $volumeName
+          done
+        }
+
+  - name: destroy vms
+    shell: 'source /tmp/vm_functions && destroy_vm'
+
+  # destroy test libvirt network
+  - name: destroy libvirt network
+    shell: "(virsh net-destroy bmh || true) && (virsh net-undefine bmh || true)"
+
+  # destroy vm volumes
+  - name: destroy libvirt network
+    shell: "(virsh net-destroy bmh || true) && (virsh net-undefine bmh || true)"
+
+  - name: delete sushytools pod
+    shell: podman rm -f sushy-tools
+
+  # remove kind cluster
+  - name: delete kind cluster
+    shell: "kind delete cluster --name {{ kind_cluster_name }}"
+

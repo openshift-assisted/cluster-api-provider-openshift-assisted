@@ -1,0 +1,38 @@
+---
+- name: Setup and run controllers
+  hosts: test_runner
+  vars:
+    dist_dir: "{{ lookup('ansible.builtin.env', 'DIST_DIR') }}"
+    src_dir: /tmp/capbcoa
+    kind_cluster_name: capi-baremetal-provider
+    container_tag: "{{ lookup('ansible.builtin.env', 'CONTAINER_TAG') }}"
+  tasks:
+
+  - name: copy src
+    synchronize:
+      src: ../../../
+      dest: "{{ src_dir }}"
+      archive: true
+      recursive: true
+
+  - name: build images
+    shell: "export CONTAINER_TAG={{ container_tag }} && cd {{ src_dir }} && setsid make docker-build-all"
+
+  - name: load images into kind
+    shell: "podman save quay.io/edge-infrastructure/openshift-capi-agent-{{ item }}:{{ container_tag }} > {{ item }}.tar.gz && kind load image-archive --name {{ kind_cluster_name }} {{ item }}.tar.gz"
+    loop:
+      - controlplane
+      - bootstrap
+
+  # files generated before ansible
+  - name: copy distfiles
+    copy:
+      src: "{{ dist_dir }}"
+      dest: "/tmp"
+  
+  - name: set imagePullPolicy CAPBCOA
+    shell: "cat /tmp/dist/bootstrap_install.yaml | sed 's/imagePullPolicy: Always/imagePullPolicy: Never/g' > /tmp/bootstrap_install.yaml && cat /tmp/dist/controlplane_install.yaml | sed 's/imagePullPolicy: Always/imagePullPolicy: Never/g' > /tmp/controlplane_install.yaml"
+
+  - name: deploy CAPBCOA
+    shell: kubectl apply -f /tmp/controlplane_install.yaml && kubectl apply -f /tmp/bootstrap_install.yaml
+

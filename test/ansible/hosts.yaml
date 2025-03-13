@@ -1,0 +1,91 @@
+---
+- name: Deploy Hosts
+  hosts: test_runner
+  vars:
+    remote_manifests_path: /tmp/manifests
+    test_namespace: test-capi
+    number_of_nodes: "{{ lookup('ansible.builtin.env', 'NUMBER_OF_NODES', default='5') }}"
+
+    capi_version: v1.7.1
+    capm3_version: v1.6.0
+    dist_dir: "{{ lookup('ansible.builtin.env', 'DIST_DIR') }}"
+    src_dir: /tmp/capbcoa
+    kind_cluster_name: capi-baremetal-provider
+    ssh_authorized_key: "{{ lookup('ansible.builtin.env', 'SSH_AUTHORIZED_KEY') }}"
+    pullsecret: "{{ lookup('ansible.builtin.env', 'PULLSECRET') }}"
+  tasks:
+  - name: copy src
+    synchronize:
+      src: ../../../
+      dest: "{{ src_dir }}"
+      archive: true
+      recursive: true
+
+  - name: Escape SSH auth
+    shell: echo {{ ssh_authorized_key }} | sed 's/\ /\\ /g'
+    register: ssh_authorized_key
+
+  # files generated before ansible
+  - name: copy distfiles
+    copy:
+      src: "{{ dist_dir }}"
+      dest: "/tmp"
+
+  # setup test env vars
+  - name: Clean current test vars
+    command: rm -rf ~/.test-config
+
+  - name: Define SSH_AUTHORIZED_KEY
+    lineinfile:
+      path: ~/.test-config
+      line: "export SSH_AUTHORIZED_KEY='{{ ssh_authorized_key }}'"
+      create: true
+      state: present
+
+  - name: Define PULLSECRET
+    lineinfile:
+      path: ~/.test-config
+      line: "export PULLSECRET='{{ pullsecret }}'"
+      create: true
+      state: present
+
+  - name: Copy VM creation script
+    copy:
+      dest: "/tmp/vm_functions"
+      content: |
+        #!/bin/bash
+        function create_vm {
+          name=$1
+          mac=$2
+          virsh destroy "${name}" 2>/dev/null || true
+          virsh undefine --domain "${name}" --remove-all-storage --nvram 2>/dev/null || true
+          virt-install -n "${name}" --pxe --os-variant=rhel8.0 --ram=16384 --vcpus=8 --network network=bmh,mac="${mac}" --disk size=120,bus=scsi,sparse=yes --check disk_size=off --noautoconsole
+        }
+        function destroy_vm {
+          virsh list --all --name | grep bmh-vm | while read vmName ; do  
+            virsh destroy "${vmName}" 2>/dev/null || true
+            virsh undefine --domain "${vmName}" --remove-all-storage --nvram 2>/dev/null || true
+          done
+        }
+
+  - name: Create BMHs
+    shell: 'source /tmp/vm_functions && create_vm bmh-vm-{{ item }} "00:60:2f:31:81:{{ item }}"'
+    with_sequence: count="{{ number_of_nodes }}" format="%02x"
+
+  # create BMHs
+  - name: Copy BMH creation script
+    copy:
+      dest: "/tmp/create_bmhs"
+      content: |
+        #!/bin/bash
+        i=0
+        for systemid in $(curl -s 192.168.222.1:8000/redfish/v1/Systems | jq -r '.Members[]."@odata.id"'); do
+          echo "starting VM BMH..."
+          i=$((i+1))
+          name=$(curl -s 192.168.222.1:8000${systemid} | jq -r '.Name')
+          sed -r "s%redfish-virtualmedia.*REPLACE_ID%redfish-virtualmedia+http://192.168.222.1:8000${systemid}%" {{ src_dir}}/test/e2e/bmh/bmh.yaml.tpl | sed -r "s/REPLACE_NAME/${name}/g" | sed -r "s/REPLACE_MAC/00:60:2f:31:81:0${name:0-1}/g" | kubectl -n {{ test_namespace }} apply -f -
+          echo "done"
+        done
+
+  - name: create bmhs
+    shell: chmod +x /tmp/create_bmhs && /tmp/create_bmhs

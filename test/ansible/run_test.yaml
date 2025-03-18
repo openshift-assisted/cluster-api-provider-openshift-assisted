@@ -7,18 +7,21 @@
     cert_manager_version: v1.5.3
     remote_manifests_path: /tmp/manifests
     test_namespace: test-capi
-    example_manifest: "{{ lookup('ansible.builtin.env', 'EXAMPLE_MANIFEST', default='multi-node-example.yaml') }}"
     number_of_nodes: "{{ lookup('ansible.builtin.env', 'NUMBER_OF_NODES', default='7') }}"
+    cluster_topology: "{{ lookup('ansible.builtin.env', 'CLUSTER_TOPOLOGY', default='multinode') }}"
+    example_manifest: "{{ cluster_topology }}-example.yaml"
+
 
     capi_version: v1.9.4
     capm3_version: v1.9.2
     dist_dir: "{{ lookup('ansible.builtin.env', 'DIST_DIR') }}"
-    src_dir: /tmp/capbcoa
+    src_dir: "/tmp/capbcoa"
     kind_cluster_name: capi-baremetal-provider
     ssh_authorized_key: "{{ lookup('ansible.builtin.env', 'SSH_AUTHORIZED_KEY') }}"
     pullsecret: "{{ lookup('ansible.builtin.env', 'PULLSECRET') }}"
     container_tag: "{{ lookup('ansible.builtin.env', 'CONTAINER_TAG', default='local')}}"
-    upgrade_to_version: "4.19.0-ec.2-x86_64"
+    upgrade_to_version: "4.19.0-ec.3-x86_64"
+    cluster_name: "test-{{cluster_topology}}"
   tasks:
   - name: Distribution
     debug: msg="{{ ansible_distribution }}"
@@ -65,7 +68,7 @@
     shell: cat /dev/null > /etc/resolv.conf.tmp
   - name: Set DNS nameservers in /etc/resolv.conf
     blockinfile:
-      path: /etc/resolv.conf.tmp
+      path: /etc/resolv.conf
       block: |
         nameserver 192.168.222.1
         nameserver 8.8.8.8
@@ -80,7 +83,6 @@
        SUSHY_EMULATOR_LISTEN_PORT = 8000
        # The libvirt URI to use. This option enables libvirt driver.
        SUSHY_EMULATOR_LIBVIRT_URI = u"qemu:///system"
-       SUSHY_EMULATOR_IGNORE_BOOT_DEVICE = True
   - name: start sushytools
     shell: |
       podman rm -f sushy-tools && podman run --name sushy-tools --rm --network host --privileged -d \
@@ -245,27 +247,27 @@
   - name: apply example
     shell: kubectl -n {{ test_namespace }} apply -f /tmp/example_manifest.yaml
   - name: wait for ACI
-    shell: "until kubectl get -n {{ test_namespace }} aci test-multinode; do sleep 1; done"
+    shell: "until kubectl get -n {{ test_namespace }} aci {{ cluster_name }}; do sleep 1; done"
 
   - name: wait for ACI to be installing
-    shell: "kubectl -n {{ test_namespace }} wait --for=jsonpath='{.status.debugInfo.state}'=installing aci/test-multinode --timeout=1200s"
+    shell: "kubectl -n {{ test_namespace }} wait --for=jsonpath='{.status.debugInfo.state}'=installing aci/{{ cluster_name }} --timeout=1200s"
 
   - name: wait controlplane to be ready
-    shell: "kubectl wait -n {{ test_namespace }} openshiftassistedcontrolplane/test-multinode --for condition=Ready --timeout 3600s"
+    shell: "kubectl wait -n {{ test_namespace }} openshiftassistedcontrolplane/{{ cluster_name }} --for condition=Ready --timeout 3600s"
 
   - name: make sure ACI to be installed
-    shell: "kubectl -n {{ test_namespace }} wait --for=jsonpath='{.status.debugInfo.state}'=adding-hosts aci/test-multinode --timeout=3600s"
+    shell: "kubectl -n {{ test_namespace }} wait --for=jsonpath='{.status.debugInfo.state}'=adding-hosts aci/{{ cluster_name }} --timeout=3600s"
 
   - name: upgrade cluster
-    shell: "kubectl -n {{ test_namespace }} patch openshiftassistedcontrolplane test-multinode --type=merge --patch '{\"spec\": {\"distributionVersion\": \"{{ upgrade_to_version }}\"}}'"
+    shell: "kubectl -n {{ test_namespace }} patch openshiftassistedcontrolplane {{ cluster_name }} --type=merge --patch '{\"spec\": {\"distributionVersion\": \"{{ upgrade_to_version }}\"}}'"
 
   - name: wait for upgrade to kick-in
     shell: "sleep 60"
 
   # wait ctrlplane to complete upgrade
   - name: wait controlplane to complete upgrade
-    shell: "kubectl wait -n {{ test_namespace }} openshiftassistedcontrolplane/test-multinode --for condition=UpgradeCompleted --timeout 3600s"
+    shell: "kubectl wait -n {{ test_namespace }} openshiftassistedcontrolplane/{{ cluster_name }} --for condition=UpgradeCompleted --timeout 3600s"
 
   # wait ctrlplane to be ready
   - name: wait controlplane to be ready
-    shell: "kubectl wait -n {{ test_namespace }} openshiftassistedcontrolplane/test-multinode --for condition=Ready --timeout 3600s"
+    shell: "kubectl wait -n {{ test_namespace }} openshiftassistedcontrolplane/{{ cluster_name }} --for condition=Ready --timeout 7200s"

@@ -35,9 +35,10 @@ type ClusterUpgrade interface {
 	IsUpgradeInProgress(ctx context.Context) (bool, error)
 	GetCurrentVersion(ctx context.Context) (string, error)
 	IsDesiredVersionUpdated(ctx context.Context, desiredVersion string) (bool, error)
-	UpdateClusterVersionDesiredUpdate(ctx context.Context, desiredVersion string, options ...ClusterUpgradeOption) error
+	UpdateClusterVersionDesiredUpdate(ctx context.Context, desiredVersion string, architectures []string, options ...ClusterUpgradeOption) error
 }
 
+// NewOpenshiftUpgradeFactory creates and returns a new OpenshiftUpgradeFactory instance using the provided remote image and client generator.
 func NewOpenshiftUpgradeFactory(remoteImage containers.RemoteImage, clientGenerator workloadclient.ClientGenerator) *OpenshiftUpgradeFactory {
 	return &OpenshiftUpgradeFactory{
 		remoteImage:     remoteImage,
@@ -124,7 +125,7 @@ func (u *OpenshiftUpgrader) IsDesiredVersionUpdated(ctx context.Context, desired
 }
 
 // Updates the cluster's desired version
-func (u *OpenshiftUpgrader) UpdateClusterVersionDesiredUpdate(ctx context.Context, desiredVersion string, options ...ClusterUpgradeOption) error {
+func (u *OpenshiftUpgrader) UpdateClusterVersionDesiredUpdate(ctx context.Context, desiredVersion string, architectures []string, options ...ClusterUpgradeOption) error {
 	repositoryOverride := getOption(ReleaseImageRepositoryOverrideOption, options...)
 	clusterVersion, err := u.getClusterVersion(ctx)
 	if err != nil {
@@ -140,7 +141,7 @@ func (u *OpenshiftUpgrader) UpdateClusterVersionDesiredUpdate(ctx context.Contex
 		return nil
 	}
 	pullSecret := getOption(ReleaseImagePullSecretOption, options...)
-	releaseImageWithDigest, err := u.getReleaseImageWithDigest(release.GetReleaseImage(desiredVersion, repositoryOverride), []byte(pullSecret))
+	releaseImageWithDigest, err := u.getReleaseImageWithDigest(release.GetReleaseImage(desiredVersion, repositoryOverride, architectures), []byte(pullSecret))
 	if err != nil {
 		return err
 	}

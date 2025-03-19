@@ -3,6 +3,7 @@ package utils
 import (
 	"github.com/metal3-io/baremetal-operator/apis/metal3.io/v1alpha1"
 	metal3 "github.com/metal3-io/cluster-api-provider-metal3/api/v1beta1"
+	v1alpha2 "github.com/openshift-assisted/cluster-api-agent/bootstrap/api/v1alpha1"
 	controlplanev1alpha1 "github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1alpha2"
 	hiveext "github.com/openshift/assisted-service/api/hiveextension/v1beta1"
 	"github.com/openshift/assisted-service/api/v1beta1"
@@ -229,6 +230,7 @@ func NewAgentWithClusterDeploymentReference(namespace, name string, cd hivev1.Cl
 	return agent
 }
 
+// NewBareMetalHost creates a BareMetalHost object in the specified namespace with the given name by initializing its metadata accordingly.
 func NewBareMetalHost(namespace, name string) *v1alpha1.BareMetalHost {
 	return &v1alpha1.BareMetalHost{
 		ObjectMeta: metav1.ObjectMeta{
@@ -236,4 +238,38 @@ func NewBareMetalHost(namespace, name string) *v1alpha1.BareMetalHost {
 			Namespace: namespace,
 		},
 	}
+}
+
+// NewOpenshiftAssistedConfigWithInfraEnv creates a new OpenshiftAssistedConfig with the specified namespace, name, and cluster name.
+// If infraEnv is provided, its namespace and name are used to set an InfraEnv reference in the config’s status.
+// The returned object is labeled with the cluster name and designated as a control-plane resource.
+func NewOpenshiftAssistedConfigWithInfraEnv(
+	namespace, name, clusterName string,
+	infraEnv *v1beta1.InfraEnv,
+) *v1alpha2.OpenshiftAssistedConfig {
+	var ref *corev1.ObjectReference
+	if infraEnv != nil {
+		ref = &corev1.ObjectReference{
+			Namespace: infraEnv.GetNamespace(),
+			Name:      infraEnv.GetName(),
+		}
+	}
+	return &v1alpha2.OpenshiftAssistedConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Labels: map[string]string{
+				clusterv1.ClusterNameLabel:         clusterName,
+				clusterv1.MachineControlPlaneLabel: "control-plane",
+			},
+			Name:      name,
+			Namespace: namespace,
+		},
+		Status: v1alpha2.OpenshiftAssistedConfigStatus{
+			InfraEnvRef: ref,
+		},
+	}
+}
+
+// NewOpenshiftAssistedConfig returns an OpenshiftAssistedConfig configured with the specified namespace, name, and clusterName. It is a convenience wrapper around NewOpenshiftAssistedConfigWithInfraEnv that creates a configuration without an InfraEnv reference.
+func NewOpenshiftAssistedConfig(namespace, name, clusterName string) *v1alpha2.OpenshiftAssistedConfig {
+	return NewOpenshiftAssistedConfigWithInfraEnv(namespace, name, clusterName, nil)
 }

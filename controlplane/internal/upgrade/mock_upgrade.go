@@ -118,9 +118,9 @@ func (mr *MockClusterUpgradeMockRecorder) IsUpgradeInProgress(ctx interface{}) *
 }
 
 // UpdateClusterVersionDesiredUpdate mocks base method.
-func (m *MockClusterUpgrade) UpdateClusterVersionDesiredUpdate(ctx context.Context, desiredVersion string, options ...ClusterUpgradeOption) error {
+func (m *MockClusterUpgrade) UpdateClusterVersionDesiredUpdate(ctx context.Context, desiredVersion, architecture string, options ...ClusterUpgradeOption) error {
 	m.ctrl.T.Helper()
-	varargs := []interface{}{ctx, desiredVersion}
+	varargs := []interface{}{ctx, desiredVersion, architecture}
 	for _, a := range options {
 		varargs = append(varargs, a)
 	}
@@ -130,8 +130,8 @@ func (m *MockClusterUpgrade) UpdateClusterVersionDesiredUpdate(ctx context.Conte
 }
 
 // UpdateClusterVersionDesiredUpdate indicates an expected call of UpdateClusterVersionDesiredUpdate.
-func (mr *MockClusterUpgradeMockRecorder) UpdateClusterVersionDesiredUpdate(ctx, desiredVersion interface{}, options ...interface{}) *gomock.Call {
+func (mr *MockClusterUpgradeMockRecorder) UpdateClusterVersionDesiredUpdate(ctx, desiredVersion, architecture interface{}, options ...interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	varargs := append([]interface{}{ctx, desiredVersion}, options...)
+	varargs := append([]interface{}{ctx, desiredVersion, architecture}, options...)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateClusterVersionDesiredUpdate", reflect.TypeOf((*MockClusterUpgrade)(nil).UpdateClusterVersionDesiredUpdate), varargs...)
 }

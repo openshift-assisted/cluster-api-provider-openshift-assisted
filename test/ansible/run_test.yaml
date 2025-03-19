@@ -20,7 +20,7 @@
     ssh_authorized_key: "{{ lookup('ansible.builtin.env', 'SSH_AUTHORIZED_KEY') }}"
     pullsecret: "{{ lookup('ansible.builtin.env', 'PULLSECRET') }}"
     container_tag: "{{ lookup('ansible.builtin.env', 'CONTAINER_TAG', default='local')}}"
-    upgrade_to_version: "4.19.0-ec.3-x86_64"
+    upgrade_to_version: "4.19.0-ec.3"
     cluster_name: "test-{{cluster_topology}}"
   tasks:
   - name: Distribution

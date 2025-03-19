@@ -103,6 +103,11 @@ func (r *ClusterDeploymentReconciler) ensureAgentClusterInstall(
 		log.Error(err, "failed to retrieve owner Cluster from the API Server")
 		return ctrl.Result{}, err
 	}
+
+	arch, err := getArchitectureFromBootstrapConfigs(ctx, r.Client, &oacp)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
 	imageSet := computeClusterImageSet(clusterDeployment.Name, getReleaseImage(oacp))
 	err = util.CreateOrUpdate(ctx, r.Client, imageSet)
 	if err != nil {
@@ -129,12 +134,12 @@ func (r *ClusterDeploymentReconciler) ensureAgentClusterInstall(
 // quay.io/openshift-release-dev/ocp-release:4.17.0-rc.2-x86_64
 // quay.io/okd/scos-release:4.18.0-okd-scos.ec.1
 // Can be overridden with annotation: cluster.x-k8s.io/release-image-repository-override=quay.io/myorg/myrepo
-func getReleaseImage(oacp controlplanev1alpha2.OpenshiftAssistedControlPlane) string {
+func getReleaseImage(oacp controlplanev1alpha2.OpenshiftAssistedControlPlane, architecture string) string {
 	releaseImageRepository, ok := oacp.Annotations[release.ReleaseImageRepositoryOverrideAnnotation]
 	if !ok {
 		releaseImageRepository = ""
 	}
-	return release.GetReleaseImage(oacp.Spec.DistributionVersion, releaseImageRepository)
+	return release.GetReleaseImage(oacp.Spec.DistributionVersion, releaseImageRepository, architecture)
 }
 
 func (r *ClusterDeploymentReconciler) getWorkerNodesCount(ctx context.Context, cluster *clusterv1.Cluster) int {

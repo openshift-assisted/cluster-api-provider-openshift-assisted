@@ -57,7 +57,7 @@ spec:
     nodeRegistration:
       kubeletExtraLabels:
         - 'metal3.io/uuid="${METADATA_UUID}"'
-  distributionVersion: 4.19.0-ec.2-x86_64
+  distributionVersion: 4.19.0-ec.2
   config:
     baseDomain: lab.home
     pullSecretRef:

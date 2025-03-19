@@ -3,6 +3,7 @@ package utils
 import (
 	"github.com/metal3-io/baremetal-operator/apis/metal3.io/v1alpha1"
 	metal3 "github.com/metal3-io/cluster-api-provider-metal3/api/v1beta1"
+	v1alpha2 "github.com/openshift-assisted/cluster-api-agent/bootstrap/api/v1alpha1"
 	controlplanev1alpha1 "github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1alpha2"
 	hiveext "github.com/openshift/assisted-service/api/hiveextension/v1beta1"
 	"github.com/openshift/assisted-service/api/v1beta1"
@@ -236,4 +237,34 @@ func NewBareMetalHost(namespace, name string) *v1alpha1.BareMetalHost {
 			Namespace: namespace,
 		},
 	}
+}
+
+func NewOpenshiftAssistedConfigWithInfraEnv(
+	namespace, name, clusterName string,
+	infraEnv *v1beta1.InfraEnv,
+) *v1alpha2.OpenshiftAssistedConfig {
+	var ref *corev1.ObjectReference
+	if infraEnv != nil {
+		ref = &corev1.ObjectReference{
+			Namespace: infraEnv.GetNamespace(),
+			Name:      infraEnv.GetName(),
+		}
+	}
+	return &v1alpha2.OpenshiftAssistedConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Labels: map[string]string{
+				clusterv1.ClusterNameLabel:         clusterName,
+				clusterv1.MachineControlPlaneLabel: "control-plane",
+			},
+			Name:      name,
+			Namespace: namespace,
+		},
+		Status: v1alpha2.OpenshiftAssistedConfigStatus{
+			InfraEnvRef: ref,
+		},
+	}
+}
+
+func NewOpenshiftAssistedConfig(namespace, name, clusterName string) *v1alpha2.OpenshiftAssistedConfig {
+	return NewOpenshiftAssistedConfigWithInfraEnv(namespace, name, clusterName, nil)
 }

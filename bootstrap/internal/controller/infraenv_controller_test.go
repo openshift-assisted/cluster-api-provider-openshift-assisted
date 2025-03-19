@@ -129,7 +129,7 @@ var _ = Describe("InfraEnv Controller", func() {
 				}
 				infraEnv.Status.ISODownloadURL = DownloadURL
 				Expect(k8sClient.Create(ctx, infraEnv)).To(Succeed())
-				oac := NewOpenshiftAssistedConfig(namespace, oacName, clusterName)
+				oac := testutils.NewOpenshiftAssistedConfig(namespace, oacName, clusterName)
 				Expect(k8sClient.Create(ctx, oac)).To(Succeed())
 
 				By("reconciling the InfraEnv")
@@ -155,7 +155,7 @@ var _ = Describe("InfraEnv Controller", func() {
 				infraEnv.Status.ISODownloadURL = DownloadURL
 				Expect(k8sClient.Create(ctx, infraEnv)).To(Succeed())
 
-				oac := NewOpenshiftAssistedConfigWithInfraEnv(namespace, oacName, clusterName, infraEnv)
+				oac := testutils.NewOpenshiftAssistedConfigWithInfraEnv(namespace, oacName, clusterName, infraEnv)
 				Expect(k8sClient.Create(ctx, oac)).To(Succeed())
 
 				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
@@ -231,7 +231,7 @@ var _ = Describe("InfraEnv Controller", func() {
 			}
 			infraEnv.Status.ISODownloadURL = DownloadURL
 			Expect(k8sClient.Create(ctx, infraEnv)).To(Succeed())
-			oac = NewOpenshiftAssistedConfigWithInfraEnv(namespace, oacName, clusterName, infraEnv)
+			oac = testutils.NewOpenshiftAssistedConfigWithInfraEnv(namespace, oacName, clusterName, infraEnv)
 			Expect(k8sClient.Create(ctx, oac)).To(Succeed())
 		})
 

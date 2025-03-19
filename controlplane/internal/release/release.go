@@ -50,14 +50,14 @@ func IsGA(version string) bool {
 }
 
 // Get release image based on desired version and potentiall override (can be empty)
-func GetReleaseImage(desiredVersion, repositoryOverride string) string {
+func GetReleaseImage(desiredVersion, repositoryOverride string, architecture string) string {
 	if repositoryOverride != "" {
-		return fmt.Sprintf("%s:%s", repositoryOverride, desiredVersion)
+		return fmt.Sprintf("%s:%s-%s", repositoryOverride, desiredVersion, architecture)
 
 	}
 	repository := OCPRepository
 	if IsOKD(desiredVersion) {
 		repository = OKDRepository
 	}
-	return fmt.Sprintf("%s:%s", repository, desiredVersion)
+	return fmt.Sprintf("%s:%s-%s", repository, desiredVersion, architecture)
 }

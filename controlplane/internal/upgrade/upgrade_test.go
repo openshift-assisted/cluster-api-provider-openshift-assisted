@@ -145,6 +145,7 @@ var _ = Describe("OpenShift Upgrader", func() {
 		Context("UpdateClusterVersionDesiredUpdate", func() {
 			It("should update GA version without image", func() {
 				err := upgrader.UpdateClusterVersionDesiredUpdate(ctx, "4.11.0",
+					"x86_64",
 					upgrade.ClusterUpgradeOption{
 						Name:  upgrade.ReleaseImageRepositoryOverrideOption,
 						Value: "quay.io/openshift-release-dev/ocp-release",
@@ -158,9 +159,10 @@ var _ = Describe("OpenShift Upgrader", func() {
 			})
 
 			It("should update non-GA version with image", func() {
-				mockRemoteImage.EXPECT().GetDigest(gomock.Any(), gomock.Any()).Return("sha256:123456", nil)
+				mockRemoteImage.EXPECT().GetDigest("quay.io/openshift-release-dev/ocp-release:4.11.0-rc.1-x86_64", gomock.Any()).Return("sha256:123456", nil)
 
 				err := upgrader.UpdateClusterVersionDesiredUpdate(ctx, "4.11.0-rc.1",
+					"x86_64",
 					upgrade.ClusterUpgradeOption{
 						Name:  upgrade.ReleaseImagePullSecretOption,
 						Value: pullsecret,

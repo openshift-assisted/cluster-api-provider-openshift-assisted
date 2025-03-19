@@ -19,6 +19,8 @@ package controller
 import (
 	"context"
 
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+
 	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/openshift-assisted/cluster-api-agent/controlplane/api/v1alpha2"
@@ -108,6 +110,9 @@ var _ = Describe("ClusterDeployment Controller", func() {
 			enableOn := models.DiskEncryptionEnableOnAll
 			mode := models.DiskEncryptionModeTang
 			oacp := utils.NewOpenshiftAssistedControlPlane(namespace, openshiftAssistedControlPlaneName)
+			oacp.Labels = map[string]string{
+				clusterv1.ClusterNameLabel: clusterName,
+			}
 			oacp.Spec.DistributionVersion = openShiftVersion
 			oacp.Spec.Config.SSHAuthorizedKey = "mykey"
 			oacp.Spec.Config.DiskEncryption = &hiveext.DiskEncryption{
@@ -119,6 +124,15 @@ var _ = Describe("ClusterDeployment Controller", func() {
 				HTTPProxy: "https://example.com",
 			}
 			oacp.Spec.Config.MastersSchedulable = true
+
+			// create config associated with this cluster
+			config := utils.NewOpenshiftAssistedConfig(namespace, "myconfig", clusterName)
+			config.Spec.CpuArchitecture = "x86_64"
+			Expect(k8sClient.Create(ctx, config)).To(Succeed())
+
+			config = utils.NewOpenshiftAssistedConfig(namespace, "myconfig-arm", clusterName)
+			config.Spec.CpuArchitecture = "arm64"
+			Expect(k8sClient.Create(ctx, config)).To(Succeed())
 
 			Expect(controllerutil.SetOwnerReference(cluster, oacp, testScheme)).To(Succeed())
 			Expect(controllerutil.SetOwnerReference(oacp, cd, testScheme)).To(Succeed())
@@ -144,7 +158,7 @@ var _ = Describe("ClusterDeployment Controller", func() {
 
 			clusterImageSet := &hivev1.ClusterImageSet{}
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: cd.Name}, clusterImageSet)).To(Succeed())
-			Expect(clusterImageSet.Spec.ReleaseImage).To(Equal("quay.io/openshift-release-dev/ocp-release:4.16.0"))
+			Expect(clusterImageSet.Spec.ReleaseImage).To(Equal("quay.io/openshift-release-dev/ocp-release:4.16.0-multi"))
 		})
 		When("ACP with ingressVIPs and apiVIPs", func() {
 			It("should start a multinode cluster install", func() {

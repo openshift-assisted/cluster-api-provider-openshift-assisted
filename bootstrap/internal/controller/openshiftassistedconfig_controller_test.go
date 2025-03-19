@@ -34,7 +34,6 @@ import (
 	v1 "github.com/openshift/hive/apis/hive/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	fakeclient "sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -125,7 +124,7 @@ var _ = Describe("OpenshiftAssistedConfig Controller", func() {
 		})
 		When("OpenshiftAssistedConfig has no owner", func() {
 			It("should successfully reconcile with NOOP", func() {
-				oac := NewOpenshiftAssistedConfig(namespace, oacName, clusterName)
+				oac := testutils.NewOpenshiftAssistedConfig(namespace, oacName, clusterName)
 				Expect(k8sClient.Create(ctx, oac)).To(Succeed())
 
 				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
@@ -143,7 +142,7 @@ var _ = Describe("OpenshiftAssistedConfig Controller", func() {
 		})
 		When("OpenshiftAssistedConfig has a non-relevant owner", func() {
 			It("should successfully reconcile", func() {
-				oac := NewOpenshiftAssistedConfig(namespace, oacName, clusterName)
+				oac := testutils.NewOpenshiftAssistedConfig(namespace, oacName, clusterName)
 				oac.OwnerReferences = []metav1.OwnerReference{
 					{
 						APIVersion: "madeup-version",
@@ -461,36 +460,9 @@ func NewOpenshiftAssistedConfigWithOwner(
 			UID:        owner.GetUID(),
 		},
 	}
-	oac := NewOpenshiftAssistedConfig(namespace, name, clusterName)
+	oac := testutils.NewOpenshiftAssistedConfig(namespace, name, clusterName)
 	oac.OwnerReferences = ownerRefs
 	return oac
-}
-
-func NewOpenshiftAssistedConfig(namespace, name, clusterName string) *bootstrapv1alpha1.OpenshiftAssistedConfig {
-	return NewOpenshiftAssistedConfigWithInfraEnv(namespace, name, clusterName, nil)
-}
-
-func NewOpenshiftAssistedConfigWithInfraEnv(namespace, name, clusterName string, infraEnv *v1beta1.InfraEnv) *bootstrapv1alpha1.OpenshiftAssistedConfig {
-	var ref *corev1.ObjectReference
-	if infraEnv != nil {
-		ref = &corev1.ObjectReference{
-			Namespace: infraEnv.GetNamespace(),
-			Name:      infraEnv.GetName(),
-		}
-	}
-	return &bootstrapv1alpha1.OpenshiftAssistedConfig{
-		ObjectMeta: metav1.ObjectMeta{
-			Labels: map[string]string{
-				clusterv1.ClusterNameLabel:         clusterName,
-				clusterv1.MachineControlPlaneLabel: "control-plane",
-			},
-			Name:      name,
-			Namespace: namespace,
-		},
-		Status: bootstrapv1alpha1.OpenshiftAssistedConfigStatus{
-			InfraEnvRef: ref,
-		},
-	}
 }
 
 func crossReferenceACIAndCD(

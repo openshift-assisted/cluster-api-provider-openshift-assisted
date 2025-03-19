@@ -154,7 +154,7 @@ var _ = Describe("Agent Controller", func() {
 		When("an Agent resource with a valid Machine with OACs, and no agent ref", func() {
 			It("should add the agent ref to OAC status", func() {
 				By("Creating the OpenshiftAssistedConfig")
-				oac := NewOpenshiftAssistedConfig(namespace, oacName, clusterName)
+				oac := testutils.NewOpenshiftAssistedConfig(namespace, oacName, clusterName)
 				Expect(k8sClient.Create(ctx, oac)).To(Succeed())
 
 				agent := testutils.NewAgentWithInfraEnvLabel(namespace, agentName, machineName)
@@ -188,7 +188,7 @@ var _ = Describe("Agent Controller", func() {
 				Expect(k8sClient.Create(ctx, agent)).To(Succeed())
 
 				By("Creating the OpenshiftAssistedConfig")
-				oac := NewOpenshiftAssistedConfig(namespace, oacName, clusterName)
+				oac := testutils.NewOpenshiftAssistedConfig(namespace, oacName, clusterName)
 				oac.Status.AgentRef = &corev1.LocalObjectReference{Name: agent.Name}
 				Expect(k8sClient.Create(ctx, oac)).To(Succeed())
 
@@ -217,7 +217,7 @@ var _ = Describe("Agent Controller", func() {
 		When("an Agent resource with matching InfraEnv, and machine (worker)", func() {
 			It("should reconcile with a valid accepted worker agent", func() {
 				By("Creating the OpenshiftAssistedConfig")
-				oac := NewOpenshiftAssistedConfig(namespace, oacName, clusterName)
+				oac := testutils.NewOpenshiftAssistedConfig(namespace, oacName, clusterName)
 				Expect(k8sClient.Create(ctx, oac)).To(Succeed())
 
 				machine := testutils.NewMachine(namespace, machineName, clusterName)
@@ -250,7 +250,7 @@ var _ = Describe("Agent Controller", func() {
 		When("an Agent resource with matching InfraEnv, and machine (master)", func() {
 			It("should reconcile with a valid accepted master agent", func() {
 				By("Creating the OpenshiftAssistedConfig")
-				oac := NewOpenshiftAssistedConfig(namespace, oacName, clusterName)
+				oac := testutils.NewOpenshiftAssistedConfig(namespace, oacName, clusterName)
 				Expect(k8sClient.Create(ctx, oac)).To(Succeed())
 
 				machine := testutils.NewMachine(namespace, machineName, clusterName)

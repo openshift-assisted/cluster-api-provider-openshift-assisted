@@ -20,11 +20,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	semver "github.com/blang/semver/v4"
-	"github.com/go-logr/logr"
 
 	"github.com/openshift-assisted/cluster-api-agent/assistedinstaller"
 	bootstrapv1alpha1 "github.com/openshift-assisted/cluster-api-agent/bootstrap/api/v1alpha1"
@@ -191,7 +189,11 @@ func (r *OpenshiftAssistedControlPlaneReconciler) Reconcile(ctx context.Context,
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	releaseImage := getReleaseImage(*oacp)
+	architecture, err := getArchitectureFromBootstrapConfigs(ctx, r.Client, oacp)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	releaseImage := getReleaseImage(*oacp, architecture)
 
 	k8sVersion, err := r.K8sVersionDetector.GetKubernetesVersion(releaseImage, string(pullsecret))
 	markKubernetesVersionCondition(oacp, err)
@@ -210,7 +212,7 @@ func (r *OpenshiftAssistedControlPlaneReconciler) Reconcile(ctx context.Context,
 	result := ctrl.Result{}
 	if conditions.IsTrue(oacp, controlplanev1alpha2.KubeconfigAvailableCondition) {
 		// in case upgrade is still in progress, we want to requeue, however we also want to reconcile replicas
-		result, err = r.upgradeWorkloadCluster(ctx, cluster, oacp, log, pullsecret)
+		result, err = r.upgradeWorkloadCluster(ctx, cluster, oacp, architecture, pullsecret)
 		if err != nil {
 			return result, err
 		}
@@ -218,7 +220,63 @@ func (r *OpenshiftAssistedControlPlaneReconciler) Reconcile(ctx context.Context,
 	return result, r.reconcileReplicas(ctx, oacp, cluster)
 }
 
-func (r *OpenshiftAssistedControlPlaneReconciler) upgradeWorkloadCluster(ctx context.Context, cluster *clusterv1.Cluster, oacp *controlplanev1alpha2.OpenshiftAssistedControlPlane, log logr.Logger, pullSecret []byte) (ctrl.Result, error) {
+func getArchitectureFromBootstrapConfigs(ctx context.Context, k8sClient client.Client, oacp *controlplanev1alpha2.OpenshiftAssistedControlPlane) (string, error) {
+	defaultArch := "multi"
+
+	// if oacp is nil, return default arch
+	if oacp == nil {
+		return defaultArch, nil
+	}
+
+	// if no clusterName label available, return default arch
+	clusterName, ok := oacp.Labels[clusterv1.ClusterNameLabel]
+	if !ok {
+		return defaultArch, nil
+	}
+	labelSelector := map[string]string{
+		clusterv1.ClusterNameLabel: clusterName,
+	}
+	listOptions := []client.ListOption{
+		client.InNamespace(oacp.Namespace),
+		client.MatchingLabels(labelSelector),
+	}
+	var configList bootstrapv1alpha1.OpenshiftAssistedConfigList
+	if err := k8sClient.List(ctx, &configList, listOptions...); err != nil {
+		return "", err
+	}
+
+	architectures := make([]string, 0)
+	for _, config := range configList.Items {
+		architectures = append(architectures, config.Spec.CpuArchitecture)
+	}
+	return getArchitecture(architectures, defaultArch), nil
+}
+
+func getArchitecture(architectures []string, defaultArchitecture string) string {
+	// by default, return multi arch
+	if len(architectures) < 1 {
+		return defaultArchitecture
+	}
+	// if there is only one architecture, return it
+	if len(architectures) == 1 {
+		return architectures[0]
+	}
+	firstArch := architectures[0]
+	for _, arch := range architectures {
+		if arch != firstArch {
+			return defaultArchitecture
+		}
+	}
+	// if all architectures are the same, check for empty
+	if firstArch == "" {
+		return defaultArchitecture
+	}
+	return firstArch
+}
+
+func (r *OpenshiftAssistedControlPlaneReconciler) upgradeWorkloadCluster(ctx context.Context, cluster *clusterv1.Cluster, oacp *controlplanev1alpha2.OpenshiftAssistedControlPlane, architecture string, pullSecret []byte) (ctrl.Result, error) {
+	log := ctrl.LoggerFrom(ctx)
+
 	var isUpdateInProgress bool
 	defer func() {
 		if isUpdateInProgress || !isWorkloadClusterRunningDesiredVersion(oacp) {
@@ -283,6 +341,7 @@ func (r *OpenshiftAssistedControlPlaneReconciler) upgradeWorkloadCluster(ctx con
 		upgrader.UpdateClusterVersionDesiredUpdate(
 			ctx,
 			oacp.Spec.DistributionVersion,
+			architecture,
 			getUpgradeOptions(oacp, pullSecret)...,
 		)
 }
@@ -304,8 +363,7 @@ func getUpgradeOptions(oacp *controlplanev1alpha2.OpenshiftAssistedControlPlane,
 }
 
 func isWorkloadClusterRunningDesiredVersion(oacp *controlplanev1alpha2.OpenshiftAssistedControlPlane) bool {
-	// TODO: Spec.DistributionVersion has architecture suffix, we need to remove it and compose it from arch field
-	return strings.HasPrefix(oacp.Spec.DistributionVersion, oacp.Status.DistributionVersion)
+	return oacp.Spec.DistributionVersion == oacp.Status.DistributionVersion
 }
 
 func markKubernetesVersionCondition(oacp *controlplanev1alpha2.OpenshiftAssistedControlPlane, err error) {

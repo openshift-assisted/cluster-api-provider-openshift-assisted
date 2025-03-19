@@ -385,7 +385,7 @@ var _ = Describe("Upgrade scenarios", func() {
 		mockUpgrader.EXPECT().IsUpgradeInProgress(gomock.Any()).Return(false, nil)
 		mockUpgrader.EXPECT().GetCurrentVersion(gomock.Any()).Return(currentVersion, nil)
 		mockUpgrader.EXPECT().IsDesiredVersionUpdated(gomock.Any(), desiredVersion).Return(false, nil)
-		mockUpgrader.EXPECT().UpdateClusterVersionDesiredUpdate(gomock.Any(), desiredVersion, gomock.Any()).Return(nil)
+		mockUpgrader.EXPECT().UpdateClusterVersionDesiredUpdate(gomock.Any(), desiredVersion, gomock.Any(), gomock.Any()).Return(nil)
 
 		result, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
 		Expect(err).NotTo(HaveOccurred())
@@ -454,7 +454,7 @@ var _ = Describe("Upgrade scenarios", func() {
 		mockUpgrader.EXPECT().IsUpgradeInProgress(gomock.Any()).Return(false, nil)
 		mockUpgrader.EXPECT().GetCurrentVersion(gomock.Any()).Return(currentVersion, nil)
 		mockUpgrader.EXPECT().IsDesiredVersionUpdated(gomock.Any(), desiredVersion).Return(false, nil)
-		mockUpgrader.EXPECT().UpdateClusterVersionDesiredUpdate(gomock.Any(), desiredVersion, gomock.Any()).Return(expectedError)
+		mockUpgrader.EXPECT().UpdateClusterVersionDesiredUpdate(gomock.Any(), desiredVersion, gomock.Any(), gomock.Any()).Return(expectedError)
 
 		// Make sure upgrade is in progress(not completed): even if we get no current version, now the upgrade is over
 		conditions.MarkFalse(
@@ -481,6 +481,7 @@ var _ = Describe("Upgrade scenarios", func() {
 		mockUpgrader.EXPECT().IsUpgradeInProgress(gomock.Any()).Return(false, nil)
 		mockUpgrader.EXPECT().GetCurrentVersion(gomock.Any()).Return("", expectedError)
 		mockUpgrader.EXPECT().IsDesiredVersionUpdated(gomock.Any(), desiredVersion).Return(true, nil)
+		mockUpgrader.EXPECT().UpdateClusterVersionDesiredUpdate(ctx, desiredVersion, gomock.Any(), gomock.Any()).Return(nil)
 
 		_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
 		Expect(err).NotTo(HaveOccurred())
@@ -489,9 +490,12 @@ var _ = Describe("Upgrade scenarios", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(openshiftAssistedControlPlane.Status.DistributionVersion).To(Equal(""))
 
-		// upgrade never requested, condition should still be nil
+		// upgrade should start now
 		condition := conditions.Get(openshiftAssistedControlPlane, controlplanev1alpha2.UpgradeCompletedCondition)
-		Expect(condition).To(BeNil())
+		Expect(condition).NotTo(BeNil())
+		Expect(condition.Status).To(Equal(corev1.ConditionFalse))
+		Expect(condition.Reason).To(Equal(controlplanev1alpha2.UpgradeInProgressReason))
+		Expect(condition.Message).To(Equal("upgrade to version 4.15.0 in progress"))
 	})
 
 	It("should handle upgrade with repository override", func() {
@@ -512,6 +516,7 @@ var _ = Describe("Upgrade scenarios", func() {
 		mockUpgrader.EXPECT().UpdateClusterVersionDesiredUpdate(
 			gomock.Any(),
 			desiredVersion,
+			gomock.Any(),
 			gomock.Eq(expectedParams),
 		).Return(nil)
 

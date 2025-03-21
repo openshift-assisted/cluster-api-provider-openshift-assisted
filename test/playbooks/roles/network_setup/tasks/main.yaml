@@ -1,0 +1,40 @@
+---
+- name: Get internal IP
+  ansible.builtin.command: hostname -I
+  register: hostname_output
+  changed_when: false
+- name: Set internal IP fact
+  ansible.builtin.set_fact:
+    internal_ip: "{{ hostname_output.stdout.split() | select('match', '^10\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}$') | first }}"
+- name: Set DNS servers in containers.conf
+  ansible.builtin.lineinfile:
+    path: /usr/share/containers/containers.conf
+    regexp: '^#dns_servers = \[\]'
+    line: 'dns_servers = ["192.168.222.1", "8.8.8.8"]'
+    state: present
+# create libvirt network with dns server (only recursive)
+- name: Start libvirt network
+  community.libvirt.virt_net:
+    state: absent
+    name: bmh
+- name: Read libvirt network XML
+  ansible.builtin.slurp:
+    src: "{{ src_dir }}/test/e2e/libvirt/network-bmh-onlynameserver.xml"
+  register: network_xml_slurp
+- name: Define libvirt network from XML
+  community.libvirt.virt_net:
+    command: define
+    name: bmh
+    xml: "{{ network_xml_slurp.content | b64decode }}"
+- name: Start libvirt network
+  community.libvirt.virt_net:
+    state: active
+    name: bmh
+
+- name: Set DNS nameservers in /etc/resolv.conf
+  ansible.builtin.copy:
+    mode: '0644'
+    dest: /etc/resolv.conf
+    content: |
+      nameserver 192.168.222.1
+      nameserver 8.8.8.8

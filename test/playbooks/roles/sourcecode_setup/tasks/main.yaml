@@ -1,0 +1,8 @@
+---
+- name: Copy src
+  ansible.posix.synchronize:
+    src: "{{ playbook_dir }}/../.."
+    dest: "{{ src_dir }}"
+    archive: true
+    recursive: true
+    delete: true

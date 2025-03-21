@@ -1,0 +1,56 @@
+- name: Wait for ACI to exist
+  kubernetes.core.k8s_info:
+    api_version: extensions.hive.openshift.io/v1beta1
+    kind: AgentClusterInstall
+    name: "{{ cluster_name }}"
+    namespace: "{{ test_namespace }}"
+  register: aci_result
+  retries: "{{ medium_retries | int }}"
+  delay: "{{ medium_delay | int }}"
+  failed_when: >-
+    aci_result.resources is not defined or
+    aci_result.resources | length == 0
+
+- name: Wait for ACI to be installing
+  kubernetes.core.k8s_info:
+    api_version: extensions.hive.openshift.io/v1beta1
+    kind: AgentClusterInstall
+    name: "{{ cluster_name }}"
+    namespace: "{{ test_namespace }}"
+  register: aci_status
+  until: >-
+    aci_status.resources[0].status.debugInfo.state is defined and
+    aci_status.resources[0].status.debugInfo.state == "installing" or
+    aci_status.resources[0].status.debugInfo.state == "adding-hosts"
+  retries: "{{ medium_retries | int }}"
+  delay: "{{ high_delay | int }}"
+
+
+- name: Wait for controlplane to be ready
+  kubernetes.core.k8s_info:
+    api_version: controlplane.cluster.x-k8s.io/v1alpha2
+    kind: OpenshiftAssistedControlPlane
+    name: "{{ cluster_name }}"
+    namespace: "{{ test_namespace }}"
+  register: controlplane_status
+  until: >-
+    controlplane_status.resources[0].status.conditions |
+    selectattr('type', 'equalto', 'Ready') |
+    selectattr('status', 'equalto', 'True') |
+    list |
+    length > 0
+  retries: "{{ medium_retries | int }}"
+  delay: "{{ high_delay | int }}"
+
+- name: Wait for ACI to be adding hosts
+  kubernetes.core.k8s_info:
+    api_version: extensions.hive.openshift.io/v1beta1
+    kind: AgentClusterInstall
+    name: "{{ cluster_name }}"
+    namespace: "{{ test_namespace }}"
+  register: aci_hosts_status
+  until: >-
+    aci_hosts_status.resources[0].status.debugInfo.state is defined and
+    aci_hosts_status.resources[0].status.debugInfo.state == "adding-hosts"
+  retries: "{{ medium_retries | int }}"
+  delay: "{{ high_delay | int }}"

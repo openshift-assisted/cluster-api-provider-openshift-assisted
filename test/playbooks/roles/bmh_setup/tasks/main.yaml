@@ -1,0 +1,111 @@
+---
+- name: Fetch loadbalancer IP from remote
+  run_once: true
+  ansible.builtin.fetch:
+    src: "/tmp/loadbalancer_ip"
+    dest: "/tmp/loadbalancer_ip"
+    flat: true
+
+- name: Remove existing network if present
+  community.libvirt.virt_net:
+    state: absent
+    name: bmh
+
+- name: Define new network
+  community.libvirt.virt_net:
+    command: define
+    name: bmh
+    xml: "{{ lookup('template', playbook_dir ~ '/../../test/e2e/libvirt/network-bmh.xml.j2') }}"
+  vars:
+    loadbalancer_ip: "{{ lookup('file', '/tmp/loadbalancer_ip') }}"
+
+- name: Activate network
+  community.libvirt.virt_net:
+    state: active
+    name: bmh
+
+# create VMs
+- name: Copy VM creation script
+  ansible.builtin.copy:
+    dest: "/tmp/vm_functions"
+    mode: '0644'
+    content: |
+      #!/bin/bash
+      function create_vm {
+        name=$1
+        mac=$2
+        virsh destroy "${name}" 2>/dev/null || true
+        virsh undefine --domain "${name}" --remove-all-storage --nvram 2>/dev/null || true
+        virt-install -n "${name}" \
+        --pxe --os-variant=rhel8.0 \
+        --ram=16384 --vcpus=8 \
+        --network network=bmh,mac="${mac}" \
+        --disk size=120,bus=scsi,sparse=yes \
+        --check disk_size=off \
+        --noautoconsole
+      }
+
+- name: Create BMHs
+  ansible.builtin.shell: |
+    source /tmp/vm_functions && \
+    create_vm bmh-vm-{{ item }} "00:60:2f:31:81:{{ item }}"
+  with_sequence: count="{{ number_of_nodes }}" format="%02x"
+  changed_when: true
+
+- name: Create test namespace
+  kubernetes.core.k8s:
+    api_version: v1
+    kind: Namespace
+    name: "{{ test_namespace }}"
+    state: present
+
+# create BMHs
+- name: Copy BMH creation script
+  ansible.builtin.copy:
+    dest: "/tmp/create_bmhs"
+    mode: '0755'
+    content: |
+      #!/bin/bash
+      i=0
+      for systemid in $(curl -s 192.168.222.1:8000/redfish/v1/Systems | jq -r '.Members[]."@odata.id"'); do
+        echo "starting VM BMH..."
+        i=$((i+1))
+        name=$(curl -s 192.168.222.1:8000${systemid} | jq -r '.Name')
+        sed -r "s%redfish-virtualmedia.*REPLACE_ID%redfish-virtualmedia+http://192.168.222.1:8000${systemid}%" {{ src_dir }}/test/e2e/bmh/bmh.yaml.tpl |\
+        sed -r "s/REPLACE_NAME/${name}/g" |\
+        sed -r "s/REPLACE_MAC/00:60:2f:31:81:0${name: -1}/g" |\
+        kubectl -n {{ test_namespace }} apply -f -
+        echo "done"
+      done
+
+- name: Create bmhs
+  ansible.builtin.shell: chmod +x /tmp/create_bmhs && /tmp/create_bmhs
+  changed_when: true
+
+- name: Wait until BMHs exist
+  kubernetes.core.k8s_info:
+    api_version: metal3.io/v1alpha1
+    kind: BareMetalHost
+    namespace: "{{ test_namespace }}"
+  register: bmh_result
+  retries: "{{ medium_retries | int }}"
+  delay: "{{ medium_delay | int }}"
+  until: >-
+    bmh_result.resources is defined and
+    bmh_result.resources | length > 0
+
+- name: Wait for BMHs to be available
+  kubernetes.core.k8s_info:
+    api_version: metal3.io/v1alpha1
+    kind: BareMetalHost
+    name: "bmh-vm-{{ item }}"
+    namespace: "{{ test_namespace }}"
+  register: bmh_status
+  until: >-
+    bmh_status.resources is defined and
+    bmh_status.resources | length > 0 and
+    bmh_status.resources[0].status.provisioning.state is defined and
+    bmh_status.resources[0].status.provisioning.state == 'available'
+  retries: "{{ medium_retries | int }}"
+  delay: "{{ medium_delay | int }}"
+  with_sequence: count="{{ number_of_nodes }}" format="%02x"

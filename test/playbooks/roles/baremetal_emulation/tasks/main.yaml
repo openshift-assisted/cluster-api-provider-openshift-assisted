@@ -1,0 +1,19 @@
+---
+- name: Creating sushy-tools-config
+  ansible.builtin.copy:
+    dest: "/tmp/sushy-emulator.conf"
+    mode: '0644'
+    content: |
+      # Listen on 192.168.222.1:8000
+      SUSHY_EMULATOR_LISTEN_IP = u"192.168.222.1"
+      SUSHY_EMULATOR_LISTEN_PORT = 8000
+      # The libvirt URI to use. This option enables libvirt driver.
+      SUSHY_EMULATOR_LIBVIRT_URI = u"qemu:///system"
+- name: Start sushytools
+  ansible.builtin.shell: |
+    podman rm -f sushy-tools && podman run --name sushy-tools --rm --network host --privileged -d \
+    -v /var/run/libvirt:/var/run/libvirt:z \
+    -v "/tmp/sushy-emulator.conf:/etc/sushy/sushy-emulator.conf:z" \
+    -e SUSHY_EMULATOR_CONFIG=/etc/sushy/sushy-emulator.conf \
+    quay.io/metal3-io/sushy-tools:latest sushy-emulator
+  changed_when: true

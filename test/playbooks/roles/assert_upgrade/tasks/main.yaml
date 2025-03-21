@@ -1,0 +1,44 @@
+---
+- name: Upgrade cluster
+  kubernetes.core.k8s:
+    state: present
+    namespace: "{{ test_namespace }}"
+    api_version: controlplane.cluster.x-k8s.io/v1alpha2
+    kind: OpenshiftAssistedControlPlane
+    name: "{{ cluster_name }}"
+    merge_type: merge
+    definition:
+      spec:
+        distributionVersion: "{{ upgrade_to_version }}"
+
+- name: Wait for controlplane upgrade to complete
+  kubernetes.core.k8s_info:
+    api_version: controlplane.cluster.x-k8s.io/v1alpha2
+    kind: OpenshiftAssistedControlPlane
+    name: "{{ cluster_name }}"
+    namespace: "{{ test_namespace }}"
+  register: controlplane_upgrade
+  until: >-
+    controlplane_upgrade.resources[0].status.conditions |
+    selectattr('type', 'equalto', 'UpgradeCompleted') |
+    selectattr('status', 'equalto', True) |
+    list |
+    length > 0
+  retries: "{{ high_retries | int }}"
+  delay: "{{ high_delay | int }}"
+
+- name: Wait for controlplane to be ready
+  kubernetes.core.k8s_info:
+    api_version: controlplane.cluster.x-k8s.io/v1alpha2
+    kind: OpenshiftAssistedControlPlane
+    name: "{{ cluster_name }}"
+    namespace: "{{ test_namespace }}"
+  register: controlplane_ready
+  until: >-
+    controlplane_ready.resources[0].status.conditions |
+    selectattr('type', 'equalto', 'Ready') |
+    selectattr('status', 'equalto', 'True') |
+    list |
+    length > 0
+  retries: "{{ low_retries | int }}"
+  delay: "{{ medium_delay | int }}"

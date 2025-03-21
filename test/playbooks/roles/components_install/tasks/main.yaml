@@ -1,0 +1,183 @@
+---
+- name: Deploy cert-manager
+  kubernetes.core.k8s:
+    state: present
+    src: https://github.com/jetstack/cert-manager/releases/download/{{ cert_manager_version }}/cert-manager.yaml
+
+- name: Wait for cert-manager
+  kubernetes.core.k8s_info:
+    api_version: apps/v1
+    kind: Deployment
+    name: cert-manager-webhook
+    namespace: cert-manager
+  register: cert_manager_status
+  until: cert_manager_status.resources[0].status.conditions | selectattr('type', 'equalto', 'Available') | first | json_query('status') == 'True'
+  retries: "{{ medium_retries | int }}"
+  delay: "{{ medium_delay | int }}"
+
+- name: Deploy ironic
+  kubernetes.core.k8s:
+    definition: "{{ lookup('kubernetes.core.kustomize', dir=playbook_dir + '/../../test/e2e/manifests/ironic') }}"
+    state: present
+    apply: true
+
+- name: Wait for ironic
+  kubernetes.core.k8s_info:
+    api_version: apps/v1
+    kind: Deployment
+    name: ironic
+    namespace: baremetal-operator-system
+  register: ironic_status
+  until: ironic_status.resources[0].status.conditions | selectattr('type', 'equalto', 'Available') | first | json_query('status') == 'True'
+  retries: "{{ medium_retries | int }}"
+  delay: "{{ medium_delay | int }}"
+
+- name: Deploy BMO
+  kubernetes.core.k8s:
+    definition: "{{ lookup('kubernetes.core.kustomize', dir=playbook_dir + '/../../test/e2e/manifests/bmo') }}"
+    state: present
+    apply: true
+
+- name: Wait for BMO
+  kubernetes.core.k8s_info:
+    api_version: apps/v1
+    kind: Deployment
+    name: baremetal-operator-controller-manager
+    namespace: baremetal-operator-system
+  register: bmo_status
+  until: bmo_status.resources[0].status.conditions | selectattr('type', 'equalto', 'Available') | first | json_query('status') == 'True'
+  retries: "{{ medium_retries | int }}"
+  delay: "{{ medium_delay | int }}"
+
+- name: Deploy MetalLB
+  kubernetes.core.k8s:
+    state: present
+    src: https://raw.githubusercontent.com/metallb/metallb/v0.13.7/config/manifests/metallb-native.yaml
+
+- name: Wait for MetalLB
+  kubernetes.core.k8s_info:
+    api_version: apps/v1
+    kind: Deployment
+    name: controller
+    namespace: metallb-system
+  register: metallb_status
+  until: metallb_status.resources[0].status.conditions | selectattr('type', 'equalto', 'Available') | first | json_query('status') == 'True'
+  retries: "{{ medium_retries | int }}"
+  delay: "{{ medium_delay | int }}"
+
+- name: Deploy metallb IPAddressPool
+  kubernetes.core.k8s:
+    src: "{{ src_dir }}/test/e2e/manifests/metallb/metallb.yaml"
+    state: present
+    apply: true
+
+- name: Create nginx-ingress namespace
+  kubernetes.core.k8s:
+    api_version: v1
+    kind: Namespace
+    name: nginx-ingress
+    state: present
+
+- name: Deploy nginx-ingress
+  kubernetes.core.k8s:
+    state: present
+    src: "{{ src_dir }}/test/e2e/manifests/ingress-nginx/nginx.yaml"
+    apply: true
+
+- name: Wait for load balancer IP
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Service
+    name: ingress-nginx-controller
+    namespace: nginx-ingress
+  register: lb_status
+  until: lb_status.resources[0].status.loadBalancer.ingress is defined
+  retries: "{{ medium_retries | int }}"
+  delay: "{{ medium_delay | int }}"
+
+- name: Save load balancer IP
+  ansible.builtin.copy:
+    content: "{{ lb_status.resources[0].status.loadBalancer.ingress[0].ip }}"
+    dest: /tmp/loadbalancer_ip
+    mode: '0644'
+
+- name: Deploy infrastructure operator
+  kubernetes.core.k8s:
+    definition: "{{ lookup('kubernetes.core.kustomize', dir=playbook_dir + '/../../test/e2e/manifests/infrastructure-operator') }}"
+    state: present
+    apply: true
+
+
+- name: Deploy agent service config
+  kubernetes.core.k8s:
+    state: present
+    src: "{{ src_dir }}/test/e2e/manifests/infrastructure-operator/agentconfig.yaml"
+
+- name: Wait for assisted-service
+  kubernetes.core.k8s_info:
+    api_version: apps/v1
+    kind: Deployment
+    name: assisted-service
+    namespace: assisted-installer
+  register: assisted_service_status
+  until: >-
+    assisted_service_status.resources is defined and
+    assisted_service_status.resources | length > 0 and
+    assisted_service_status.resources[0].status.conditions |
+    selectattr('type', 'equalto', 'Available') |
+    selectattr('status', 'equalto', 'True') |
+    list |
+    length > 0
+  retries: "{{ medium_retries | int }}"
+  delay: "{{ medium_delay | int }}"
+
+- name: Wait for assisted-image-service
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Pod
+    name: assisted-image-service-0
+    namespace: assisted-installer
+  register: image_service_status
+  until: >-
+    image_service_status.resources is defined and
+    image_service_status.resources | length > 0 and
+    image_service_status.resources[0].status.conditions |
+    selectattr('type', 'equalto', 'Ready') |
+    selectattr('status', 'equalto', 'True') |
+    list |
+    length > 0
+  retries: "{{ medium_retries | int }}"
+  delay: "{{ medium_delay | int }}"
+
+- name: Install clusterctl
+  ansible.builtin.get_url:
+    url: "https://github.com/kubernetes-sigs/cluster-api/releases/download/{{ capi_version }}/clusterctl-linux-amd64"
+    dest: /usr/local/bin/clusterctl
+    mode: '0755'
+
+- name: Deploy CAPI
+  ansible.builtin.command: "clusterctl init --core cluster-api:{{ capi_version }} --bootstrap - --control-plane - --infrastructure metal3:{{ capm3_version }}"
+  changed_when: true
+
+- name: Copy distfiles
+  ansible.builtin.copy:
+    src: "{{ dist_dir }}"
+    dest: "/tmp"
+    mode: '0644'
+
+- name: Set imagePullPolicy for CAPBCOA
+  ansible.builtin.replace:
+    path: "{{ item }}"
+    regexp: 'imagePullPolicy: Always'
+    replace: 'imagePullPolicy: Never'
+  loop:
+    - /tmp/dist/bootstrap_install.yaml
+    - /tmp/dist/controlplane_install.yaml
+
+- name: Deploy CAPBCOA
+  kubernetes.core.k8s:
+    state: present
+    src: "{{ item }}"
+  loop:
+    - /tmp/controlplane_install.yaml
+    - /tmp/bootstrap_install.yaml

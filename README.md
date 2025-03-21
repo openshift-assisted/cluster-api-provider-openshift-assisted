@@ -239,7 +239,14 @@ make generate && make manifests && make build-installer
 Then we can run:
 
 ```sh
-ansible-playbook test/ansible/run_test.yaml -i test/ansible/inventory.yaml
+make e2e-test
+```
+
+### Linting the tests
+
+Run:
+```sh
+make ansible-lint
 ```
 
 ## ADRs

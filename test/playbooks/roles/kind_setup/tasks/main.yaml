@@ -1,0 +1,64 @@
+---
+- name: Check if kind exists and get version
+  ansible.builtin.shell: |
+    set -o pipefail
+    kind version 2>/dev/null | awk '{ print $2}'
+  register: kind_version_check
+  changed_when: false
+  failed_when: false
+
+- name: Kind version
+  ansible.builtin.debug:
+    msg: "{{ kind_version_check.stdout }}"
+
+- name: Download and install kind binary
+  ansible.builtin.get_url:
+    url: "https://kind.sigs.k8s.io/dl/{{ kind_setup_kind_version }}/kind-linux-amd64"
+    dest: /usr/local/bin/kind
+    mode: '0755'
+  when: >
+    kind_version_check.stdout is not defined or
+    kind_version_check.stdout | length == 0 or
+    kind_setup_kind_version not in kind_version_check.stdout
+
+- name: Recreate kind cluster
+  ansible.builtin.shell: |
+    kind delete cluster --name {{ kind_cluster_name }}
+    set -o pipefail
+    export INTERNAL_IP={{ internal_ip }} && \
+    cat {{ src_dir }}/test/kind.yaml | \
+    sed "s/<DEVICE_IP>/${INTERNAL_IP}/g" > /tmp/kind_with_ip.yaml && \
+    kind create cluster --name {{ kind_cluster_name }} --config /tmp/kind_with_ip.yaml
+  changed_when: true
+
+- name: Get latest kubectl version if not specified
+  ansible.builtin.uri:
+    url: https://dl.k8s.io/release/stable.txt
+    return_content: true
+  register: stable_version
+  when: kubectl_version is not defined
+
+- name: Set kubectl version
+  ansible.builtin.set_fact:
+    kubectl_version: "{{ kubectl_version | default(stable_version.content | trim) }}"
+
+- name: Check if kubectl exists and get version
+  ansible.builtin.shell: |
+    set -o pipefail
+    kubectl version 2>/dev/null | grep 'Client Version:' | sed 's/Client Version: //g'
+  register: kubectl_version_check
+  changed_when: false
+  failed_when: false
+
+- name: Kubectl version
+  ansible.builtin.debug:
+    msg: "{{ kubectl_version_check.stdout }}"
+- name: Install kubectl binary
+  ansible.builtin.get_url:
+    url: "https://dl.k8s.io/release/{{ kubectl_version }}/bin/linux/amd64/kubectl"
+    dest: /usr/local/bin/kubectl
+    mode: '0755'
+  when: >
+    kubectl_version_check.stdout is not defined or
+    kubectl_version_check.stdout | length == 0 or
+    kubectl_version not in kubectl_version_check.stdout

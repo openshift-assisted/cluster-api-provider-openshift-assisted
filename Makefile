@@ -10,6 +10,7 @@ IMG ?= $(CONTAINER_REPOSITORY):$(CONTAINER_TAG)
 ENVTEST_K8S_VERSION = 1.29.0
 
 TEST ?= $(shell go list ./... | grep -v /e2e)
+PLAYBOOK_DIR ?= test/playbooks
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -80,6 +81,15 @@ lint: golangci-lint ## Run golangci-lint linter & yamllint
 .PHONY: lint-fix
 lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
 	$(GOLANGCI_LINT) run --fix
+
+.PHONY: e2e-test
+e2e-test:
+	ansible-galaxy collection install -r $(PLAYBOOK_DIR)/../ansible-requirements.yaml
+	ansible-playbook $(PLAYBOOK_DIR)/run_test.yaml -i $(PLAYBOOK_DIR)/inventories/remote_host.yaml
+
+.PHONY: ansible-lint
+ansible-lint:
+	ansible-lint $(PLAYBOOK_DIR)
 
 ##@ Build
 

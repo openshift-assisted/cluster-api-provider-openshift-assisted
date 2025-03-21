@@ -1,0 +1,22 @@
+---
+- name: Build images
+  environment:
+    CONTAINER_TAG: "{{ container_tag }}"
+  ansible.builtin.shell: "cd {{ src_dir }} && setsid make docker-build-all"
+  changed_when: true
+
+- name: Save container images to tar files
+  containers.podman.podman_save:
+    image: "quay.io/edge-infrastructure/openshift-capi-agent-{{ item }}:{{ container_tag }}"
+    dest: "/tmp/{{ item }}.tar.gz"
+    format: docker-archive
+  loop:
+    - controlplane
+    - bootstrap
+
+- name: Load images into kind cluster
+  ansible.builtin.command: "kind load image-archive --name {{ kind_cluster_name }} /tmp/{{ item }}.tar.gz"
+  loop:
+    - controlplane
+    - bootstrap
+  changed_when: true

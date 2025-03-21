@@ -1,0 +1,5 @@
+---
+collections:
+  - community.libvirt
+  - kubernetes.core
+  - containers.podman

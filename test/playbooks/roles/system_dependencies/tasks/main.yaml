@@ -1,0 +1,28 @@
+---
+- name: Distribution
+  ansible.builtin.debug:
+    msg: "{{ ansible_distribution }}"
+- name: Install EPEL
+  ansible.builtin.dnf:
+    enablerepo: powertools
+    name:
+      - epel-release
+  when: ansible_distribution != "RedHat"
+- name: Install dependencies
+  ansible.builtin.dnf:
+    enablerepo: crb
+    name: "{{ system_dependencies_packages }}"
+  when: ansible_distribution != "RedHat"
+- name: Install dependencies RHEL
+  ansible.builtin.dnf:
+    name: "{{ system_dependencies_packages }}"
+  when: ansible_distribution == "RedHat"
+- name: Enable libvirtd
+  ansible.builtin.systemd_service:
+    name: libvirtd
+    enabled: true
+    state: started
+- name: Install kubernetes python package
+  ansible.builtin.pip:
+    name:
+      - kubernetes

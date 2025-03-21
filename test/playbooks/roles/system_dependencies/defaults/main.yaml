@@ -1,0 +1,9 @@
+---
+system_dependencies_packages:
+  - git
+  - make
+  - podman
+  - qemu-kvm
+  - libvirt
+  - virt-install
+  - containernetworking-plugins

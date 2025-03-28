@@ -84,8 +84,7 @@ lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
 
 .PHONY: e2e-test
 e2e-test:
-	ansible-galaxy collection install -r $(PLAYBOOK_DIR)/../ansible-requirements.yaml
-	ansible-playbook $(PLAYBOOK_DIR)/run_test.yaml -i $(PLAYBOOK_DIR)/inventories/remote_host.yaml
+	ansible-galaxy collection install -r $(PLAYBOOK_DIR)/../ansible-requirements.yaml && ansible-playbook $(PLAYBOOK_DIR)/run_test.yaml -i $(PLAYBOOK_DIR)/inventories/remote_host.yaml
 
 .PHONY: ansible-lint
 ansible-lint:

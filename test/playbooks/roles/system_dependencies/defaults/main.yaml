@@ -7,3 +7,4 @@ system_dependencies_packages:
   - libvirt
   - virt-install
   - containernetworking-plugins
+  - python3-pip

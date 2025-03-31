@@ -26,4 +26,3 @@
   ansible.builtin.pip:
     name:
       - kubernetes
-      - jmespath

@@ -11,7 +11,11 @@
     name: cert-manager-webhook
     namespace: cert-manager
   register: cert_manager_status
-  until: cert_manager_status.resources[0].status.conditions | selectattr('type', 'equalto', 'Available') | first | json_query('status') == 'True'
+  until: >-
+    cert_manager_status.resources[0].status.conditions |
+    selectattr('type', 'equalto', 'Available') |
+    selectattr('status', 'equalto', 'True') |
+    list | length > 0
   retries: "{{ medium_retries | int }}"
   delay: "{{ medium_delay | int }}"
 
@@ -28,7 +32,11 @@
     name: ironic
     namespace: baremetal-operator-system
   register: ironic_status
-  until: ironic_status.resources[0].status.conditions | selectattr('type', 'equalto', 'Available') | first | json_query('status') == 'True'
+  until: >-
+    ironic_status.resources[0].status.conditions |
+    selectattr('type', 'equalto', 'Available') |
+    selectattr('status', 'equalto', 'True') |
+    list | length > 0
   retries: "{{ medium_retries | int }}"
   delay: "{{ medium_delay | int }}"
 
@@ -45,7 +53,11 @@
     name: baremetal-operator-controller-manager
     namespace: baremetal-operator-system
   register: bmo_status
-  until: bmo_status.resources[0].status.conditions | selectattr('type', 'equalto', 'Available') | first | json_query('status') == 'True'
+  until: >-
+    bmo_status.resources[0].status.conditions |
+    selectattr('type', 'equalto', 'Available') |
+    selectattr('status', 'equalto', 'True') |
+    list | length > 0
   retries: "{{ medium_retries | int }}"
   delay: "{{ medium_delay | int }}"
 
@@ -61,7 +73,11 @@
     name: controller
     namespace: metallb-system
   register: metallb_status
-  until: metallb_status.resources[0].status.conditions | selectattr('type', 'equalto', 'Available') | first | json_query('status') == 'True'
+  until: >-
+    metallb_status.resources[0].status.conditions |
+    selectattr('type', 'equalto', 'Available') |
+    selectattr('status', 'equalto', 'True') |
+    list | length > 0
   retries: "{{ medium_retries | int }}"
   delay: "{{ medium_delay | int }}"
 

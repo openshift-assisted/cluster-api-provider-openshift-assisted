@@ -1,0 +1,43 @@
+name: security-scan
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+jobs:
+  build:
+    name: Security scan
+    runs-on: ubuntu-24.04
+    env:
+      CONTAINER_TAG: ${{ github.sha }}
+      CONTAINER_TOOL: docker
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Build images from Dockerfile
+        run: make docker-build-all
+      - name: Create scans folder
+        run: |
+          mkdir -p scans/
+      - name: Run Trivy vulnerability scanner for controlplane
+        uses: aquasecurity/trivy-action@0.30.0
+        with:
+          image-ref: 'quay.io/edge-infrastructure/cluster-api-controlplane-provider-openshift-assisted:${{ github.sha }}'
+          trivy-config: .trivy.yaml
+          output: 'scans/trivy-results-controlplane.sarif'
+      - name: Run Trivy vulnerability scanner for bootstrap
+        uses: aquasecurity/trivy-action@0.30.0
+        with:
+          image-ref: 'quay.io/edge-infrastructure/cluster-api-bootstrap-provider-openshift-assisted:${{ github.sha }}'
+          trivy-config: .trivy.yaml
+          output: 'scans/trivy-results-bootstrap.sarif'
+      - name: Run Trivy vulnerability scanner in repo mode
+        uses: aquasecurity/trivy-action@0.30.0
+        with:
+          scan-type: 'fs'
+          output: 'trivy-results-repo.sarif'
+      - name: Upload Trivy scan results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'scans/'

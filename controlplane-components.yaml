@@ -1068,7 +1068,7 @@ spec:
         - --leader-elect
         command:
         - /manager
-        image: quay.io/edge-infrastructure/openshift-capi-agent-controlplane:latest
+        image: quay.io/edge-infrastructure/cluster-api-controlplane-provider-openshift-assisted:latest
         imagePullPolicy: Always
         livenessProbe:
           httpGet:

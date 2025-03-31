@@ -1,7 +1,7 @@
 # provider to build
 PROVIDER ?= bootstrap
 CONTAINER_REPOSITORY_ORG ?= edge-infrastructure
-CONTAINER_REPOSITORY ?= quay.io/$(CONTAINER_REPOSITORY_ORG)/openshift-capi-agent-$(PROVIDER)
+CONTAINER_REPOSITORY ?= quay.io/$(CONTAINER_REPOSITORY_ORG)/cluster-api-$(PROVIDER)-provider-openshift-assisted
 CONTAINER_TAG ?= latest
 DIST_DIR ?= ./dist
 # Image URL to use all building/pushing image targets
@@ -102,11 +102,11 @@ run: manifests generate fmt vet ## Run a controller from your host.
 
 .PHONY: provider-docker-build
 provider-docker-build:
-	$(MAKE) docker-build-internal IMG=quay.io/$(CONTAINER_REPOSITORY_ORG)/openshift-capi-agent-$(PROVIDER):$(CONTAINER_TAG)
+	$(MAKE) docker-build-internal IMG=quay.io/$(CONTAINER_REPOSITORY_ORG)/cluster-api-$(PROVIDER)-provider-openshift-assisted:$(CONTAINER_TAG)
 
 .PHONY: provider-docker-push
 provider-docker-push:
-	$(MAKE) docker-push-internal IMG=quay.io/$(CONTAINER_REPOSITORY_ORG)/openshift-capi-agent-$(PROVIDER):$(CONTAINER_TAG)
+	$(MAKE) docker-push-internal IMG=quay.io/$(CONTAINER_REPOSITORY_ORG)/cluster-api-$(PROVIDER)-provider-openshift-assisted:$(CONTAINER_TAG)
 
 .PHONY: bootstrap-docker-build
 bootstrap-docker-build:

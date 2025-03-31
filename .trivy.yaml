@@ -1,0 +1,12 @@
+scan:
+  offline: true
+vulnerability:
+  ignore-unfixed: true
+severity:
+  - HIGH
+  - CRITICAL
+format: 'sarif'
+pkg:
+  types:
+    - os
+    - library

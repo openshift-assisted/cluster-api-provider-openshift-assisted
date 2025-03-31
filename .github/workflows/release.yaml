@@ -10,8 +10,8 @@ jobs:
   build:
     env:
       context: "./"
-      controlplane_image_name: "openshift-capi-agent-controlplane"
-      bootstrap_image_name: "openshift-capi-agent-bootstrap"
+      controlplane_image_name: "cluster-api-controlplane-provider-openshift-assisted"
+      bootstrap_image_name: "cluster-api-bootstrap-provider-openshift-assisted"
     name: Release
     runs-on: ubuntu-latest
     steps:
@@ -26,8 +26,8 @@ jobs:
       - name: Set tags on manifests
         id: set_tag_manifests
         run: |
-          sed -i "s,quay.io/edge-infrastructure/openshift-capi-agent-bootstrap:latest,${{ secrets.REGISTRY_SERVER }}/${{ secrets.REGISTRY_NAMESPACE }}/${{ env.bootstrap_image_name }}:${{env.VERSION}}," bootstrap-components.yaml
-          sed -i "s,quay.io/edge-infrastructure/openshift-capi-agent-controlplane:latest,${{ secrets.REGISTRY_SERVER }}/${{ secrets.REGISTRY_NAMESPACE }}/${{ env.controlplane_image_name }}:${{env.VERSION}}," controlplane-components.yaml
+          sed -i "s,quay.io/edge-infrastructure/cluster-api-bootstrap-provider-openshift-assisted:latest,${{ secrets.REGISTRY_SERVER }}/${{ secrets.REGISTRY_NAMESPACE }}/${{ env.bootstrap_image_name }}:${{env.VERSION}}," bootstrap-components.yaml
+          sed -i "s,quay.io/edge-infrastructure/cluster-api-controlplane-provider-openshift-assisted:latest,${{ secrets.REGISTRY_SERVER }}/${{ secrets.REGISTRY_NAMESPACE }}/${{ env.controlplane_image_name }}:${{env.VERSION}}," controlplane-components.yaml
       - name: Login to Quay.io
         uses: docker/login-action@v3
         with:

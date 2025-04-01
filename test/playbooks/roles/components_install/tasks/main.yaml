@@ -18,7 +18,9 @@
     list | length > 0
   retries: "{{ medium_retries | int }}"
   delay: "{{ medium_delay | int }}"
-
+- name: Show PATH
+  ansible.builtin.debug:
+    msg: "PATH: {{ ansible_env.PATH }}"
 - name: Deploy ironic
   kubernetes.core.k8s:
     definition: "{{ lookup('kubernetes.core.kustomize', dir=playbook_dir + '/../../test/e2e/manifests/ironic') }}"

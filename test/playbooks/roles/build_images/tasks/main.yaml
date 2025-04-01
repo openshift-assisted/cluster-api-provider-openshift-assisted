@@ -7,7 +7,7 @@
 
 - name: Save container images to tar files
   containers.podman.podman_save:
-    image: "quay.io/edge-infrastructure/openshift-capi-agent-{{ item }}:{{ container_tag }}"
+    image: "quay.io/edge-infrastructure/cluster-api-{{ item }}-provider-openshift-assisted:{{ container_tag }}"
     dest: "/tmp/{{ item }}.tar.gz"
     format: docker-archive
   loop:

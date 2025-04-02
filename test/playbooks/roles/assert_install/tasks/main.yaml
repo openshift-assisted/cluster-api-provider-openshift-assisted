@@ -19,9 +19,12 @@
     namespace: "{{ test_namespace }}"
   register: aci_status
   until: >-
+    aci_status.resources is defined and aci_status.resources | length > 0 and
     aci_status.resources[0].status.debugInfo.state is defined and
-    aci_status.resources[0].status.debugInfo.state == "installing" or
-    aci_status.resources[0].status.debugInfo.state == "adding-hosts"
+    (
+      aci_status.resources[0].status.debugInfo.state == "installing" or
+      aci_status.resources[0].status.debugInfo.state == "adding-hosts"
+    )
   retries: "{{ medium_retries | int }}"
   delay: "{{ high_delay | int }}"
 

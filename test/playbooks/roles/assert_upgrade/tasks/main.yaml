@@ -19,6 +19,8 @@
     namespace: "{{ test_namespace }}"
   register: controlplane_upgrade
   until: >-
+    controlplane_upgrade.resources is defined and
+    controlplane_upgrade.resources | length > 0 and
     controlplane_upgrade.resources[0].status.conditions |
     selectattr('type', 'equalto', 'UpgradeCompleted') |
     selectattr('status', 'equalto', True) |

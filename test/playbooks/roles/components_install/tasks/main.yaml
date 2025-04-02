@@ -197,5 +197,5 @@
     state: present
     src: "{{ item }}"
   loop:
-    - /tmp/controlplane_install.yaml
-    - /tmp/bootstrap_install.yaml
+    - /tmp/dist/controlplane_install.yaml
+    - /tmp/dist/bootstrap_install.yaml

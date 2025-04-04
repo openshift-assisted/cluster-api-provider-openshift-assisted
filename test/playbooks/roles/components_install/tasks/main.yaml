@@ -119,6 +119,17 @@
     dest: /tmp/loadbalancer_ip
     mode: '0644'
 
+- name: prepare infrastructure-operator on target
+  ansible.builtin.template:
+    src: "{{ src_dir }}/test/e2e/manifests/infrastructure-operator/kustomization.yaml.j2"
+    dest: "{{ src_dir }}/test/e2e/manifests/infrastructure-operator/kustomization.yaml"
+  vars:
+    ASSISTED_SERVICE_IMAGE: "{{ lookup('ansible.builtin.env', 'ASSISTED_SERVICE_IMAGE', default=default_assisted_service_image) }}"
+    ASSISTED_IMAGE_SERVICE_IMAGE: "{{ lookup('ansible.builtin.env', 'ASSISTED_IMAGE_SERVICE_IMAGE', default=default_assisted_image_service_image) }}"
+    ASSISTED_INSTALLER_AGENT_IMAGE: "{{ lookup('ansible.builtin.env', 'ASSISTED_INSTALLER_AGENT_IMAGE', default=default_assisted_installer_agent_image) }}"
+    ASSISTED_INSTALLER_CONTROLLER_IMAGE: "{{ lookup('ansible.builtin.env', 'ASSISTED_INSTALLER_CONTROLLER_IMAGE', default=default_assisted_installer_controller_image) }}"
+    ASSISTED_INSTALLER_IMAGE: "{{ lookup('ansible.builtin.env', 'ASSISTED_INSTALLER_IMAGE', default=default_assisted_installer_image) }}"
+
 - name: Deploy infrastructure operator
   kubernetes.core.k8s:
     definition: "{{ lookup('kubernetes.core.kustomize', dir=playbook_dir + '/../../test/e2e/manifests/infrastructure-operator') }}"

@@ -1,0 +1,29 @@
+components:
+  - repository: https://github.com/kubernetes-sigs/cluster-api
+    name: kubernetes-sigs/cluster-api
+    image_pattern:
+    versioning_selection_mechanism: release
+  - repository: https://github.com/metal3-io/cluster-api-provider-metal3
+    name: metal3-io/cluster-api-provider-metal3
+    image_pattern:
+    versioning_selection_mechanism: release
+  - repository: https://github.com/openshift/assisted-service
+    name: openshift/assisted-service
+    image_pattern: quay.io/edge-infrastructure/assisted-service
+    versioning_selection_mechanism: commit
+  - repository: https://github.com/openshift/assisted-image-service
+    name: openshift/assisted-image-service
+    image_pattern: quay.io/edge-infrastructure/assisted-image-service
+    versioning_selection_mechanism: commit
+  - repository: https://github.com/openshift/assisted-installer-agent
+    name: openshift/assisted-installer-agent
+    image_pattern: quay.io/edge-infrastructure/assisted-installer-agent
+    versioning_selection_mechanism: commit
+  - repository: https://github.com/openshift/assisted-installer
+    name: openshift/assisted-installer
+    image_pattern: quay.io/edge-infrastructure/assisted-installer
+    versioning_selection_mechanism: commit
+  - repository: https://github.com/openshift/assisted-installer
+    name: openshift/assisted-installer-controller
+    image_pattern: quay.io/edge-infrastructure/assisted-installer-controller
+    versioning_selection_mechanism: commit

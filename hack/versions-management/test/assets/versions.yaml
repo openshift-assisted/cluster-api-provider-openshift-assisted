@@ -1,0 +1,38 @@
+versions:
+- name: v0.0.1
+  artifacts:
+    - repository: https://github.com/kubernetes-sigs/cluster-api
+      ref: v1.9.5
+      name: kubernetes-sigs/cluster-api
+      versioning_selection_mechanism: release
+      image_url:
+    - repository: https://github.com/metal3-io/cluster-api-provider-metal3
+      ref: v1.9.3
+      name: metal3-io/cluster-api-provider-metal3
+      versioning_selection_mechanism: release
+      image_url:
+    - repository: https://github.com/openshift/assisted-service
+      ref: 76d29d2a7f0899dcede9700fc88fcbad37b6ccca
+      name: openshift/assisted-service
+      versioning_selection_mechanism: commit
+      image_url: quay.io/edge-infrastructure/assisted-service:latest-76d29d2a7f0899dcede9700fc88fcbad37b6ccca
+    - repository: https://github.com/openshift/assisted-image-service
+      ref: 2249c85d05600191b24e93dd92e733d49a1180ec
+      name: openshift/assisted-image-service
+      versioning_selection_mechanism: commit
+      image_url: quay.io/edge-infrastructure/assisted-image-service:latest-2249c85d05600191b24e93dd92e733d49a1180ec
+    - repository: https://github.com/openshift/assisted-installer-agent
+      ref: cfe93a9779dea6ad2a628280b40071d23f3cb429
+      name: openshift/assisted-installer-agent
+      versioning_selection_mechanism: commit
+      image_url: quay.io/edge-infrastructure/assisted-installer-agent:latest-cfe93a9779dea6ad2a628280b40071d23f3cb429
+    - repository: https://github.com/openshift/assisted-installer
+      ref: c389a38405383961d26191799161c86127451635
+      name: openshift/assisted-installer
+      versioning_selection_mechanism: commit
+      image_url: quay.io/edge-infrastructure/assisted-installer-controller:latest-c389a38405383961d26191799161c86127451635
+    - repository: https://github.com/openshift/assisted-installer
+      ref: c389a38405383961d26191799161c86127451635
+      name: openshift/assisted-installer-controller
+      versioning_selection_mechanism: commit
+      image_url: quay.io/edge-infrastructure/assisted-installer:latest-c389a38405383961d26191799161c86127451635

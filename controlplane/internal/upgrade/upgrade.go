@@ -35,6 +35,7 @@ type ClusterUpgrade interface {
 	IsUpgradeInProgress(ctx context.Context) (bool, error)
 	GetCurrentVersion(ctx context.Context) (string, error)
 	IsDesiredVersionUpdated(ctx context.Context, desiredVersion string) (bool, error)
+	GetUpgradeStatus(ctx context.Context) (string, error)
 	UpdateClusterVersionDesiredUpdate(ctx context.Context, desiredVersion string, architecture string, options ...ClusterUpgradeOption) error
 }
 
@@ -111,6 +112,21 @@ func (u *OpenshiftUpgrader) GetCurrentVersion(ctx context.Context) (string, erro
 		}
 	}
 	return "", fmt.Errorf("no completed update found in ClusterVersion history")
+}
+
+// Returns the cluster version's current upgrade condition message for the client's cluster.
+// If any error occurs while performing this operation, it will be returned.
+func (u *OpenshiftUpgrader) GetUpgradeStatus(ctx context.Context) (string, error) {
+	clusterVersion, err := u.getClusterVersion(ctx)
+	if err != nil {
+		return "", err
+	}
+	for _, condition := range clusterVersion.Status.Conditions {
+		if condition.Status == configv1.ConditionTrue {
+			return condition.Message, nil
+		}
+	}
+	return "", nil
 }
 
 // Returns true if the desired version matches the cluster's desired version, false otherwise. If any error occurs while

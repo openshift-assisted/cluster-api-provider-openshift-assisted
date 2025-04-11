@@ -176,6 +176,13 @@ var _ = Describe("OpenShift Upgrader", func() {
 				Expect(updatedCV.Spec.DesiredUpdate.Force).To(BeTrue())
 			})
 		})
+		Context("GetUpgradeStatus", func() {
+			It("should return an upgrade is in progress message", func() {
+				msg, err := upgrader.GetUpgradeStatus(ctx)
+				Expect(err).To(BeNil())
+				Expect(msg).To(Equal("upgrade is in progress"))
+			})
+		})
 	})
 })
 
@@ -188,6 +195,16 @@ func getClusterVersion(history []configv1.UpdateHistory) configv1.ClusterVersion
 			History: history,
 			Desired: configv1.Release{
 				Version: "4.10.0",
+			},
+			Conditions: []configv1.ClusterOperatorStatusCondition{
+				{
+					Message: "upgrade is in progress",
+					Status:  configv1.ConditionTrue,
+				},
+				{
+					Message: "upgrade is not in progress",
+					Status:  configv1.ConditionFalse,
+				},
 			},
 		},
 	}

@@ -36,6 +36,9 @@ const (
 	// UpgradeInProgressReason (Severity=Info) documents that an upgrade is in progress.
 	UpgradeInProgressReason = "UpgradeInProgress"
 
+	// UpgradeFailedReason (Severity=Error) documents that an upgrade has failed.
+	UpgradeFailedReason = "UpgradeFailed"
+
 	// UpgradeImageUnavailableReason (Severity=Error) documents whether an upgrade image is available
 	UpgradeImageUnavailableReason = "UpgradeImageUnavailable"
 

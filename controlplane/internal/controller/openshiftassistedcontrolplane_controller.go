@@ -286,16 +286,11 @@ func (r *OpenshiftAssistedControlPlaneReconciler) upgradeWorkloadCluster(ctx con
 	log := ctrl.LoggerFrom(ctx)
 
 	var isUpdateInProgress bool
+	var upgradeConditionMessage string
 	defer func() {
 		if isUpdateInProgress || !isWorkloadClusterRunningDesiredVersion(oacp) {
-			conditions.MarkFalse(
-				oacp,
-				controlplanev1alpha2.UpgradeCompletedCondition,
-				controlplanev1alpha2.UpgradeInProgressReason,
-				clusterv1.ConditionSeverityInfo,
-				"upgrade to version %s in progress",
-				oacp.Spec.DistributionVersion,
-			)
+			// Either upgrade is in progress or it failed
+			setUpgradeStatus(oacp, isUpdateInProgress, upgradeConditionMessage)
 			return
 		}
 		if conditions.IsFalse(oacp, controlplanev1alpha2.UpgradeCompletedCondition) {
@@ -313,6 +308,10 @@ func (r *OpenshiftAssistedControlPlaneReconciler) upgradeWorkloadCluster(ctx con
 		return ctrl.Result{}, err
 	}
 	isUpdateInProgress, err = upgrader.IsUpgradeInProgress(ctx)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	upgradeConditionMessage, err = upgrader.GetUpgradeStatus(ctx)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -352,6 +351,26 @@ func (r *OpenshiftAssistedControlPlaneReconciler) upgradeWorkloadCluster(ctx con
 			architecture,
 			getUpgradeOptions(oacp, pullSecret)...,
 		)
+}
+
+func setUpgradeStatus(oacp *controlplanev1alpha2.OpenshiftAssistedControlPlane, upgradeInProgress bool, conditionMessage string) {
+	reason := controlplanev1alpha2.UpgradeInProgressReason
+	severity := clusterv1.ConditionSeverityInfo
+	msg := "upgrade to version %s in progress\n%s"
+	if !upgradeInProgress {
+		reason = controlplanev1alpha2.UpgradeFailedReason
+		severity = clusterv1.ConditionSeverityError
+		msg = "upgrade to version %s has failed\n%s"
+	}
+	conditions.MarkFalse(
+		oacp,
+		controlplanev1alpha2.UpgradeCompletedCondition,
+		reason,
+		severity,
+		msg,
+		oacp.Spec.DistributionVersion,
+		conditionMessage,
+	)
 }
 
 func getUpgradeOptions(oacp *controlplanev1alpha2.OpenshiftAssistedControlPlane, pullSecret []byte) []upgrade.ClusterUpgradeOption {

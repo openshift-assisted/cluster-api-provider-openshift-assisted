@@ -87,6 +87,21 @@ func (mr *MockClusterUpgradeMockRecorder) GetCurrentVersion(ctx interface{}) *go
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCurrentVersion", reflect.TypeOf((*MockClusterUpgrade)(nil).GetCurrentVersion), ctx)
 }
 
+// GetUpgradeStatus mocks base method.
+func (m *MockClusterUpgrade) GetUpgradeStatus(ctx context.Context) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetUpgradeStatus", ctx)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetUpgradeStatus indicates an expected call of GetUpgradeStatus.
+func (mr *MockClusterUpgradeMockRecorder) GetUpgradeStatus(ctx interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetUpgradeStatus", reflect.TypeOf((*MockClusterUpgrade)(nil).GetUpgradeStatus), ctx)
+}
+
 // IsDesiredVersionUpdated mocks base method.
 func (m *MockClusterUpgrade) IsDesiredVersionUpdated(ctx context.Context, desiredVersion string) (bool, error) {
 	m.ctrl.T.Helper()

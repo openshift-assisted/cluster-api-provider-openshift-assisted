@@ -81,6 +81,7 @@ var _ = Describe("OpenshiftAssistedControlPlane Controller", func() {
 			mockUpgrader.EXPECT().IsUpgradeInProgress(gomock.Any()).Return(false, nil).AnyTimes()
 			mockUpgrader.EXPECT().GetCurrentVersion(gomock.Any()).Return("4.18.0", nil).AnyTimes()
 			mockUpgrader.EXPECT().IsDesiredVersionUpdated(gomock.Any(), gomock.Any()).Return(true, nil).AnyTimes()
+			mockUpgrader.EXPECT().GetUpgradeStatus(gomock.Any()).Return("", nil).AnyTimes()
 
 			mockUpgradeFactory = upgrade.NewMockClusterUpgradeFactory(ctrl)
 			mockUpgradeFactory.EXPECT().NewUpgrader(gomock.Any()).Return(mockUpgrader, nil).AnyTimes()
@@ -384,6 +385,7 @@ var _ = Describe("Upgrade scenarios", func() {
 		mockUpgradeFactory.EXPECT().NewUpgrader(gomock.Any()).Return(mockUpgrader, nil)
 		mockUpgrader.EXPECT().IsUpgradeInProgress(gomock.Any()).Return(false, nil)
 		mockUpgrader.EXPECT().GetCurrentVersion(gomock.Any()).Return(currentVersion, nil)
+		mockUpgrader.EXPECT().GetUpgradeStatus(gomock.Any()).Return("", nil)
 		mockUpgrader.EXPECT().IsDesiredVersionUpdated(gomock.Any(), desiredVersion).Return(false, nil)
 		mockUpgrader.EXPECT().UpdateClusterVersionDesiredUpdate(gomock.Any(), desiredVersion, gomock.Any(), gomock.Any()).Return(nil)
 
@@ -403,6 +405,7 @@ var _ = Describe("Upgrade scenarios", func() {
 		mockUpgradeFactory.EXPECT().NewUpgrader(gomock.Any()).Return(mockUpgrader, nil)
 		mockUpgrader.EXPECT().IsUpgradeInProgress(gomock.Any()).Return(true, nil)
 		mockUpgrader.EXPECT().GetCurrentVersion(gomock.Any()).Return(currentVersion, nil)
+		mockUpgrader.EXPECT().GetUpgradeStatus(gomock.Any()).Return("upgrading cluster", nil)
 		mockUpgrader.EXPECT().IsDesiredVersionUpdated(gomock.Any(), desiredVersion).Return(true, nil)
 		conditions.MarkFalse(openshiftAssistedControlPlane, controlplanev1alpha2.UpgradeCompletedCondition, controlplanev1alpha2.UpgradeInProgressReason, clusterv1.ConditionSeverityInfo, "upgrade in progress")
 
@@ -417,12 +420,14 @@ var _ = Describe("Upgrade scenarios", func() {
 		Expect(condition).NotTo(BeNil())
 		Expect(condition.Status).To(Equal(corev1.ConditionFalse))
 		Expect(condition.Reason).To(Equal(controlplanev1alpha2.UpgradeInProgressReason))
+		Expect(condition.Message).To(Equal("upgrade to version 4.15.0 in progress\nupgrading cluster"))
 	})
 
 	It("should handle completed upgrade", func() {
 		mockUpgradeFactory.EXPECT().NewUpgrader(gomock.Any()).Return(mockUpgrader, nil)
 		mockUpgrader.EXPECT().IsUpgradeInProgress(gomock.Any()).Return(false, nil)
 		mockUpgrader.EXPECT().GetCurrentVersion(gomock.Any()).Return(desiredVersion, nil)
+		mockUpgrader.EXPECT().GetUpgradeStatus(gomock.Any()).Return("", nil)
 		mockUpgrader.EXPECT().IsDesiredVersionUpdated(gomock.Any(), desiredVersion).Return(true, nil)
 
 		// Make sure upgrade is in progress: once we reconcile it should be marked as complete
@@ -453,6 +458,7 @@ var _ = Describe("Upgrade scenarios", func() {
 		mockUpgradeFactory.EXPECT().NewUpgrader(gomock.Any()).Return(mockUpgrader, nil)
 		mockUpgrader.EXPECT().IsUpgradeInProgress(gomock.Any()).Return(false, nil)
 		mockUpgrader.EXPECT().GetCurrentVersion(gomock.Any()).Return(currentVersion, nil)
+		mockUpgrader.EXPECT().GetUpgradeStatus(gomock.Any()).Return("failed to upgrade", nil)
 		mockUpgrader.EXPECT().IsDesiredVersionUpdated(gomock.Any(), desiredVersion).Return(false, nil)
 		mockUpgrader.EXPECT().UpdateClusterVersionDesiredUpdate(gomock.Any(), desiredVersion, gomock.Any(), gomock.Any()).Return(expectedError)
 
@@ -469,10 +475,14 @@ var _ = Describe("Upgrade scenarios", func() {
 		Expect(err).To(HaveOccurred())
 		Expect(err).To(Equal(expectedError))
 
-		// Upgrade is in progres: spec.distributionVersion is 4.15 and status.distributionVersion is 4.14
+		err = k8sClient.Get(ctx, typeNamespacedName, openshiftAssistedControlPlane)
+		Expect(err).NotTo(HaveOccurred())
+		// Upgrade is in progress but failed: spec.distributionVersion is 4.15 and status.distributionVersion is 4.14
 		condition := conditions.Get(openshiftAssistedControlPlane, controlplanev1alpha2.UpgradeCompletedCondition)
 		Expect(condition).NotTo(BeNil())
 		Expect(condition.Status).To(Equal(corev1.ConditionFalse))
+		Expect(condition.Reason).To(Equal(controlplanev1alpha2.UpgradeFailedReason))
+		Expect(condition.Message).To(Equal("upgrade to version 4.15.0 has failed\nfailed to upgrade"))
 	})
 
 	It("should handle errors getting current version", func() {
@@ -480,6 +490,7 @@ var _ = Describe("Upgrade scenarios", func() {
 		mockUpgradeFactory.EXPECT().NewUpgrader(gomock.Any()).Return(mockUpgrader, nil)
 		mockUpgrader.EXPECT().IsUpgradeInProgress(gomock.Any()).Return(false, nil)
 		mockUpgrader.EXPECT().GetCurrentVersion(gomock.Any()).Return("", expectedError)
+		mockUpgrader.EXPECT().GetUpgradeStatus(gomock.Any()).Return("failed to upgrade", nil)
 		mockUpgrader.EXPECT().IsDesiredVersionUpdated(gomock.Any(), desiredVersion).Return(true, nil)
 		mockUpgrader.EXPECT().UpdateClusterVersionDesiredUpdate(ctx, desiredVersion, gomock.Any(), gomock.Any()).Return(nil)
 
@@ -494,8 +505,8 @@ var _ = Describe("Upgrade scenarios", func() {
 		condition := conditions.Get(openshiftAssistedControlPlane, controlplanev1alpha2.UpgradeCompletedCondition)
 		Expect(condition).NotTo(BeNil())
 		Expect(condition.Status).To(Equal(corev1.ConditionFalse))
-		Expect(condition.Reason).To(Equal(controlplanev1alpha2.UpgradeInProgressReason))
-		Expect(condition.Message).To(Equal("upgrade to version 4.15.0 in progress"))
+		Expect(condition.Reason).To(Equal(controlplanev1alpha2.UpgradeFailedReason))
+		Expect(condition.Message).To(Equal("upgrade to version 4.15.0 has failed\nfailed to upgrade"))
 	})
 
 	It("should handle upgrade with repository override", func() {
@@ -506,8 +517,9 @@ var _ = Describe("Upgrade scenarios", func() {
 		Expect(k8sClient.Update(ctx, openshiftAssistedControlPlane)).To(Succeed())
 
 		mockUpgradeFactory.EXPECT().NewUpgrader(gomock.Any()).Return(mockUpgrader, nil)
-		mockUpgrader.EXPECT().IsUpgradeInProgress(gomock.Any()).Return(false, nil)
+		mockUpgrader.EXPECT().IsUpgradeInProgress(gomock.Any()).Return(true, nil) // should this be successfully starting upgrade?
 		mockUpgrader.EXPECT().GetCurrentVersion(gomock.Any()).Return(currentVersion, nil)
+		mockUpgrader.EXPECT().GetUpgradeStatus(gomock.Any()).Return("", nil)
 		mockUpgrader.EXPECT().IsDesiredVersionUpdated(gomock.Any(), desiredVersion).Return(false, nil)
 		expectedParams := []upgrade.ClusterUpgradeOption{
 			{Name: upgrade.ReleaseImagePullSecretOption, Value: "{\"auths\":{\"fake-pull-secret\":{\"auth\":\"cGxhY2Vob2xkZXI6c2VjcmV0Cg==\"}}}"},
@@ -528,6 +540,7 @@ var _ = Describe("Upgrade scenarios", func() {
 		condition := conditions.Get(openshiftAssistedControlPlane, controlplanev1alpha2.UpgradeCompletedCondition)
 		Expect(condition).NotTo(BeNil())
 		Expect(condition.Status).To(Equal(corev1.ConditionFalse))
+		Expect(condition.Message).To(Equal("upgrade to version 4.15.0 in progress\n"))
 	})
 })
 

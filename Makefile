@@ -76,6 +76,8 @@ test: manifests generate fmt vet envtest ## Run tests.
 
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter & yamllint
+	go clean -modcache
+	$(GOLANGCI_LINT) cache clean 
 	$(GOLANGCI_LINT) run
 
 .PHONY: lint-fix

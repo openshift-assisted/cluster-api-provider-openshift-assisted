@@ -18,7 +18,32 @@
     format: "%02x"
   failed_when: false
 
+- name: Undefine VMs with list of flags
+  community.libvirt.virt:
+    command: undefine
+    name: "bmh-vm-{{ item }}"
+    flags: nvram
+  with_sequence:
+    count: "{{ number_of_nodes }}"
+    format: "%02x"
+
+- name: Delete a storage pool (destroys contents)
+  community.libvirt.virt_pool:
+    command: delete
+    name: capcoa
+
+- name: Undefine a storage pool
+  community.libvirt.virt_pool:
+    command: undefine
+    name: capcoa
+
 - name: Remove existing network if present
   community.libvirt.virt_net:
     state: absent
     name: bmh
+
+- name: Restore original /etc/resolv.conf
+  ansible.built.in.copy:
+    mode: '0644'
+    src: /etc/resolv.conf.orig
+    dest: /etc/resolv.conf

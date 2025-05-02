@@ -8,6 +8,7 @@ WORKDIR /opt/app-root/src
 # Copy the Go Modules manifests
 COPY go.mod go.mod
 COPY go.sum go.sum
+
 COPY vendor vendor
 
 # Copy the go source

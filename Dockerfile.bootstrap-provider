@@ -3,10 +3,21 @@ FROM registry.access.redhat.com/ubi9/go-toolset:1.23 AS builder
 ARG TARGETOS
 ARG TARGETARCH
 
-ENV USER_UID=1001 \
-    USER_NAME=openshift-assisted
-COPY --chown=${USER_UID} . /workspace
-WORKDIR /workspace
+WORKDIR /opt/app-root/src
+
+# Copy the Go Modules manifests
+COPY go.mod go.mod
+COPY go.sum go.sum
+COPY vendor vendor
+
+# Copy the go source
+COPY bootstrap/main.go bootstrap/main.go
+COPY bootstrap/api/ bootstrap/api/
+COPY controlplane/api/ controlplane/api/
+COPY util util
+COPY pkg pkg
+COPY assistedinstaller assistedinstaller
+COPY bootstrap/internal/ bootstrap/internal/
 
 # Build
 # the GOARCH has not a default value to allow the binary be built according to the host where the command
@@ -17,7 +28,7 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64} go build -
 
 FROM registry.access.redhat.com/ubi9/ubi-minimal:latest
 WORKDIR /
-COPY --from=builder /workspace/manager .
+COPY --from=builder /opt/app-root/src/manager .
 USER 65532:65532
 
 ENTRYPOINT ["/manager"]

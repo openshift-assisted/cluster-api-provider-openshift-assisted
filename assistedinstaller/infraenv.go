@@ -32,7 +32,6 @@ func GetInfraEnvFromConfig(
 		infraEnv.Labels[clusterv1.ClusterNameLabel] = clusterName
 	}
 
-	//TODO: create logic for placeholder pull secret
 	var pullSecret *corev1.LocalObjectReference
 	if config.Spec.PullSecretRef != nil {
 		pullSecret = config.Spec.PullSecretRef

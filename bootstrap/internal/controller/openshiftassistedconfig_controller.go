@@ -223,6 +223,18 @@ func (r *OpenshiftAssistedConfigReconciler) Reconcile(ctx context.Context, req c
 		return ctrl.Result{Requeue: true, RequeueAfter: 60 * time.Second}, nil
 	}
 
+	// ensure there's a pull-secret referenced in the configuration. If none linked by the user, we should generate a fake one
+	if config.Spec.PullSecretRef == nil {
+		secret := assistedinstaller.GenerateFakePullSecret("", config.Namespace)
+		if err := controllerutil.SetOwnerReference(config, secret, r.Scheme); err != nil {
+			return ctrl.Result{Requeue: true}, err
+		}
+		if err := r.Client.Create(ctx, secret); err != nil && !apierrors.IsAlreadyExists(err) {
+			return ctrl.Result{Requeue: true}, err
+		}
+		config.Spec.PullSecretRef = &corev1.LocalObjectReference{Name: secret.Name}
+	}
+
 	if err := r.ensureInfraEnv(ctx, config, machine, clusterDeployment); err != nil {
 		conditions.MarkFalse(
 			config,
@@ -251,7 +263,7 @@ func (r *OpenshiftAssistedConfigReconciler) Reconcile(ctx context.Context, req c
 		log.V(logutil.TraceLevel).Info("error retrieving ignition", "err", err)
 		return ctrl.Result{}, err
 	}
-	log.V(logutil.TraceLevel).Info("ignition retrieved", "ignition", ignition)
+	log.V(logutil.TraceLevel).Info("ignition retrieved", "bytes", len(ignition))
 
 	secret, err := r.createUserDataSecret(ctx, config, ignition)
 	if err != nil {
@@ -327,13 +339,29 @@ func (r *OpenshiftAssistedConfigReconciler) ensureInfraEnv(ctx context.Context, 
 		return fmt.Errorf("no infraenv name for machine %s/%s", machine.Namespace, machine.Name)
 	}
 
-	infraEnv := assistedinstaller.GetInfraEnvFromConfig(infraEnvName, config, clusterDeployment)
-	_ = controllerutil.SetOwnerReference(config, infraEnv, r.Scheme)
-	_ = controllerutil.SetOwnerReference(machine, infraEnv, r.Scheme)
+	infraEnv := &aiv1beta1.InfraEnv{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      infraEnvName,
+			Namespace: config.Namespace,
+		},
+	}
 
-	err := r.Client.Create(ctx, infraEnv)
-	if err != nil && !apierrors.IsAlreadyExists(err) {
-		log.V(logutil.DebugLevel).Error(err, "infra env error", "name", infraEnv.Name, "namespace", infraEnv.Namespace)
+	mutate := func() error {
+		ie := assistedinstaller.GetInfraEnvFromConfig(infraEnvName, config, clusterDeployment)
+
+		// TODO: if pullsecretref is different, we need to regenerate ignition
+		infraEnv.Spec = ie.Spec
+		infraEnv.Labels = ie.Labels
+		infraEnv.Annotations = ie.Annotations
+		_ = controllerutil.SetOwnerReference(config, infraEnv, r.Scheme)
+		_ = controllerutil.SetOwnerReference(machine, infraEnv, r.Scheme)
+		log.Info("update infraenv", "infraenv", infraEnv)
+		return nil
+	}
+	op, err := ctrl.CreateOrUpdate(ctx, r.Client, infraEnv, mutate)
+
+	if err != nil {
+		log.V(logutil.DebugLevel).Error(err, "infra env error", "name", infraEnv.Name, "namespace", infraEnv.Namespace, "operation_result", op)
 		// something went wrong, let's not exist because we might be able to read it and reference it in the status
 	}
 

@@ -24,12 +24,16 @@
   </ip>
   <dnsmasq:options>
     <dnsmasq:option value='local=/lab.home/'/>
-    <dnsmasq:option value='address=/api.test-sno.lab.home/192.168.222.31'/>
-    <dnsmasq:option value='address=/api-int.test-sno.lab.home/192.168.222.31'/>
-    <dnsmasq:option value='address=/.apps.test-sno.lab.home/192.168.222.31'/>
-    <dnsmasq:option value='address=/api.test-multinode.lab.home/192.168.222.40'/>
-    <dnsmasq:option value='address=/api-int.test-multinode.lab.home/192.168.222.40'/>
-    <dnsmasq:option value='address=/.apps.test-multinode.lab.home/192.168.222.41'/>
+{% if 'sno' in cluster_topology %}
+    <dnsmasq:option value='address=/api.test-{{ cluster_topology }}.lab.home/192.168.222.31'/>
+    <dnsmasq:option value='address=/api-int.test-{{ cluster_topology }}.lab.home/192.168.222.31'/>
+    <dnsmasq:option value='address=/.apps.test-{{ cluster_topology }}.lab.home/192.168.222.31'/>
+{% endif %}
+{% if 'multinode' in cluster_topology %}
+    <dnsmasq:option value='address=/api.test-{{ cluster_topology }}.lab.home/192.168.222.40'/>
+    <dnsmasq:option value='address=/api-int.test-{{ cluster_topology }}.lab.home/192.168.222.40'/>
+    <dnsmasq:option value='address=/.apps.test-{{ cluster_topology }}.lab.home/192.168.222.41'/>
+{% endif %}
     <dnsmasq:option value='address=/assisted-service.assisted-installer.com/{{ loadbalancer_ip }}'/>
     <dnsmasq:option value='address=/assisted-image.assisted-installer.com/{{ loadbalancer_ip }}'/>
     <dnsmasq:option value='server=/registry-proxy.engineering.redhat.com/10.11.5.160'/>

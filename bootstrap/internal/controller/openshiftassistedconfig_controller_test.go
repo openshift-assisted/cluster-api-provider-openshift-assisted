@@ -24,6 +24,8 @@ import (
 	"net/http/httptest"
 	"strings"
 
+	"k8s.io/apimachinery/pkg/types"
+
 	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/assistedinstaller"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -276,8 +278,6 @@ var _ = Describe("OpenshiftAssistedConfig Controller", func() {
 					})
 					Expect(err).To(BeNil())
 
-					//Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(oac), oac)).To(Succeed())
-					//assertBootstrapReady(oac)
 					secret := corev1.Secret{}
 					Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(oac), &secret)).To(Succeed())
 					Expect(len(secret.Data)).To(Equal(2))
@@ -292,6 +292,34 @@ var _ = Describe("OpenshiftAssistedConfig Controller", func() {
 				})
 			},
 		)
+		When("a pull secret is not referenced in the OpenshiftAssistedConfig", func() {
+			It("should generate a fake pull secret and reference it in the config", func() {
+
+				oac := setupControlPlaneOpenshiftAssistedConfig(ctx, k8sClient)
+				mockControlPlaneInitialization(ctx, k8sClient)
+
+				oac.Spec.PullSecretRef = nil // Ensure no pull secret is referenced
+				Expect(k8sClient.Update(ctx, oac)).To(Succeed())
+
+				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: client.ObjectKeyFromObject(oac),
+				})
+				Expect(err).NotTo(HaveOccurred())
+
+				// Verify that a pull secret is created
+				secret := &corev1.Secret{}
+				Expect(k8sClient.Get(ctx, types.NamespacedName{
+					Namespace: oac.Namespace,
+					Name:      "placeholder-pull-secret",
+				}, secret)).To(Succeed())
+				Expect(secret.Data).To(HaveKey(".dockerconfigjson"))
+
+				// Verify that the pull secret is referenced in the OpenshiftAssistedConfig
+				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(oac), oac)).To(Succeed())
+				Expect(oac.Spec.PullSecretRef).NotTo(BeNil())
+				Expect(oac.Spec.PullSecretRef.Name).To(Equal("placeholder-pull-secret"))
+			})
+		})
 		When(
 			"InfraEnv, ClusterDeployment and AgentClusterInstall are already created, internal URLs are expected",
 			func() {

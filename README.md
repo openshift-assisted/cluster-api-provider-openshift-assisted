@@ -1,4 +1,4 @@
-# Cluster API OpenShift Assisted providers
+# Cluster API Providers OpenShift Assisted (CAPOA)
 
 This repository contains two Cluster API (CAPI) providers—Bootstrap and Control Plane—that work together to provision OpenShift clusters using the Assisted Installer technology.
 
@@ -41,22 +41,349 @@ This project contains two separate providers that operate in tandem:
 - kubectl version v1.11.3+.
 - Access to a Kubernetes v1.11.3+ cluster.
 
-### Installation
-To configure clusterctl with the OpenShift Agent providers, edit `~/.cluster-api/clusterctl.yaml` and add the following:
+# Usage
+
+## Prerequisites
+
+1. **Cluster Environment**:
+  - A bootstrap Kubernetes cluster (e.g., a `kind` instance).
+  - Ensure `kubectl` is configured to interact with the cluster.
+  - optional:
+
+2. **Pull Secret (OCP only)**:
+  - For OCP, ensure you have a valid pull secret. This is not required for OKD.
+  - The pull secret can be retrieved from [Red Hat OpenShift Console](https://console.redhat.com/openshift/install/pull-secret).
+
+---
+
+## Steps to Deploy
+
+### 1. Prepare Bootstrap Cluster
+
+Create a bootstrap cluster using `kind` or any other method. For example:
+
+```bash
+kind create cluster --name bootstrap
+```
+
+### 2. Install `clusterctl`
+
+`clusterctl` simplifies the process of managing providers. To install it, follow the [official documentation](https://cluster-api.sigs.k8s.io/user/quick-start#install-clusterctl).
+
+To configure `clusterctl` with the OpenShift Agent providers, edit `~/.cluster-api/clusterctl.yaml` and add the following:
 
 ```yaml
-  - name: "openshift-agent"
+providers:
+  - name: "openshift-assisted"
     url: "https://github.com/openshift-assisted/cluster-api-provider-openshift-assisted/releases/latest/download/bootstrap-components.yaml"
     type: "BootstrapProvider"
-  - name: "openshift-agent"
+  - name: "openshift-assisted"
     url: "https://github.com/openshift-assisted/cluster-api-provider-openshift-assisted/releases/latest/download/controlplane-components.yaml"
     type: "ControlPlaneProvider"
 ```
 
-After this we will be able to initialize clusterctl:
+### 3. Install CAPOA Dependencies
+
+OpenShift Assisted CAPI providers rely on the Assisted Installer running on the bootstrap cluster. To install the Assisted Installer, run the following command:
+
 ```bash
-clusterctl init --bootstrap openshift-agent --control-plane openshift-agent -i  metal3:v1.7.0
+TODO: command to deploy assisted installer.
 ```
+
+### 4. Install Providers
+
+You can install all providers in one go using `clusterctl`, assuming the `clusterctl.yaml` file is configured correctly:
+
+```bash
+clusterctl init --core cluster-api:v1.9.4 --bootstrap openshift-assisted --control-plane openshift-assisted --infrastructure metal3:v1.9.2
+```
+
+Alternatively, install only the core components and infrastructure provider, then manually install the control plane and bootstrap providers:
+
+```bash
+clusterctl init --core cluster-api:v1.9.4 --bootstrap - --control-plane - --infrastructure metal3:v1.9.2
+kubectl apply -f bootstrap-components.yaml
+kubectl apply -f controlplane-components.yaml
+```
+
+> **Note**: This example uses CAPM3 (Cluster API Provider Metal3) as the infrastructure provider. Refer to the [CAPM3 documentation](https://book.metal3.io/capm3/installation_guide) for more details.
+
+#### Configuration
+
+The following environment variables can be overridden for the bootstrap provider:
+
+| Environment Variable | Description | Default |
+|-----------------------| --------------| --------|
+| `USE_INTERNAL_IMAGE_URL` | Enables the bootstrap controller to use the internal IP of assisted-image-service. The internal IP is used in place of the default URL of the live ISO provided by assisted-service to boot hosts. | `"false"`| 
+| `IMAGE_SERVICE_NAME` | Name of the Service CR for assisted-image-service. This contains the internal IP of the assisted-image-service | `assisted-image-service` |
+| `IMAGE_SERVICE_NAMESPACE` | Namespace that the assisted-image-service's Service CR is in | Defaults to the namespace the bootstrap provider is running in if unset|
+
+
+### 5. Provision Workload Cluster
+
+Once all providers and their dependencies are installed, you can provision a new cluster.
+
+#### Create CAPI Resources
+
+##### Configure Cluster
+
+The following YAML defines a `Cluster` resource. It specifies the cluster network, control plane, and infrastructure references.
+
+```yaml
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: Cluster
+metadata:
+  name: test-multinode-okd
+  namespace: test-capi
+spec:
+  clusterNetwork:
+    pods:
+      cidrBlocks:
+        - 172.18.0.0/20
+    services:
+      cidrBlocks:
+        - 10.96.0.0/12
+  controlPlaneRef:
+    apiVersion: controlplane.cluster.x-k8s.io/v1alpha2
+    kind: OpenshiftAssistedControlPlane
+    name: test-multinode-okd
+    namespace: test-capi
+  infrastructureRef:
+    apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+    kind: Metal3Cluster
+    name: test-multinode-okd
+    namespace: test-capi
+```
+
+```yaml
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: Metal3Cluster
+metadata:
+  name: test-multinode-okd
+  namespace: test-capi
+spec:
+  controlPlaneEndpoint:
+    host: test-multinode-okd.lab.home
+    port: 6443
+  noCloudProvider: true
+```
+
+##### Nodes Boot Images
+
+The following boot images are supported:
+
+- **OKD Clusters**: Use SCOS images from [CentOS Stream](https://cloud.centos.org/centos/scos/9/prod/streams/latest/x86_64/).
+- **OCP Clusters**: Use RHCOS images from [OpenShift Mirror](https://mirror.openshift.com/pub/openshift-v4/dependencies/rhcos/).
+
+##### OKD/OCP Version
+
+Specify the version of OKD or OCP in the `distributionVersion` field of the `OpenshiftAssistedControlPlane` resource.
+
+##### OCP Configuration
+
+For OCP, set the `pullSecretRef` field to the name of the secret containing the pull secret. This is required in multiple locations:
+- `.spec.config.pullSecretRef` and `.spec.openshiftAssistedConfigSpec.pullSecretRef` in the `OpenshiftAssistedControlPlane` resource.
+- `.spec.template.spec.pullSecretRef` in any `OpenshiftAssistedConfigTemplate` attached to MachineSets.
+
+##### Configure Control Plane Nodes
+
+The following YAML defines the control plane configuration, including the distribution version, API VIPs, and SSH keys.
+
+- `.spec.config.sshAuthorizedKey` can be used to access the provisioned OpenShift Nodes
+- `.spec.openshiftAssistedConfigSpec.sshAuthorizedKey` can be used to access nodes in the boot (also known as discovery) phase.
+
+For a exhaustive list of configuration options, refer to the exposed APIs:
+- For controlplane specific config [OpenshiftAssistedControlPlane](./controlplane/api/v1alpha2/openshiftassistedcontrolplane_types.go) - `.spec.config`
+- For bootstrap config [OpenshiftAssistedConfig](./bootstrap/api/v1alpha1/openshiftassistedconfig_types.go) - `.spec.openshiftAssistedConfig`
+
+```yaml
+apiVersion: controlplane.cluster.x-k8s.io/v1alpha2
+kind: OpenshiftAssistedControlPlane
+metadata:
+  name: test-multinode-okd
+  namespace: test-capi
+  annotations: {}
+spec:
+  openshiftAssistedConfigSpec:
+    sshAuthorizedKey: "{{ ssh_authorized_key }}"
+    nodeRegistration:
+      kubeletExtraLabels:
+      - 'metal3.io/uuid="${METADATA_UUID}"'
+  distributionVersion: 4.19.0-okd-scos.ec.6
+  config:
+    apiVIPs:
+    - 192.168.222.40
+    ingressVIPs:
+    - 192.168.222.41
+    baseDomain: lab.home
+    pullSecretRef:
+      name: "pull-secret"
+    sshAuthorizedKey: "{{ ssh_authorized_key }}"
+  machineTemplate:
+    infrastructureRef:
+      apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+      kind: Metal3MachineTemplate
+      name: test-multinode-okd-controlplane
+      namespace: test-capi
+  replicas: 3
+```
+
+The following YAML defines the infrastructure provider configuration for controlplane nodes. For more info check the [CAPM3 official documentation](https://book.metal3.io/capm3/introduction.html)
+```yaml
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: Metal3MachineTemplate
+metadata:
+  name: test-multinode-okd-controlplane
+  namespace: test-capi
+spec:
+  nodeReuse: false
+  template:
+    spec:
+      automatedCleaningMode: disabled
+      dataTemplate:
+        name: test-multinode-okd-controlplane-template
+      image:
+        checksum: https://cloud.centos.org/centos/scos/9/prod/streams/latest/x86_64/sha256sum.txt
+        checksumType: sha256
+        url: https://cloud.centos.org/centos/scos/9/prod/streams/latest/x86_64/scos-9.0.20250411-0-nutanix.x86_64.qcow2
+        format: qcow2
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: Metal3DataTemplate
+metadata:
+   name: test-multinode-okd-controlplane-template
+   namespace: test-capi
+spec:
+   clusterName: test-multinode-okd
+```
+
+#### Configure Workers Nodes
+
+To configure worker nodes, you can use the `MachineDeployment` resource. The following YAML defines a `MachineDeployment` for worker nodes, including the bootstrap configuration and infrastructure reference.
+
+```yaml
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: MachineDeployment
+metadata:
+  name: test-multinode-okd-worker
+  namespace: test-capi
+  labels:
+    cluster.x-k8s.io/cluster-name: test-multinode-okd
+spec:
+  clusterName: test-multinode-okd
+  replicas: 2
+  selector:
+    matchLabels:
+      cluster.x-k8s.io/cluster-name: test-multinode-okd
+  template:
+    metadata:
+      labels:
+        cluster.x-k8s.io/cluster-name: test-multinode-okd
+    spec:
+      clusterName: test-multinode-okd
+      bootstrap:
+        configRef:
+          name: test-multinode-okd-worker
+          apiVersion: bootstrap.cluster.x-k8s.io/v1alpha1
+          kind: OpenshiftAssistedConfigTemplate
+      infrastructureRef:
+        name: test-multinode-okd-workers-2
+        apiVersion: infrastructure.cluster.x-k8s.io/v1alpha3
+        kind: Metal3MachineTemplate
+```
+
+
+The following YAML defines the bootstrap configuration for worker nodes. This is used to register the nodes with the OpenShift Assisted Installer.
+Notice how we are labeling the nodes through kubelet labels: this is [required by CAPM3](https://github.com/metal3-io/cluster-api-provider-metal3/blob/main/docs/deployment_workflow.md#requirements)
+The METADATA_UUID env var is being loaded on the node, and can be leveraged by this templating.
+
+```yaml
+apiVersion: bootstrap.cluster.x-k8s.io/v1alpha1
+kind: OpenshiftAssistedConfigTemplate
+metadata:
+  name: test-multinode-okd-worker
+  namespace: test-capi
+  labels:
+    cluster.x-k8s.io/cluster-name: test-multinode-okd
+spec:
+  template:
+    spec:
+      nodeRegistration:
+        kubeletExtraLabels:
+          - 'metal3.io/uuid="${METADATA_UUID}"'
+      sshAuthorizedKey: "{{ ssh_authorized_key }}"
+```
+
+
+The following YAML defines the infrastructure provider configuration for worker nodes. For more info check the [CAPM3 official documentation](https://book.metal3.io/capm3/introduction.html)
+```yaml
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: Metal3MachineTemplate
+metadata:
+   name: test-multinode-okd-workers-2
+   namespace: test-capi
+spec:
+   nodeReuse: false
+   template:
+      spec:
+         automatedCleaningMode: metadata
+         dataTemplate:
+            name: test-multinode-okd-workers-template
+         image:
+            checksum: https://cloud.centos.org/centos/scos/9/prod/streams/latest/x86_64/sha256sum.txt
+            checksumType: sha256
+            url: https://cloud.centos.org/centos/scos/9/prod/streams/latest/x86_64/scos-9.0.20250411-0-nutanix.x86_64.qcow2
+            format: qcow2
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: Metal3DataTemplate
+metadata:
+   name: test-multinode-okd-workers-template
+   namespace: test-capi
+spec:
+   clusterName: test-multinode-okd
+```
+
+### 6. Apply the Configuration
+
+Save the above YAML configurations in a file named `cluster.yaml`. Ensure that you replace the placeholders (e.g., `{{ ssh_authorized_key }}`) with actual values.
+Apply the configuration using `kubectl`:
+
+```bash
+kubectl apply -f cluster.yaml
+```
+
+### 7. Monitor the Cluster
+
+You can monitor the status of the cluster and its components using `kubectl`:
+
+```bash
+kubectl get oacp -n test-capi
+```
+
+### 8. Access the Cluster
+
+Once the cluster is up and running, you can retrieve the kubeconfig file for the new cluster using:
+
+```bash
+clusterctl -n test-capi get kubeconfig test-sno > kubeconfig
+```
+
+You can then use this kubeconfig file to access the cluster:
+
+```bash 
+export KUBECONFIG=kubeconfig
+kubectl get nodes
+```
+
+# Developper guide
+
+## Architecture Design
+
+TODO: Outdated, need to update
+
+[Detailed architecture design](./docs/architecture_design.md)
+
 
 ## Using the Makefile
 
@@ -88,184 +415,6 @@ This will create:
 ```sh
 make docker-build-all
 ```
-
-## Per host data
-
-Host data will be injected in the host through environment variables.
-We can use them as shown below:
-
-```
-nodeRegistration:
-  name: '${METADATA_NAME}'
-  kubeletExtraLabels:
-  - 'metal3.io/uuid="${METADATA_NMETAL3_NAMESPACE}/${METADATA_NMETAL3_NAME}/${METADATA_UUID}"'
-```
-
-## Architecture Design
-
-[Detailed architecture design](./docs/architecture_design.md)
-### To Deploy on the cluster
-**Build and push your image to the location specified by `IMG`:**
-
-```sh
-make docker-build docker-push IMG=<some-registry>/cluster-api-agent:tag
-```
-
-**NOTE:** This image ought to be published in the personal registry you specified.
-And it is required to have access to pull the image from the working environment.
-Make sure you have the proper permission to the registry if the above commands don’t work.
-
-**Install the CRDs into the cluster:**
-
-```sh
-make install-all
-```
-
-**Deploy the Manager to the cluster with the image specified by `IMG`:**
-
-```sh
-make deploy IMG=<some-registry>/cluster-api-agent:tag
-```
-
-> **NOTE**: If you encounter RBAC errors, you may need to grant yourself cluster-admin
-privileges or be logged in as admin.
-
-**Create instances of your solution**
-You can apply the samples (examples) from the config/sample:
-
-```sh
-kubectl apply -k config/samples/
-```
-
->**NOTE**: Ensure that the samples has default values to test it out.
-
-## Deploy on vanilla Kubernetes
-This provider is configured to deploy on [Red Hat OpenShift](https://www.redhat.com/en/technologies/cloud-computing/openshift) (OCP) by default.
-
-To deploy this provider on vanilla Kubernetes, the following must be done:
-
-### Prerequisites
-
-A vanilla Kubernetes such as [Kind](https://kind.sigs.k8s.io/) must be deployed and you must be authenticated to the cluster.
-
-In addition to the prerequisites section above, the following services are required on your cluster before installing this provider.
-
-1. Install [Assisted-Service operator](https://github.com/openshift/assisted-service/blob/master/docs/dev/operator-on-kind.md)
-2. Install [CAPI](https://cluster-api.sigs.k8s.io/user/quick-start.html)
-3. Install [CAPM3](https://book.metal3.io/capm3/installation_guide)
-
-The following CLI tools are required:
-
-1. [kustomize](https://kubectl.docs.kubernetes.io/installation/kustomize/)
-
-
-### Deploy Providers
-
-Create kustomize files for the providers
-
-**Bootstrap Provider**
-```bash
-mkdir -p bootstrap
-cat <<EOF > bootstrap/kustomization.yaml
-apiVersion: kustomize.config.k8s.io/v1beta1
-kind: Kustomization
-resources:
-- https://github.com/openshift-assisted/cluster-api-provider-openshift-assisted/bootstrap/config/default?ref=master
-
-patches:
-- patch: |-
-    - op: add
-      path: "/spec/template/spec/containers/1/env/-"
-      value:
-        name: USE_INTERNAL_IMAGE_URL
-        value: "true"
-  target:
-    group: apps
-    version: v1
-    kind: Deployment
-    namespace: system
-    name: controller-manager
-EOF
-```
-
-_NOTE_: The `path` for the patch is fragile, ensure that the container index is correct.
-
-The overrides listed in the [Configuration](#configuration) section below can also be patched here.
-
-**Control Plane Provider**
-
-```bash
-mkdir -p controlplane
-cat <<EOF > controlplane/kustomization.yaml
-apiVersion: kustomize.config.k8s.io/v1beta1
-kind: Kustomization
-resources:
-- https://github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/config/default?ref=master
-EOF
-```
-
-Run the following to define and create the CRs for the controllers:
-```bash
-kustomize build bootstrap > bootstrap_config.yaml
-kustomize build controlplane > controlplane_config.yaml
-
-kubectl apply -f bootstrap_config.yaml
-kubectl apply -f controlplane_config.yaml
-```
-
-### Configuration
-
-The following environment variables can be overridden for the bootstrap provider:
-
-| Environment Variable | Description | Default |
-|-----------------------| --------------| --------|
-| `USE_INTERNAL_IMAGE_URL` | Enables the bootstrap controller to use the internal IP of assisted-image-service. The internal IP is used in place of the default URL of the live ISO provided by assisted-service to boot hosts. | `"false"`| 
-| `IMAGE_SERVICE_NAME` | Name of the Service CR for assisted-image-service. This contains the internal IP of the assisted-image-service | `assisted-image-service` |
-| `IMAGE_SERVICE_NAMESPACE` | Namespace that the assisted-image-service's Service CR is in | Defaults to the namespace the bootstrap provider is running in if unset|
-
-
-### To Uninstall
-**Delete the instances (CRs) from the cluster:**
-
-```sh
-kubectl delete -k config/samples/
-```
-
-**Delete the APIs(CRDs) from the cluster:**
-
-```sh
-make uninstall
-```
-
-**UnDeploy the controller from the cluster:**
-
-```sh
-make undeploy
-```
-
-## Project Distribution
-
-Following are the steps to build the installer and distribute this project to users.
-
-1. Build the installer for the image built and published in the registry:
-
-```sh
-make build-installer IMG=<some-registry>/cluster-api-agent:tag
-```
-
-NOTE: The makefile target mentioned above generates an 'install.yaml'
-file in the dist directory. This file contains all the resources built
-with Kustomize, which are necessary to install this project without
-its dependencies.
-
-2. Using the installer
-
-Users can just run kubectl apply -f <URL for YAML BUNDLE> to install the project, i.e.:
-
-```sh
-kubectl apply -f https://raw.githubusercontent.com/<org>/cluster-api-agent/<tag or branch>/dist/install.yaml
-```
-## Development
 
 ### E2E testing
 

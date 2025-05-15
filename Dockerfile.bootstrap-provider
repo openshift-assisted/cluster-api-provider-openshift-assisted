@@ -28,6 +28,19 @@ COPY bootstrap/internal/ bootstrap/internal/
 RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64} go build -mod=vendor -a -o manager bootstrap/main.go
 
 FROM registry.access.redhat.com/ubi9/ubi-minimal:latest
+
+ENV SUMMARY="The OpenShift Assisted bootstrap provider for use when installing OpenShift using CAPI" \
+    DESCRIPTION="The OpenShift Assisted bootstrap provider implements the CAPI bootstrap provider contract and allows installing OpenShift by integrating with Assisted Installer"
+
+
+LABEL name="cluster-api-provider-openshift-assisted-bootstrap" \
+      summary="${SUMMARY}" \
+      description="${DESCRIPTION}" \
+      com.redhat.component="cluster-api-provider-openshift-assisted-bootstrap" \
+      io.k8s.display-name="OpenShift Assisted cluster API bootstrap provider" \
+      io.k8s.description="${DESCRIPTION}" \
+      io.openshift.tags="install,cluster,provisioning"
+
 WORKDIR /
 COPY --from=builder /opt/app-root/src/manager .
 USER 65532:65532

@@ -102,9 +102,6 @@ type OpenshiftAssistedConfigStatus struct {
 	// AgentRef references the agent this agent bootstrap config has booted
 	AgentRef *corev1.LocalObjectReference `json:"agentRef,omitempty"`
 
-	// ISODownloadURL is the url for the live-iso to be downloaded from Assisted Installer
-	ISODownloadURL string `json:"isoDownloadURL,omitempty"`
-
 	// Ready indicates the BootstrapData field is ready to be consumed
 	// +optional
 	Ready bool `json:"ready"`

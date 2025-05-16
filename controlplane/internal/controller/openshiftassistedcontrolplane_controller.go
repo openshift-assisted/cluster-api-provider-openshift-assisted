@@ -22,6 +22,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/assistedinstaller"
+
 	semver "github.com/blang/semver/v4"
 
 	bootstrapv1alpha1 "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/bootstrap/api/v1alpha1"
@@ -65,7 +67,6 @@ const (
 	minOpenShiftVersion               = "4.14.0"
 	openshiftAssistedControlPlaneKind = "OpenshiftAssistedControlPlane"
 	acpFinalizer                      = "openshiftassistedcontrolplane." + controlplanev1alpha2.Group + "/deprovision"
-	placeholderPullSecretName         = "placeholder-pull-secret"
 )
 
 // OpenshiftAssistedControlPlaneReconciler reconciles a OpenshiftAssistedControlPlane object
@@ -801,7 +802,7 @@ func (r *OpenshiftAssistedControlPlaneReconciler) ensurePullSecret(
 		return nil
 	}
 
-	secret := auth.GenerateFakePullSecret(placeholderPullSecretName, acp.Namespace)
+	secret := assistedinstaller.GenerateFakePullSecret("", acp.Namespace)
 	if err := controllerutil.SetOwnerReference(acp, secret, r.Scheme); err != nil {
 		return err
 	}

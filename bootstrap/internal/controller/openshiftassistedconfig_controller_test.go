@@ -24,6 +24,8 @@ import (
 	"net/http/httptest"
 	"strings"
 
+	"k8s.io/apimachinery/pkg/types"
+
 	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/assistedinstaller"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -205,22 +207,22 @@ var _ = Describe("OpenshiftAssistedConfig Controller", func() {
 			})
 		})
 		When("ClusterDeployment and AgentClusterInstall are already created", func() {
-			It("should create infraenv with an empty ISO URL", func() {
+			It("should create infraenv with a CreatedAt time not past cooldown", func() {
 				oac := setupControlPlaneOpenshiftAssistedConfig(ctx, k8sClient)
 				mockControlPlaneInitialization(ctx, k8sClient)
 
 				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
 					NamespacedName: client.ObjectKeyFromObject(oac),
 				})
-				Expect(err).NotTo(HaveOccurred())
+				Expect(err).To(MatchError("infraenv not ready yet. CreatedTime: <nil>"))
 				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(oac), oac)).To(Succeed())
 				dataSecretReadyCondition := conditions.Get(oac,
 					bootstrapv1alpha1.DataSecretAvailableCondition,
 				)
 				Expect(dataSecretReadyCondition).NotTo(BeNil())
-				Expect(dataSecretReadyCondition.Reason).To(Equal(bootstrapv1alpha1.WaitingForLiveISOURLReason))
+				Expect(dataSecretReadyCondition.Reason).To(Equal(bootstrapv1alpha1.InfraEnvCooldownReason))
 
-				assertInfraEnvWithEmptyISOURL(ctx, k8sClient, oac)
+				assertThereAreMatchingInfraEnvs(ctx, k8sClient, oac)
 			})
 		})
 		When(
@@ -230,10 +232,9 @@ var _ = Describe("OpenshiftAssistedConfig Controller", func() {
 					oac := setupControlPlaneOpenshiftAssistedConfig(ctx, k8sClient)
 					mockControlPlaneInitialization(ctx, k8sClient)
 
+					infraEnv := testutils.NewInfraEnv(namespace, machineName)
 					// InfraEnv with no eventsURL
-					Expect(k8sClient.Create(ctx, testutils.NewInfraEnv(namespace, machineName))).To(Succeed())
-					oac.Status.ISODownloadURL = isoExampleURL
-					Expect(k8sClient.Status().Update(ctx, oac)).To(Succeed())
+					Expect(k8sClient.Create(ctx, infraEnv)).To(Succeed())
 
 					_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
 						NamespacedName: client.ObjectKeyFromObject(oac),
@@ -268,16 +269,11 @@ var _ = Describe("OpenshiftAssistedConfig Controller", func() {
 					infraEnv.Status.InfraEnvDebugInfo.EventsURL = server.URL + "/api/assisted-install/v2/events?api_key=eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJpbmZyYV9lbnZfaWQiOiJlNmY1NTc5My05NWY4LTQ4NGUtODNmMy1hYzMzZjA1ZjI3NGIifQ.HCwlge7dTI8tUR2FC3YPhfIk7hG2p0tcbV1AzaZ2V_o-5lackqPHV18Ai3wPYnUPFLSgtW4-SnL28QsZRW82Vg&infra_env_id=e6f55793-95f8-484e-83f3-ac33f05f274b"
 					Expect(k8sClient.Status().Update(ctx, infraEnv)).To(Succeed())
 
-					oac.Status.ISODownloadURL = isoExampleURL
-					Expect(k8sClient.Status().Update(ctx, oac)).To(Succeed())
-
 					_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
 						NamespacedName: client.ObjectKeyFromObject(oac),
 					})
 					Expect(err).To(BeNil())
 
-					//Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(oac), oac)).To(Succeed())
-					//assertBootstrapReady(oac)
 					secret := corev1.Secret{}
 					Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(oac), &secret)).To(Succeed())
 					Expect(len(secret.Data)).To(Equal(2))
@@ -292,6 +288,40 @@ var _ = Describe("OpenshiftAssistedConfig Controller", func() {
 				})
 			},
 		)
+		When("a pull secret is not referenced in the OpenshiftAssistedConfig", func() {
+			It("should generate a fake pull secret and reference it in the infraenv", func() {
+
+				oac := setupControlPlaneOpenshiftAssistedConfig(ctx, k8sClient)
+				mockControlPlaneInitialization(ctx, k8sClient)
+
+				oac.Spec.PullSecretRef = nil // Ensure no pull secret is referenced
+				Expect(k8sClient.Update(ctx, oac)).To(Succeed())
+
+				infraEnv := testutils.NewInfraEnv(namespace, machineName)
+				infraEnv.Status.CreatedTime = nil
+				Expect(k8sClient.Create(ctx, infraEnv)).To(Succeed())
+
+				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: client.ObjectKeyFromObject(oac),
+				})
+				Expect(err).To(MatchError("infraenv not ready yet. CreatedTime: <nil>"))
+
+				// Verify that a pull secret is created
+				secret := &corev1.Secret{}
+				Expect(k8sClient.Get(ctx, types.NamespacedName{
+					Namespace: oac.Namespace,
+					Name:      "placeholder-pull-secret",
+				}, secret)).To(Succeed())
+				Expect(secret.Data).To(HaveKey(".dockerconfigjson"))
+
+				// Verify that the pull secret is referenced in the infraEnv, but not in the config
+				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(infraEnv), infraEnv)).To(Succeed())
+				Expect(infraEnv.Spec.PullSecretRef).NotTo(BeNil())
+				Expect(infraEnv.Spec.PullSecretRef.Name).To(Equal("placeholder-pull-secret"))
+				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(oac), oac)).To(Succeed())
+				Expect(oac.Spec.PullSecretRef).To(BeNil())
+			})
+		})
 		When(
 			"InfraEnv, ClusterDeployment and AgentClusterInstall are already created, internal URLs are expected",
 			func() {
@@ -327,19 +357,15 @@ var _ = Describe("OpenshiftAssistedConfig Controller", func() {
 					mockControlPlaneInitialization(ctx, k8sClient)
 					infraEnv := testutils.NewInfraEnv(namespace, machineName)
 					Expect(k8sClient.Create(ctx, infraEnv)).To(Succeed())
+
 					infraEnv.Status.InfraEnvDebugInfo.EventsURL = "http://assisted-service.assisted-installer.com/api/assisted-install/v2/events?api_key=eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJpbmZyYV9lbnZfaWQiOiJlNmY1NTc5My05NWY4LTQ4NGUtODNmMy1hYzMzZjA1ZjI3NGIifQ.HCwlge7dTI8tUR2FC3YPhfIk7hG2p0tcbV1AzaZ2V_o-5lackqPHV18Ai3wPYnUPFLSgtW4-SnL28QsZRW82Vg&infra_env_id=e6f55793-95f8-484e-83f3-ac33f05f274b"
 					Expect(k8sClient.Status().Update(ctx, infraEnv)).To(Succeed())
-
-					oac.Status.ISODownloadURL = isoExampleURL
-					Expect(k8sClient.Status().Update(ctx, oac)).To(Succeed())
 
 					_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
 						NamespacedName: client.ObjectKeyFromObject(oac),
 					})
 					Expect(err).To(BeNil())
 
-					//Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(oac), oac)).To(Succeed())
-					//assertBootstrapReady(oac)
 					secret := corev1.Secret{}
 					Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(oac), &secret)).To(Succeed())
 					Expect(len(secret.Data)).To(Equal(2))
@@ -357,7 +383,7 @@ var _ = Describe("OpenshiftAssistedConfig Controller", func() {
 	})
 })
 
-func assertInfraEnvWithEmptyISOURL(
+func assertThereAreMatchingInfraEnvs(
 	ctx context.Context,
 	k8sClient client.Client,
 	oac *bootstrapv1alpha1.OpenshiftAssistedConfig,
@@ -371,9 +397,6 @@ func assertInfraEnvWithEmptyISOURL(
 	Expect(oac.Status.InfraEnvRef).ToNot(BeNil())
 
 	assertInfraEnvSpecs(infraEnv, oac)
-
-	Expect(infraEnv.Status.ISODownloadURL).To(Equal(""))
-	Expect(oac.Status.ISODownloadURL).To(Equal(""))
 }
 
 func assertInfraEnvSpecs(infraEnv v1beta1.InfraEnv, oac *bootstrapv1alpha1.OpenshiftAssistedConfig) {

@@ -21,10 +21,11 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/assistedinstaller"
+
 	metal3v1beta1 "github.com/metal3-io/cluster-api-provider-metal3/api/v1beta1"
 	"github.com/openshift/assisted-service/api/v1beta1"
 
-	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/internal/auth"
 	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/internal/release"
 	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/internal/upgrade"
 	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/internal/version"
@@ -154,7 +155,7 @@ var _ = Describe("OpenshiftAssistedControlPlane Controller", func() {
 			It("should successfully create a cluster deployment and match OpenshiftAssistedControlPlane properties", func() {
 				By("setting the cluster as the owner ref on the OpenshiftAssistedControlPlane")
 
-				pullSecret := auth.GenerateFakePullSecret("my-pullsecret", namespace)
+				pullSecret := assistedinstaller.GenerateFakePullSecret("my-pullsecret", namespace)
 				Expect(k8sClient.Create(ctx, pullSecret)).To(Succeed())
 
 				kubeconfigSecret := &corev1.Secret{
@@ -237,7 +238,7 @@ var _ = Describe("OpenshiftAssistedControlPlane Controller", func() {
 
 				By("checking that the fake pull secret was created")
 				pullSecret := &corev1.Secret{}
-				err = k8sClient.Get(ctx, types.NamespacedName{Name: placeholderPullSecretName, Namespace: namespace}, pullSecret)
+				err = k8sClient.Get(ctx, types.NamespacedName{Name: "placeholder-pull-secret", Namespace: namespace}, pullSecret)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(pullSecret).NotTo(BeNil())
 				Expect(pullSecret.Data).NotTo(BeNil())
@@ -249,7 +250,7 @@ var _ = Describe("OpenshiftAssistedControlPlane Controller", func() {
 				Expect(err).NotTo(HaveOccurred())
 				Expect(cd).NotTo(BeNil())
 				Expect(cd.Spec.PullSecretRef).NotTo(BeNil())
-				Expect(cd.Spec.PullSecretRef.Name).To(Equal(placeholderPullSecretName))
+				Expect(cd.Spec.PullSecretRef.Name).To(Equal("placeholder-pull-secret"))
 
 			})
 		})

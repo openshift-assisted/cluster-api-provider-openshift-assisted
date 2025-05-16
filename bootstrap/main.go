@@ -21,6 +21,8 @@ import (
 	"flag"
 	"os"
 
+	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/bootstrap/api/v1alpha1"
+
 	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/assistedinstaller"
 
 	"github.com/kelseyhightower/envconfig"
@@ -117,6 +119,9 @@ func main() {
 
 	webhookServer := webhook.NewServer(webhook.Options{
 		TLSOpts: tlsOpts,
+		Port:    9443,
+		Host:    "0.0.0.0",
+		CertDir: "/tmp/k8s-webhook-server/serving-certs",
 	})
 
 	clientConfig := ctrl.GetConfigOrDie()
@@ -172,14 +177,11 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "OpenshiftAssistedConfig")
 		os.Exit(1)
 	}
-	if err = (&controller.InfraEnvReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-		Config: Options.AssistedInstallerServiceConfig,
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "InfraEnv")
+	if err = (&v1alpha1.OpenshiftAssistedConfig{}).SetupWebhookWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create webhook", "webhook", "OpenshiftAssistedConfig")
 		os.Exit(1)
 	}
+
 	if err = (&controller.AgentReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),

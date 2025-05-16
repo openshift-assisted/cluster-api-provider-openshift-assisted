@@ -3,6 +3,8 @@ package auth
 import (
 	"testing"
 
+	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/assistedinstaller"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -20,7 +22,7 @@ var _ = Describe("GenerateFakePullSecret", func() {
 	)
 
 	It("should successfully generate a fake pull secret", func() {
-		secret := GenerateFakePullSecret(pullSecretName, pullSecretNamespace)
+		secret := assistedinstaller.GenerateFakePullSecret(pullSecretName, pullSecretNamespace)
 		Expect(secret).NotTo(BeNil())
 		Expect(secret.Data).To(HaveKey(".dockerconfigjson"))
 	})

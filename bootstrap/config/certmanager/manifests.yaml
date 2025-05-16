@@ -1,0 +1,23 @@
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: selfsigned-issuer
+  namespace: capoa-bootstrap-system
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: bootstrap-cert
+  namespace: capoa-bootstrap-system
+spec:
+  secretName: webhook-cert-secret
+  duration: 8760h # 1 year
+  renewBefore: 360h # 15 days
+  commonName: webhook-service.capoa-bootstrap-system.svc
+  dnsNames:
+    - webhook-service.capoa-bootstrap-system.svc
+  issuerRef:
+    name: selfsigned-issuer
+    kind: Issuer

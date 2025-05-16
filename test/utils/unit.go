@@ -1,6 +1,8 @@
 package utils
 
 import (
+	"time"
+
 	"github.com/metal3-io/baremetal-operator/apis/metal3.io/v1alpha1"
 	metal3 "github.com/metal3-io/cluster-api-provider-metal3/api/v1beta1"
 	v1alpha2 "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/bootstrap/api/v1alpha1"
@@ -201,7 +203,7 @@ func NewInfraEnv(namespace, name string) *v1beta1.InfraEnv {
 			Name:      name,
 		},
 		Status: v1beta1.InfraEnvStatus{
-			ISODownloadURL: "example.com/foobar/?api_key=abcde1234567890",
+			CreatedTime: &metav1.Time{Time: time.Now().Add(-2 * time.Minute)},
 		},
 	}
 }

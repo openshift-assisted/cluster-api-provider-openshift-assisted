@@ -24,6 +24,8 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/util"
+
 	"github.com/go-logr/logr"
 
 	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/assistedinstaller"
@@ -59,6 +61,7 @@ import (
 
 const (
 	openshiftAssistedConfigFinalizer = "openshiftassistedconfig." + bootstrapv1alpha1.Group + "/deprovision"
+	InfraEnvIgnitionCooldownPeriod   = 60 * time.Second
 )
 
 // OpenshiftAssistedConfigReconciler reconciles a OpenshiftAssistedConfig object
@@ -223,7 +226,8 @@ func (r *OpenshiftAssistedConfigReconciler) Reconcile(ctx context.Context, req c
 		return ctrl.Result{Requeue: true, RequeueAfter: 60 * time.Second}, nil
 	}
 
-	if err := r.ensureInfraEnv(ctx, config, machine, clusterDeployment); err != nil {
+	infraEnv, err := r.ensureInfraEnv(ctx, config, machine, clusterDeployment)
+	if err != nil {
 		conditions.MarkFalse(
 			config,
 			bootstrapv1alpha1.DataSecretAvailableCondition,
@@ -233,20 +237,29 @@ func (r *OpenshiftAssistedConfigReconciler) Reconcile(ctx context.Context, req c
 		)
 		return ctrl.Result{}, err
 	}
+	log.V(logutil.DebugLevel).Info("infraenv detected", "infraEnv", infraEnv.Name)
 
-	if config.Status.ISODownloadURL == "" {
-		conditions.MarkFalse(
-			config,
-			bootstrapv1alpha1.DataSecretAvailableCondition,
-			bootstrapv1alpha1.WaitingForLiveISOURLReason,
-			clusterv1.ConditionSeverityInfo,
-			"",
-		)
+	s := &corev1.Secret{}
+	if err := r.Get(ctx, getSecretObjectKey(config), s); !apierrors.IsNotFound(err) && config.Status.Ready {
+		log.V(logutil.TraceLevel).Info("bootstrap config ready and secret already created")
 		return ctrl.Result{}, nil
 	}
 
-	// once ISODownloadURL is ready, we know we can query ignition
-	ignition, err := r.getIgnition(ctx, machine, log)
+	if infraEnv.Status.CreatedTime == nil || !hasIgnitionCooldownPeriodExpired(infraEnv.Status.CreatedTime.Time) {
+		log.V(logutil.TraceLevel).Info("infraenv not ready yet", "infraEnv", infraEnv.Status)
+
+		conditions.MarkFalse(
+			config,
+			bootstrapv1alpha1.DataSecretAvailableCondition,
+			bootstrapv1alpha1.InfraEnvCooldownReason,
+			clusterv1.ConditionSeverityInfo,
+			"",
+		)
+		return ctrl.Result{}, fmt.Errorf("infraenv not ready yet. CreatedTime: %v", infraEnv.Status.CreatedTime)
+	}
+
+	// If created time on infraenv is set, check that cooldown period has passed
+	ignition, err := r.getIgnition(ctx, infraEnv, log)
 	if err != nil {
 		log.V(logutil.TraceLevel).Info("error retrieving ignition", "err", err)
 		return ctrl.Result{}, err
@@ -273,23 +286,15 @@ func (r *OpenshiftAssistedConfigReconciler) Reconcile(ctx context.Context, req c
 	return ctrl.Result{}, rerr
 }
 
-func (r *OpenshiftAssistedConfigReconciler) getIgnition(ctx context.Context, machine *clusterv1.Machine, log logr.Logger) ([]byte, error) {
-	infraEnvName := getInfraEnvName(machine)
-	infraEnv := aiv1beta1.InfraEnv{}
-	if err := r.Client.Get(
-		ctx,
-		types.NamespacedName{
-			Namespace: machine.Namespace,
-			Name:      infraEnvName,
-		},
-		&infraEnv,
-	); err != nil {
-		return nil, err
-	}
+func hasIgnitionCooldownPeriodExpired(t time.Time) bool {
+	return t.Add(InfraEnvIgnitionCooldownPeriod).Before(time.Now())
+}
 
-	ignitionURL, err := assistedinstaller.GetIgnitionURLFromInfraEnv(r.AssistedInstallerConfig, infraEnv)
+func (r *OpenshiftAssistedConfigReconciler) getIgnition(ctx context.Context, infraEnv *aiv1beta1.InfraEnv, log logr.Logger) ([]byte, error) {
+
+	ignitionURL, err := assistedinstaller.GetIgnitionURLFromInfraEnv(r.AssistedInstallerConfig, *infraEnv)
 	if err != nil {
-		log.V(logutil.TraceLevel).Info("failed to retrieve ignition", "config", r.AssistedInstallerConfig, "machine", machine.Name)
+		log.V(logutil.TraceLevel).Info("failed to retrieve ignition", "config", r.AssistedInstallerConfig, "infraEnv", infraEnv.Name)
 		return nil, fmt.Errorf("error while retrieving ignitionURL: %w", err)
 	}
 
@@ -319,18 +324,45 @@ func (r *OpenshiftAssistedConfigReconciler) getIgnitionBytes(ctx context.Context
 }
 
 // Ensures InfraEnv exists
-func (r *OpenshiftAssistedConfigReconciler) ensureInfraEnv(ctx context.Context, config *bootstrapv1alpha1.OpenshiftAssistedConfig, machine *clusterv1.Machine, clusterDeployment *hivev1.ClusterDeployment) error {
+func (r *OpenshiftAssistedConfigReconciler) ensureInfraEnv(ctx context.Context, config *bootstrapv1alpha1.OpenshiftAssistedConfig, machine *clusterv1.Machine, clusterDeployment *hivev1.ClusterDeployment) (*aiv1beta1.InfraEnv, error) {
 	log := ctrl.LoggerFrom(ctx)
 
 	infraEnvName := getInfraEnvName(machine)
 	if infraEnvName == "" {
-		return fmt.Errorf("no infraenv name for machine %s/%s", machine.Namespace, machine.Name)
+		return nil, fmt.Errorf("no infraenv name for machine %s/%s", machine.Namespace, machine.Name)
+	}
+	// check if infraEnv already created
+	ie := aiv1beta1.InfraEnv{}
+
+	getInfraEnvErr := r.Get(ctx, types.NamespacedName{Name: infraEnvName, Namespace: config.Namespace}, &ie)
+
+	// return error if the error is not NotFound
+	if getInfraEnvErr != nil && !apierrors.IsNotFound(getInfraEnvErr) {
+		return &ie, getInfraEnvErr
 	}
 
+	// if infraEnv already exists, make sure it already has pullSecretRef
+	if getInfraEnvErr == nil && ie.Spec.PullSecretRef != nil {
+		return &ie, nil
+	}
+
+	// if pullsecret ref is not set, create a new secret
+	if getInfraEnvErr == nil && ie.Spec.PullSecretRef == nil {
+		if err := r.createPullSecretSecretAndRefInfraEnv(ctx, config, &ie); err != nil {
+			return &ie, err
+		}
+		return &ie, r.Client.Update(ctx, &ie)
+	}
+
+	// if infraEnv does not exist and does not have pullSecretRef, create it
 	infraEnv := assistedinstaller.GetInfraEnvFromConfig(infraEnvName, config, clusterDeployment)
+	if infraEnv.Spec.PullSecretRef == nil {
+		if err := r.createPullSecretSecretAndRefInfraEnv(ctx, config, infraEnv); err != nil {
+			return infraEnv, err
+		}
+	}
 	_ = controllerutil.SetOwnerReference(config, infraEnv, r.Scheme)
 	_ = controllerutil.SetOwnerReference(machine, infraEnv, r.Scheme)
-
 	err := r.Client.Create(ctx, infraEnv)
 	if err != nil && !apierrors.IsAlreadyExists(err) {
 		log.V(logutil.DebugLevel).Error(err, "infra env error", "name", infraEnv.Name, "namespace", infraEnv.Namespace)
@@ -341,9 +373,24 @@ func (r *OpenshiftAssistedConfigReconciler) ensureInfraEnv(ctx context.Context, 
 	if config.Status.InfraEnvRef == nil {
 		ref, err := reference.GetReference(r.Scheme, infraEnv)
 		if err != nil {
-			return err
+			return infraEnv, err
 		}
 		config.Status.InfraEnvRef = ref
+	}
+	return infraEnv, nil
+}
+
+func (r *OpenshiftAssistedConfigReconciler) createPullSecretSecretAndRefInfraEnv(ctx context.Context, config *bootstrapv1alpha1.OpenshiftAssistedConfig, ie *aiv1beta1.InfraEnv) error {
+	secret := assistedinstaller.GenerateFakePullSecret("", config.Namespace)
+	if err := controllerutil.SetOwnerReference(config, secret, r.Scheme); err != nil {
+		return err
+	}
+	if err := r.Client.Create(ctx, secret); err != nil && !apierrors.IsAlreadyExists(err) {
+		return err
+	}
+
+	ie.Spec.PullSecretRef = &corev1.LocalObjectReference{
+		Name: secret.Name,
 	}
 	return nil
 }
@@ -387,7 +434,7 @@ func (r *OpenshiftAssistedConfigReconciler) getClusterDeployment(
 // Creates UserData secret
 func (r *OpenshiftAssistedConfigReconciler) createUserDataSecret(ctx context.Context, config *bootstrapv1alpha1.OpenshiftAssistedConfig, ignition []byte) (*corev1.Secret, error) {
 	secret := &corev1.Secret{}
-	if err := r.Client.Get(ctx, client.ObjectKey{Namespace: config.Namespace, Name: config.Name}, secret); err != nil {
+	if err := r.Client.Get(ctx, getSecretObjectKey(config), secret); err != nil {
 		if !apierrors.IsNotFound(err) {
 			return nil, err
 		}
@@ -407,6 +454,10 @@ func (r *OpenshiftAssistedConfigReconciler) createUserDataSecret(ctx context.Con
 		}
 	}
 	return secret, nil
+}
+
+func getSecretObjectKey(config *bootstrapv1alpha1.OpenshiftAssistedConfig) client.ObjectKey {
+	return client.ObjectKey{Namespace: config.Namespace, Name: config.Name}
 }
 
 // Deletes child resources (Agent) and removes finalizer
@@ -461,7 +512,27 @@ func (r *OpenshiftAssistedConfigReconciler) SetupWithManager(mgr ctrl.Manager) e
 			&hivev1.ClusterDeployment{},
 			&handler.EnqueueRequestForObject{},
 		).
+		Watches(
+			&aiv1beta1.InfraEnv{},
+			handler.EnqueueRequestsFromMapFunc(r.FilterInfraEnv),
+		).
 		Complete(r)
+}
+
+// Filter infraEnv to be relevant  by this openshiftassistedconfig
+func (r *OpenshiftAssistedConfigReconciler) FilterInfraEnv(ctx context.Context, o client.Object) []ctrl.Request {
+	result := []ctrl.Request{}
+	infraEnv, ok := o.(*aiv1beta1.InfraEnv)
+	if !ok {
+		panic(fmt.Sprintf("Expected an InfraEnv but got a %T", o))
+	}
+	config := &bootstrapv1alpha1.OpenshiftAssistedConfig{}
+	if err := util.GetTypedOwner(ctx, r.Client, infraEnv, config); err != nil {
+		return result
+	}
+	// if owner is bootstrapConfig, let's reconcile it
+	result = append(result, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(config)})
+	return result
 }
 
 // Filter machine owned by this openshiftassistedconfig

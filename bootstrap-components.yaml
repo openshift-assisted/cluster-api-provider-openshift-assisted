@@ -318,10 +318,6 @@ spec:
                     type: string
                 type: object
                 x-kubernetes-map-type: atomic
-              isoDownloadURL:
-                description: ISODownloadURL is the url for the live-iso to be downloaded
-                  from Assisted Installer
-                type: string
               observedGeneration:
                 description: ObservedGeneration is the latest generation observed
                   by the controller.
@@ -751,6 +747,19 @@ subjects:
   name: capoa-bootstrap-controller-manager
   namespace: capoa-bootstrap-system
 ---
+apiVersion: v1
+kind: Service
+metadata:
+  name: webhook-service
+  namespace: capoa-bootstrap-system
+spec:
+  ports:
+  - port: 443
+    protocol: TCP
+    targetPort: 9443
+  selector:
+    control-plane: capoa-bootstrap-controller-manager
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -803,7 +812,67 @@ spec:
           capabilities:
             drop:
             - ALL
+        volumeMounts:
+        - mountPath: /tmp/k8s-webhook-server/serving-certs/
+          name: certs
       securityContext:
         runAsNonRoot: true
       serviceAccountName: capoa-bootstrap-controller-manager
       terminationGracePeriodSeconds: 10
+      volumes:
+      - name: certs
+        secret:
+          secretName: webhook-cert-secret
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: bootstrap-cert
+  namespace: capoa-bootstrap-system
+spec:
+  commonName: webhook-service.capoa-bootstrap-system.svc
+  dnsNames:
+  - webhook-service.capoa-bootstrap-system.svc
+  duration: 8760h
+  issuerRef:
+    kind: Issuer
+    name: selfsigned-issuer
+  renewBefore: 360h
+  secretName: webhook-cert-secret
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: selfsigned-issuer
+  namespace: capoa-bootstrap-system
+spec:
+  selfSigned: {}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  annotations:
+    cert-manager.io/inject-ca-from: capoa-bootstrap-system/bootstrap-cert
+  name: validating-webhook-configuration
+webhooks:
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: capoa-bootstrap-system
+      path: /validate-bootstrap-cluster-x-k8s-io-v1alpha1-openshiftassistedconfig
+  failurePolicy: Fail
+  name: validation.openshiftassistedconfig.bootstrap.cluster.x-k8s.io
+  rules:
+  - apiGroups:
+    - bootstrap.cluster.x-k8s.io
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    - DELETE
+    resources:
+    - openshiftassistedconfigs
+  sideEffects: None

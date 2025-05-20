@@ -32,9 +32,9 @@ if [ -z "$INSTALLATION_TOKEN" ]; then
 fi
 
 export GITHUB_APP_PRIVATE_KEY=$(cat ${GITHUB_APP_PRIVATE_KEY_PATH})
+export GITHUB_TOKEN="$INSTALLATION_TOKEN"
 repo_url="https://x-access-token:${INSTALLATION_TOKEN}@github.com/openshift-assisted/cluster-api-provider-openshift-assisted.git"
 git remote add "${CI_REMOTE_NAME:-versions_management}" "$repo_url"
 git remote set-url "${CI_REMOTE_NAME:-versions_management}" "$repo_url"
 git config --global user.name "CAPI version automation"
 git config --global user.email "capi-openshift-assisted@redhat.com"
-

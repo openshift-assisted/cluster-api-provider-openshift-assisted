@@ -13,10 +13,11 @@ fi
 python "$SCRIPT_DIR/version_discovery.py" "${ARGS[@]}"
 
 if [ "${DRY_RUN:-false}" != true ]; then
-    git remote add origin https://github.com/openshift-assisted/cluster-api-provider-openshift-assisted
-    git remote set-url --push origin https://github.com/openshift-assisted/cluster-api-provider-openshift-assisted
+    BRANCH="version-discovery-$(date '+%Y-%m-%d-%H-%M')"
+    git checkout -b $BRANCH
     git add release-candidates.yaml
     git commit -m "Update release candidates"
-    git push origin HEAD:master
+    git push -u versions-management $BRANCH
+    gh pr create --title "Update release candidates" --body "Automated PR to update release candidates" --base master
 fi
 

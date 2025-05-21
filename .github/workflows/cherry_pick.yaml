@@ -1,5 +1,5 @@
 ---
-name: Fast Forward Branch
+name: Cherry-Pick from Master
 
 on:
   push:
@@ -22,8 +22,8 @@ jobs:
       - name: Fetch all branches
         run: git fetch --all
 
-      - name: Attempt fast-forward $TARGET_BRANCH to master
+      - name: Cherry-pick master commits into  ${{ env.TARGET_BRANCH }}
         run: |
           git checkout "${TARGET_BRANCH}"
-          git merge --ff-only origin/master
+          git cherry-pick $(git rev-list --reverse --no-merges ${TARGET_BRANCH}..origin/master)
           git push origin "${TARGET_BRANCH}"

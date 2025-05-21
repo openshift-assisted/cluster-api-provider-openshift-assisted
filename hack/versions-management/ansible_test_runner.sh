@@ -4,14 +4,14 @@ set -o pipefail
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
-source "$SCRIPT_DIR/github_auth.sh"
-
 ARGS=()
 if [ "${DRY_RUN:-false}" = "true" ]; then
   ARGS+=(--dry-run)
 fi
 
 python "$SCRIPT_DIR/ansible_test_runner.py" "${ARGS[@]}"
+
+source "$SCRIPT_DIR/github_auth.sh"
 
 if [ "${DRY_RUN:-false}" = true ]; then
     echo "Ansible test runner has finished successfully"

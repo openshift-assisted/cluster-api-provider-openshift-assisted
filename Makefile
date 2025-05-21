@@ -94,16 +94,16 @@ e2e-test: e2e-test-dependencies
 versions-management-dependencies:
 	pip install -r hack/versions-management/requirements.txt
 
-.PHONY: snapshots-test versions-management-dependencies
-snapshots-test: e2e-test-dependencies
+.PHONY: snapshots-test
+snapshots-test: e2e-test-dependencies versions-management-dependencies
 	DRY_RUN=$(DRY_RUN) bash hack/versions-management/ansible_test_runner.sh
 
-.PHONY: version-discovery versions-management-dependencies
-version-discovery:
+.PHONY: version-discovery
+version-discovery: versions-management-dependencies
 	DRY_RUN=$(DRY_RUN) bash hack/versions-management/version_discovery.sh
 
-.PHONY: tags-reconciliation versions-management-dependencies
-tags-reconciliation:
+.PHONY: tags-reconciliation
+tags-reconciliation: versions-management-dependencies
 	DRY_RUN=$(DRY_RUN) bash hack/versions-management/tag_reconciler.sh
 
 .PHONY: ansible-lint

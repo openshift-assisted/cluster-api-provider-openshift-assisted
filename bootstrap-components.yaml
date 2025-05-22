@@ -750,7 +750,7 @@ subjects:
 apiVersion: v1
 kind: Service
 metadata:
-  name: webhook-service
+  name: capoa-bootstrap-webhook-service
   namespace: capoa-bootstrap-system
 spec:
   ports:
@@ -822,28 +822,28 @@ spec:
       volumes:
       - name: certs
         secret:
-          secretName: webhook-cert-secret
+          secretName: capoa-bootstrap-webhook-cert-secret
 ---
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
-  name: bootstrap-cert
+  name: capoa-bootstrap-cert
   namespace: capoa-bootstrap-system
 spec:
-  commonName: webhook-service.capoa-bootstrap-system.svc
+  commonName: capoa-bootstrap-webhook-service.capoa-bootstrap-system.svc
   dnsNames:
-  - webhook-service.capoa-bootstrap-system.svc
+  - capoa-bootstrap-webhook-service.capoa-bootstrap-system.svc
   duration: 8760h
   issuerRef:
     kind: Issuer
-    name: selfsigned-issuer
+    name: capoa-bootstrap-selfsigned-issuer
   renewBefore: 360h
-  secretName: webhook-cert-secret
+  secretName: capoa-bootstrap-webhook-cert-secret
 ---
 apiVersion: cert-manager.io/v1
 kind: Issuer
 metadata:
-  name: selfsigned-issuer
+  name: capoa-bootstrap-selfsigned-issuer
   namespace: capoa-bootstrap-system
 spec:
   selfSigned: {}
@@ -852,14 +852,14 @@ apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingWebhookConfiguration
 metadata:
   annotations:
-    cert-manager.io/inject-ca-from: capoa-bootstrap-system/bootstrap-cert
-  name: validating-webhook-configuration
+    cert-manager.io/inject-ca-from: capoa-bootstrap-system/capoa-bootstrap-cert
+  name: capoa-bootstrap-validating-webhook-configuration
 webhooks:
 - admissionReviewVersions:
   - v1
   clientConfig:
     service:
-      name: webhook-service
+      name: capoa-bootstrap-webhook-service
       namespace: capoa-bootstrap-system
       path: /validate-bootstrap-cluster-x-k8s-io-v1alpha1-openshiftassistedconfig
   failurePolicy: Fail

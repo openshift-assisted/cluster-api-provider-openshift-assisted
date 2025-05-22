@@ -24,6 +24,8 @@ jobs:
 
       - name: Cherry-pick master commits into  ${{ env.TARGET_BRANCH }}
         run: |
+          git config --global user.email "capi-openshift-assisted@redhat.com"
+          git config --global user.name "CAPOA GitHub Action"
           git checkout "${TARGET_BRANCH}"
           git cherry-pick $(git rev-list --reverse --no-merges ${TARGET_BRANCH}..origin/master)
           git push origin "${TARGET_BRANCH}"

@@ -18,30 +18,19 @@ def snapshots_file(tmp_path):
 
 
 @pytest.fixture
-def default_artifact():
-    return Artifact(
-        repository="https://github.com/foo/bar",
-        ref="abc123",
-        name="foo/bar",
-        versioning_selection_mechanism="release"
-    )
-
-
-@pytest.fixture
-def service(snapshots_file, default_artifact):
+def service(snapshots_file):
     with patch("core.services.ansible_test_runner_service.AnsibleClient"), \
          patch("core.services.ansible_test_runner_service.ReleaseCandidateRepository"):
-        svc = AnsibleTestRunnerService(snapshots_file)
+        svc = AnsibleTestRunnerService(file_path=snapshots_file, pending_snapshot_id="rc-20250310-001")
         svc.logger = MagicMock()
         svc.ansible.run_playbook = MagicMock()
-        svc.repo.find_all.return_value = [
-            Snapshot(
-                metadata=SnapshotMetadata(
-                    id="abc", generated_at=datetime.now(), status="pending"
-                ),
-                artifacts=[default_artifact]
-            )
-        ]
+        svc.repo.find_by_id.return_value = Snapshot(
+            metadata=SnapshotMetadata(
+                id="abc", generated_at=datetime.now(), status="pending", tested_with_ref="ref"
+            ),
+            artifacts=get_artifacts()
+        )
+        
         return svc
 
 def test_test_runner_success(service):
@@ -57,30 +46,10 @@ def test_test_runner_failure(service):
     assert updated.metadata.status == "failed"
 
 @pytest.fixture
-def service_with_no_pending(snapshots_file, default_artifact):
-    with patch("core.services.ansible_test_runner_service.AnsibleClient"), \
-         patch("core.services.ansible_test_runner_service.ReleaseCandidateRepository"):
-        svc = AnsibleTestRunnerService(snapshots_file)
-        svc.logger = MagicMock()
-        
-        # no pending snapshots
-        svc.repo.find_all.return_value = [
-            Snapshot(
-                metadata=SnapshotMetadata(
-                    id="abc", generated_at=datetime.now(), status="successful"
-                ),
-                artifacts=[default_artifact]
-            )
-        ]
-        
-        return svc
-
-
-@pytest.fixture
 def service_with_pending(snapshots_file):
     with patch("core.services.ansible_test_runner_service.AnsibleClient"), \
          patch("core.services.ansible_test_runner_service.ReleaseCandidateRepository"):
-        service = AnsibleTestRunnerService(snapshots_file)
+        service = AnsibleTestRunnerService(file_path=snapshots_file, pending_snapshot_id="rc-20250310-001")
         service.logger = MagicMock()
         service.ansible.run_playbook = MagicMock()
         
@@ -89,78 +58,11 @@ def service_with_pending(snapshots_file):
                 metadata=SnapshotMetadata(
                     id="abc", generated_at=datetime.now(), status="pending"
                 ),
-                artifacts=[
-                    Artifact(
-                        repository="https://github.com/kubernetes-sigs/cluster-api",
-                        ref="ref",
-                        name="kubernetes-sigs/cluster-api",
-                        versioning_selection_mechanism="release"
-                    ),
-                    Artifact(
-                        repository="https://github.com/metal3-io/cluster-api-provider-metal3",
-                        ref="ref",
-                        name="metal3-io/cluster-api-provider-metal3",
-                        versioning_selection_mechanism="release"
-                    ),
-                    Artifact(
-                        repository="https://github.com/openshift/assisted-service",
-                        ref="ref",
-                        name="openshift/assisted-service",
-                        versioning_selection_mechanism="commit",
-                        image_url="quay.io/edge-infrastructure/assisted-service",
-                        image_digest="sha256:ref"
-                    ),
-                    Artifact(
-                        repository="https://github.com/openshift/assisted-service",
-                        ref="ref",
-                        name="openshift/assisted-service-el8",
-                        versioning_selection_mechanism="commit",
-                        image_url="quay.io/edge-infrastructure/assisted-service-el8",
-                        image_digest="sha256:ref"
-                    ),
-                    Artifact(
-                        repository="https://github.com/openshift/assisted-image-service",
-                        ref="ref",
-                        name="openshift/assisted-image-service",
-                        versioning_selection_mechanism="commit",
-                        image_url="quay.io/edge-infrastructure/assisted-image-service",
-                        image_digest="sha256:ref"
-                    ),
-                    Artifact(
-                        repository="https://github.com/openshift/assisted-installer-agent",
-                        ref="ref",
-                        name="openshift/assisted-installer-agent",
-                        versioning_selection_mechanism="commit",
-                        image_url="quay.io/edge-infrastructure/assisted-installer-agent",
-                        image_digest="sha256:ref"
-                    ),
-                    Artifact(
-                        repository="https://github.com/openshift/assisted-installer",
-                        ref="ref",
-                        name="openshift/assisted-installer-controller",
-                        versioning_selection_mechanism="commit",
-                        image_url="quay.io/edge-infrastructure/assisted-installer-controller",
-                        image_digest="sha256:ref"
-                    ),
-                    Artifact(
-                        repository="https://github.com/openshift/assisted-installer",
-                        ref="ref",
-                        name="openshift/assisted-installer",
-                        versioning_selection_mechanism="commit",
-                        image_url="quay.io/edge-infrastructure/assisted-installer",
-                        image_digest="sha256:ref"
-                    )
-                ]
+                artifacts=get_artifacts()
             )
         ]
         
         return service
-
-
-def test_no_pending_snapshots(service_with_no_pending):
-    service_with_no_pending.run()
-    assert not service_with_no_pending.ansible.run_playbook.called
-    assert "No pending snapshot found" in service_with_no_pending.logger.info.call_args[0][0]
 
 
 def test_export_env_variables(service_with_pending):
@@ -183,28 +85,94 @@ def test_export_env_variables(service_with_pending):
         assert os.environ.get("ASSISTED_INSTALLER_VERSION") == "sha256:ref" 
 
 
-def test_successful_test_run(service_with_pending):
-    service_with_pending.run()
+def test_successful_test_run(service):
+    service.run()
     
     # Verify playbook was run
-    service_with_pending.ansible.run_playbook.assert_called_with(
+    service.ansible.run_playbook.assert_called_with(
         "test/playbooks/run_test.yaml", "test/playbooks/inventories/remote_host.yaml"
     )
     
     # Verify snapshot was updated
-    assert service_with_pending.repo.update.call_count == 1
-    updated_snapshot = service_with_pending.repo.update.call_args[0][0]
+    assert service.repo.update.call_count == 1
+    updated_snapshot = service.repo.update.call_args[0][0]
     assert updated_snapshot.metadata.status == "successful"
     assert len(updated_snapshot.artifacts) == 8
 
 
-def test_failed_test_run(service_with_pending):
-    service_with_pending.ansible.run_playbook.side_effect = RuntimeError("Ansible test failed")
+def test_failed_test_run(service):
+    service.ansible.run_playbook.side_effect = RuntimeError("Ansible test failed")
     
-    service_with_pending.run()
+    service.run()
     
     # Verify snapshot was updated with failed status
-    assert service_with_pending.repo.update.call_count == 1
-    updated_snapshot = service_with_pending.repo.update.call_args[0][0]
+    assert service.repo.update.call_count == 1
+    updated_snapshot = service.repo.update.call_args[0][0]
     
     assert updated_snapshot.metadata.status == "failed"
+
+
+
+def get_artifacts():
+    return [
+        Artifact(
+            repository="https://github.com/kubernetes-sigs/cluster-api",
+            ref="ref",
+            name="kubernetes-sigs/cluster-api",
+            versioning_selection_mechanism="release"
+        ),
+        Artifact(
+            repository="https://github.com/metal3-io/cluster-api-provider-metal3",
+            ref="ref",
+            name="metal3-io/cluster-api-provider-metal3",
+            versioning_selection_mechanism="release"
+        ),
+        Artifact(
+            repository="https://github.com/openshift/assisted-service",
+            ref="ref",
+            name="openshift/assisted-service",
+            versioning_selection_mechanism="commit",
+            image_url="quay.io/edge-infrastructure/assisted-service",
+            image_digest="sha256:ref"
+        ),
+        Artifact(
+            repository="https://github.com/openshift/assisted-service",
+            ref="ref",
+            name="openshift/assisted-service-el8",
+            versioning_selection_mechanism="commit",
+            image_url="quay.io/edge-infrastructure/assisted-service-el8",
+            image_digest="sha256:ref"
+        ),
+        Artifact(
+            repository="https://github.com/openshift/assisted-image-service",
+            ref="ref",
+            name="openshift/assisted-image-service",
+            versioning_selection_mechanism="commit",
+            image_url="quay.io/edge-infrastructure/assisted-image-service",
+            image_digest="sha256:ref"
+        ),
+        Artifact(
+            repository="https://github.com/openshift/assisted-installer-agent",
+            ref="ref",
+            name="openshift/assisted-installer-agent",
+            versioning_selection_mechanism="commit",
+            image_url="quay.io/edge-infrastructure/assisted-installer-agent",
+            image_digest="sha256:ref"
+        ),
+        Artifact(
+            repository="https://github.com/openshift/assisted-installer",
+            ref="ref",
+            name="openshift/assisted-installer-controller",
+            versioning_selection_mechanism="commit",
+            image_url="quay.io/edge-infrastructure/assisted-installer-controller",
+            image_digest="sha256:ref"
+        ),
+        Artifact(
+            repository="https://github.com/openshift/assisted-installer",
+            ref="ref",
+            name="openshift/assisted-installer",
+            versioning_selection_mechanism="commit",
+            image_url="quay.io/edge-infrastructure/assisted-installer",
+            image_digest="sha256:ref"
+        )
+    ]

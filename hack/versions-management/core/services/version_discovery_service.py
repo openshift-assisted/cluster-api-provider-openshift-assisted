@@ -16,7 +16,7 @@ from core.utils.logging import setup_logger
 
 
 class VersionDiscoveryService(Service):
-    def __init__(self, rc_file_path: str, components_file_path: str, dry_run: bool):
+    def __init__(self, rc_file_path: str, components_file_path: str, dry_run: bool = False):
         self.github: GitHubClient = GitHubClient()
         self.registry: ImageRegistryClient = ImageRegistryClient()
         self.rc_repository: ReleaseCandidateRepository = ReleaseCandidateRepository(rc_file_path)

@@ -12,10 +12,11 @@ from core.utils.logging import setup_logger
 
 
 class AnsibleTestRunnerService(Service):
-    def __init__(self, file_path: str, dry_run: bool = False):
+    def __init__(self, file_path: str, pending_snapshot_id: str, dry_run: bool = False):
         self.repo: ReleaseCandidateRepository = ReleaseCandidateRepository(file_path)
         self.ansible: AnsibleClient = AnsibleClient()
         self.logger: logging.Logger = setup_logger("AnsibleTestRunnerService")
+        self.pending_snapshot_id: str = pending_snapshot_id
         self.dry_run: bool = dry_run
 
     def get_execution_parameters(self) -> tuple[str, str, Callable[[Snapshot], bool | None]]:
@@ -33,8 +34,7 @@ class AnsibleTestRunnerService(Service):
 
     @override
     def run(self) -> None:
-        snapshots = self.repo.find_all()
-        pending_snapshot = next((s for s in snapshots if s.metadata.status == "pending"), None)
+        pending_snapshot = self.repo.find_by_id(self.pending_snapshot_id)
 
         if not pending_snapshot:
             self.logger.info("No pending snapshot found")

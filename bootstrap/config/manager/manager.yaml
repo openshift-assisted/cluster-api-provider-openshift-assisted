@@ -65,4 +65,4 @@ spec:
       volumes:
         - name: certs
           secret:
-            secretName: webhook-cert-secret
+            secretName: capoa-bootstrap-webhook-cert-secret

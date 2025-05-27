@@ -3,4 +3,4 @@ kind: ValidatingWebhookConfiguration
 metadata:
   name: validating-webhook-configuration
   annotations:
-    cert-manager.io/inject-ca-from: "capoa-bootstrap-system/bootstrap-cert"
+    cert-manager.io/inject-ca-from: "capoa-bootstrap-system/capoa-bootstrap-cert"

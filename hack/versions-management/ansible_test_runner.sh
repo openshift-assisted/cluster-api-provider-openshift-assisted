@@ -9,13 +9,33 @@ if [ "${DRY_RUN:-false}" = "true" ]; then
   ARGS+=(--dry-run)
 fi
 
-python "$SCRIPT_DIR/ansible_test_runner.py" "${ARGS[@]}"
+PENDING_SNAPSHOT_ID=$(yq '.snapshots[] | select(.metadata.status == "pending") | .metadata.id' release-candidates.yaml | tail -n1)
 
-source "$SCRIPT_DIR/github_auth.sh"
+if [ -z "$PENDING_SNAPSHOT_ID" ]; then
+    echo "No pending snapshot found"
+    exit 0
+fi
+
+TESTED_WITH_REF=$(yq ".snapshots[] | select(.metadata.id == \"$PENDING_SNAPSHOT_ID\") | .metadata.tested_with_ref" release-candidates.yaml)
+if [ -n "$TESTED_WITH_REF" ] && [ "$TESTED_WITH_REF" != "null" ]; then
+    echo "Checking out to tested_with_ref: $TESTED_WITH_REF"
+    git checkout "$TESTED_WITH_REF"
+else
+    CURRENT_COMMIT=$(git rev-parse HEAD)
+    echo "Setting tested_with_ref: $CURRENT_COMMIT"
+    yq -i "(.snapshots[] | select(.metadata.id == \"$PENDING_SNAPSHOT_ID\") | .metadata.tested_with_ref) |= \"$CURRENT_COMMIT\"" release-candidates.yaml
+fi
+
+python "$SCRIPT_DIR/ansible_test_runner.py" "${ARGS[@]}" --pending-snapshot-id "$PENDING_SNAPSHOT_ID"
+
+git stash push release-candidates.yaml
+git checkout master
+git stash apply
 
 if [ "${DRY_RUN:-false}" = true ]; then
     echo "Ansible test runner has finished successfully"
 else
+    source "$SCRIPT_DIR/github_auth.sh"
     BRANCH="release-candidates-test-$(date '+%Y-%m-%d-%H-%M')"
     git checkout -b $BRANCH
     git add release-candidates.yaml

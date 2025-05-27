@@ -1,5 +1,6 @@
 versions:
 - name: v0.0.1
+  tested_with_ref: ref
   artifacts:
     - repository: https://github.com/kubernetes-sigs/cluster-api
       ref: v1.9.5

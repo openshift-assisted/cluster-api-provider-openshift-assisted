@@ -5,3 +5,4 @@ from .artifact import Artifact
 class Version:
     name: str
     artifacts: list[Artifact]
+    tested_with_ref: str | None = None

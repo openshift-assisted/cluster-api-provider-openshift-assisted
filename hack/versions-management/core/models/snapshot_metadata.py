@@ -6,3 +6,4 @@ class SnapshotMetadata:
     id: str
     generated_at: datetime
     status: str #can be either failed, successful or pending
+    tested_with_ref: str | None = None

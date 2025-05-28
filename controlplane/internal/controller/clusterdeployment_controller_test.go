@@ -204,7 +204,7 @@ var _ = Describe("ClusterDeployment Controller", func() {
 				Expect(aci.Spec.IngressVIPs).To(Equal(ingressVIPs))
 				Expect(aci.Spec.APIVIPs).To(Equal(apiVIPs))
 				Expect(aci.Annotations).To(HaveKey(InstallConfigOverrides))
-				Expect(aci.Annotations[InstallConfigOverrides]).To(Equal(`{"capabilities":{"baselineCapabilitySet":"None","additionalEnabledCapabilities":["baremetal","Console","Insights","OperatorLifecycleManager","Ingress"]}}`))
+				Expect(aci.Annotations[InstallConfigOverrides]).To(Equal(`{"capabilities":{"baselineCapabilitySet":"None","additionalEnabledCapabilities":["baremetal","Console","Insights","OperatorLifecycleManager","Ingress","marketplace","NodeTuning","DeploymentConfig"]}}`))
 			})
 		})
 	})
@@ -245,12 +245,12 @@ var _ = Describe("ClusterDeployment Controller", func() {
 					Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cd), aci)).To(Succeed())
 					By("Verifying the ACI has the default install config overrides for baremetal set in its annotations")
 					Expect(aci.Annotations).To(HaveKey(InstallConfigOverrides))
-					Expect(aci.Annotations[InstallConfigOverrides]).To(Equal(`{"capabilities":{"baselineCapabilitySet":"None","additionalEnabledCapabilities":["baremetal","Console","Insights","OperatorLifecycleManager","Ingress"]}}`))
+					Expect(aci.Annotations[InstallConfigOverrides]).To(Equal(`{"capabilities":{"baselineCapabilitySet":"None","additionalEnabledCapabilities":["baremetal","Console","Insights","OperatorLifecycleManager","Ingress","marketplace","NodeTuning","DeploymentConfig"]}}`))
 				})
 			})
 			When("additional capabilities are specified", func() {
 				It("ACI should have default baremetal install config override annotation along with the additional capabilities", func() {
-					oacp.Spec.Config.Capabilities = v1alpha2.Capabilities{AdditionalEnabledCapabilities: []string{"NodeTuning"}}
+					oacp.Spec.Config.Capabilities = v1alpha2.Capabilities{AdditionalEnabledCapabilities: []string{"CloudControllerManager"}}
 					Expect(k8sClient.Update(ctx, oacp)).To(Succeed())
 					_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
 						NamespacedName: client.ObjectKeyFromObject(cd),
@@ -262,7 +262,7 @@ var _ = Describe("ClusterDeployment Controller", func() {
 
 					By("Verifying the ACI has the default install config overrides for baremetal and the additional capability set in its annotations")
 					Expect(aci.Annotations).To(HaveKey(InstallConfigOverrides))
-					Expect(aci.Annotations[InstallConfigOverrides]).To(Equal(`{"capabilities":{"baselineCapabilitySet":"None","additionalEnabledCapabilities":["baremetal","Console","Insights","OperatorLifecycleManager","Ingress","NodeTuning"]}}`))
+					Expect(aci.Annotations[InstallConfigOverrides]).To(Equal(`{"capabilities":{"baselineCapabilitySet":"None","additionalEnabledCapabilities":["baremetal","Console","Insights","OperatorLifecycleManager","Ingress","marketplace","NodeTuning","DeploymentConfig","CloudControllerManager"]}}`))
 				})
 			})
 			When("additional capabilities are the same as the default baremetal capabilities", func() {
@@ -280,12 +280,12 @@ var _ = Describe("ClusterDeployment Controller", func() {
 
 					By("Verifying the ACI has the default install config overrides for baremetal without duplicates")
 					Expect(aci.Annotations).To(HaveKey(InstallConfigOverrides))
-					Expect(aci.Annotations[InstallConfigOverrides]).To(Equal(`{"capabilities":{"baselineCapabilitySet":"None","additionalEnabledCapabilities":["baremetal","Console","Insights","OperatorLifecycleManager","Ingress"]}}`))
+					Expect(aci.Annotations[InstallConfigOverrides]).To(Equal(`{"capabilities":{"baselineCapabilitySet":"None","additionalEnabledCapabilities":["baremetal","Console","Insights","OperatorLifecycleManager","Ingress","marketplace","NodeTuning","DeploymentConfig"]}}`))
 				})
 			})
 			When("additional capabilities include MAPI", func() {
 				It("ACI should have default baremetal install config override annotation without MAPI", func() {
-					oacp.Spec.Config.Capabilities = v1alpha2.Capabilities{AdditionalEnabledCapabilities: []string{"MachineAPI", "NodeTuning"}}
+					oacp.Spec.Config.Capabilities = v1alpha2.Capabilities{AdditionalEnabledCapabilities: []string{"MachineAPI", "CloudControllerManager"}}
 					Expect(k8sClient.Update(ctx, oacp)).To(Succeed())
 
 					_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
@@ -298,7 +298,7 @@ var _ = Describe("ClusterDeployment Controller", func() {
 
 					By("Verifying the ACI has the default install config overrides for baremetal without MAPI")
 					Expect(aci.Annotations).To(HaveKey(InstallConfigOverrides))
-					Expect(aci.Annotations[InstallConfigOverrides]).To(Equal(`{"capabilities":{"baselineCapabilitySet":"None","additionalEnabledCapabilities":["baremetal","Console","Insights","OperatorLifecycleManager","Ingress","NodeTuning"]}}`))
+					Expect(aci.Annotations[InstallConfigOverrides]).To(Equal(`{"capabilities":{"baselineCapabilitySet":"None","additionalEnabledCapabilities":["baremetal","Console","Insights","OperatorLifecycleManager","Ingress","marketplace","NodeTuning","DeploymentConfig","CloudControllerManager"]}}`))
 				})
 			})
 			When("only baseline capability is specified", func() {
@@ -316,7 +316,7 @@ var _ = Describe("ClusterDeployment Controller", func() {
 
 					By("Verifying the ACI has the correct install config overrides for baremetal and the specified baseline capability")
 					Expect(aci.Annotations).To(HaveKey(InstallConfigOverrides))
-					Expect(aci.Annotations[InstallConfigOverrides]).To(Equal(`{"capabilities":{"baselineCapabilitySet":"vCurrent","additionalEnabledCapabilities":["baremetal","Console","Insights","OperatorLifecycleManager","Ingress"]}}`))
+					Expect(aci.Annotations[InstallConfigOverrides]).To(Equal(`{"capabilities":{"baselineCapabilitySet":"vCurrent","additionalEnabledCapabilities":["baremetal","Console","Insights","OperatorLifecycleManager","Ingress","marketplace","NodeTuning","DeploymentConfig"]}}`))
 				})
 			})
 		})

@@ -3,6 +3,7 @@ snapshots:
     id: 7f069e97ca5ac327ace23a47d6653634
     generated_at: 2025-05-21 11:30:25.867536
     status: successful
+    tested_with_ref:
   artifacts:
   - repository: https://github.com/kubernetes-sigs/cluster-api
     ref: v1.9.6
@@ -55,7 +56,8 @@ snapshots:
 - metadata:
     id: f891d1a234fe3a561b7a6d046d4844a1
     generated_at: 2025-05-21 11:30:25.867536
-    status: pending
+    status: failed
+    tested_with_ref: dc8366416a00780b01ce1d10d38385904b4adc19
   artifacts:
   - repository: https://github.com/kubernetes-sigs/cluster-api
     ref: v1.10.2

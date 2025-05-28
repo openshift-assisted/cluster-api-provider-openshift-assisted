@@ -76,11 +76,11 @@ test: manifests generate fmt vet envtest ## Run tests.
 
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter & yamllint
-	$(GOLANGCI_LINT) run
+	$(GOLANGCI_LINT) run $(GOLANGCI_LINT_OPTS)
 
 .PHONY: lint-fix
 lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
-	$(GOLANGCI_LINT) run --fix
+	$(GOLANGCI_LINT) run $(GOLANGCI_LINT_OPTS) --fix
 
 .PHONY: e2e-test-dependencies
 e2e-test-dependencies:
@@ -253,6 +253,7 @@ KUSTOMIZE_VERSION ?= v5.3.0
 CONTROLLER_TOOLS_VERSION ?= v0.17.2
 ENVTEST_VERSION ?= release-0.17
 GOLANGCI_LINT_VERSION ?= v1.63.4
+GOLANGCI_LINT_OPTS ?= --timeout 5m
 MOCKGEN_VERSION ?= v1.6.0
 
 ## Tool Binaries

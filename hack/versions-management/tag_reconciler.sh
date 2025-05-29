@@ -11,4 +11,4 @@ if [ "${DRY_RUN:-false}" = "true" ]; then
   ARGS+=(--dry-run)
 fi
 
-python "$SCRIPT_DIR/tag_reconciler.py" "${ARGS[@]}
+python "$SCRIPT_DIR/tag_reconciler.py" "${ARGS[@]}"

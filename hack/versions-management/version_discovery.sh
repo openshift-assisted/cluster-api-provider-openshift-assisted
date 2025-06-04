@@ -18,6 +18,6 @@ if [ "${DRY_RUN:-false}" != true ]; then
     git add release-candidates.yaml
     git commit -m "Update release candidates"
     git push -u "${CI_REMOTE_NAME:-versions_management}" $BRANCH
-    gh pr create --title "Update release candidates" --body "Automated PR to update release candidates" --base master
+    gh pr create --title "Update release candidates" --body "Automated PR to update release candidates" --base master --label "auto-merge"
 fi
 

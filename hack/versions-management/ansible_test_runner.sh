@@ -41,5 +41,5 @@ else
     git add release-candidates.yaml
     git commit -m "Update release candidates status after testing" || echo "No changes to commit"
     git push -u "${CI_REMOTE_NAME:-versions_management}" $BRANCH
-    gh pr create --title "Update release candidates test results" --body "Automated PR to update release candidates" --base master
+    gh pr create --title "Update release candidates test results" --body "Automated PR to update release candidates" --base master --label "auto-merge"
 fi

@@ -405,7 +405,6 @@ func assertInfraEnvSpecs(infraEnv v1beta1.InfraEnv, oac *bootstrapv1alpha1.Opens
 	Expect(infraEnv.Spec.AdditionalNTPSources).To(Equal(oac.Spec.AdditionalNTPSources))
 	Expect(infraEnv.Spec.NMStateConfigLabelSelector).To(Equal(oac.Spec.NMStateConfigLabelSelector))
 	Expect(infraEnv.Spec.CpuArchitecture).To(Equal(oac.Spec.CpuArchitecture))
-	Expect(infraEnv.Spec.KernelArguments).To(Equal(oac.Spec.KernelArguments))
 	Expect(infraEnv.Spec.AdditionalTrustBundle).To(Equal(oac.Spec.AdditionalTrustBundle))
 	Expect(infraEnv.Spec.OSImageVersion).To(Equal(oac.Spec.OSImageVersion))
 }
@@ -454,16 +453,6 @@ func setupControlPlaneOpenshiftAssistedConfig(
 		},
 	}
 	oac.Spec.CpuArchitecture = "x86"
-	oac.Spec.KernelArguments = []v1beta1.KernelArgument{
-		{
-			Operation: "append",
-			Value:     "p1",
-		},
-		{
-			Operation: "append",
-			Value:     `p2="this is an argument"`,
-		},
-	}
 	oac.Spec.AdditionalTrustBundle = testCert
 	oac.Spec.OSImageVersion = "4.14.0"
 	Expect(k8sClient.Create(ctx, oac)).To(Succeed())

@@ -44,7 +44,6 @@ func GetInfraEnvFromConfig(
 			Namespace: clusterDeployment.Namespace,
 		},
 		CpuArchitecture:            config.Spec.CpuArchitecture,
-		KernelArguments:            config.Spec.KernelArguments,
 		NMStateConfigLabelSelector: config.Spec.NMStateConfigLabelSelector,
 		OSImageVersion:             config.Spec.OSImageVersion,
 		Proxy:                      config.Spec.Proxy,

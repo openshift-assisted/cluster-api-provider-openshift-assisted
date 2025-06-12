@@ -1,6 +1,7 @@
 package assistedinstaller
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/url"
 
@@ -52,6 +53,11 @@ func GetInfraEnvFromConfig(
 		SSHAuthorizedKey:           config.Spec.SSHAuthorizedKey,
 		// Must be full-iso to ensure static networking settings is generated in the ignition
 		ImageType: "full-iso",
+	}
+	annotations := config.GetAnnotations()
+	if ignitionOverride, ok := annotations[bootstrapv1alpha1.DiscoveryIgnitionOverrideAnnotation]; ok &&
+		json.Valid([]byte(ignitionOverride)) {
+		infraEnv.Spec.IgnitionConfigOverride = ignitionOverride
 	}
 	return infraEnv
 }

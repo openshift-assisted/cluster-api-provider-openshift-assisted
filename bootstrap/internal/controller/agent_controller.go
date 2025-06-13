@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -69,6 +70,7 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 }
 
 func (r *AgentReconciler) setAgentFields(ctx context.Context, agent *aiv1beta1.Agent, machine *clusterv1.Machine, config *bootstrapv1alpha1.OpenshiftAssistedConfig) error {
+	logger := ctrl.LoggerFrom(ctx)
 	role := models.HostRoleWorker
 	if _, ok := machine.Labels[clusterv1.MachineControlPlaneLabel]; ok {
 		role = models.HostRoleMaster
@@ -93,6 +95,17 @@ func (r *AgentReconciler) setAgentFields(ctx context.Context, agent *aiv1beta1.A
 	agent.Spec.Role = role
 	agent.Spec.IgnitionConfigOverrides = ignitionConfigOverrides
 	agent.Spec.Approved = approvable
+	installerArgs := make([]string, 0, len(config.Spec.KernelArguments))
+	for _, karg := range config.Spec.KernelArguments {
+		arg := fmt.Sprintf("--%s-karg", karg.Operation)
+		installerArgs = append(installerArgs, arg, karg.Value)
+	}
+	jsonBytes, err := json.Marshal(installerArgs)
+	if err != nil {
+		logger.V(logutil.InfoLevel).Info("failed to marshal installer args", "error", err)
+	} else {
+		agent.Spec.InstallerArgs = string(jsonBytes)
+	}
 	return r.Client.Update(ctx, agent)
 }
 

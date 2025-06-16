@@ -87,7 +87,7 @@ func (u *OpenshiftUpgrader) IsUpgradeInProgress(ctx context.Context) (bool, erro
 
 func isUpdateInProgress(clusterVersion configv1.ClusterVersion) bool {
 	for _, updateHistory := range clusterVersion.Status.History {
-		if updateHistory.State == configv1.PartialUpdate {
+		if updateHistory.State == configv1.PartialUpdate && updateHistory.CompletionTime == nil {
 			return true
 		}
 	}

@@ -1,0 +1,47 @@
+#!/bin/bash
+set -euo pipefail
+
+target_version=$1
+target_branch="backplane-${target_version}"
+previous_branch=$(echo $target_branch | cut -d. -f1).$(($(echo $target_branch | cut -d. -f2)-1))
+pr_branch="ffwd_${target_branch}"
+
+git fetch --all
+git checkout master
+git checkout -b "${pr_branch}"
+
+short_version=${target_version//.}
+for f in $(ls -1 .tekton); do
+    in="./.tekton/${f}"
+    out=$(echo "${in}" | sed "s/mce-[0-9]\+/mce-${short_version}/g")
+    git mv "${in}" "${out}"
+    sed -i "s/mce-[0-9]\+/mce-${short_version}/g" "${out}"
+    sed -i "s/${previous_branch}/${target_branch}/g" "${out}"
+    git add "${out}"
+done
+
+# add old branch to the renovate.json to target konflux updates, as it's no longer ffwd
+cat renovate.json | jq '.baseBranches += ["'${previous_branch}'"]' > renovate.updated.json
+
+cp renovate.updated.json renovate.json
+
+git add renovate.json
+
+sed -i "s/TARGET_BRANCH: .*$/TARGET_BRANCH: ${target_branch}/g" .github/workflows/sync-branch.yaml
+
+git add .github/workflows/sync-branch.yaml
+# commit the changes
+
+git commit -s -m "create ffwd branch ${target_branch}, freeze ${previous_branch}"
+
+read -p "Push changes to ${pr_branch} (y/n)? " -n 1 -r
+if [[ $REPLY =~ ^[Yy]$ ]]; then
+    git push origin "${pr_branch}"
+fi
+
+# branch out the new branch
+git checkout -b "upstream/${target_branch}"
+read -p "Create (push) branch ${target_branch}? (y/n)? " -n 1 -r
+if [[ $REPLY =~ ^[Yy]$ ]]; then
+    git push upstream "${target_branch}"
+fi

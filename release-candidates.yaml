@@ -1,5 +1,59 @@
 snapshots:
 - metadata:
+    id: ae9a48d672fed13f80da512b7d273346
+    generated_at: 2025-06-24 00:07:13.172043
+    status: pending
+    tested_with_ref:
+  artifacts:
+  - repository: https://github.com/kubernetes-sigs/cluster-api
+    ref: v1.10.3
+    name: kubernetes-sigs/cluster-api
+    versioning_selection_mechanism: release
+    image_url:
+    image_digest:
+  - repository: https://github.com/metal3-io/cluster-api-provider-metal3
+    ref: v1.10.1
+    name: metal3-io/cluster-api-provider-metal3
+    versioning_selection_mechanism: release
+    image_url:
+    image_digest:
+  - repository: https://github.com/openshift/assisted-service
+    ref: ab77c8906708aa1f7cdee94752d1e4ec2cc2941f
+    name: openshift/assisted-service
+    versioning_selection_mechanism: commit
+    image_url: quay.io/edge-infrastructure/assisted-service
+    image_digest: sha256:a1273ba67c36f66bd723fa73bc28b2a5592ac409be79bd4925054a96afb72338
+  - repository: https://github.com/openshift/assisted-service
+    ref: ab77c8906708aa1f7cdee94752d1e4ec2cc2941f
+    name: openshift/assisted-service-el8
+    versioning_selection_mechanism: commit
+    image_url: quay.io/edge-infrastructure/assisted-service-el8
+    image_digest: sha256:41b7ae0a621672660d27893d21219636fe07cc312ed17ab5d58f881b6d8a65b4
+  - repository: https://github.com/openshift/assisted-image-service
+    ref: 0128a587cae2550a2a02d0b4156eb2347d4b9ae0
+    name: openshift/assisted-image-service
+    versioning_selection_mechanism: commit
+    image_url: quay.io/edge-infrastructure/assisted-image-service
+    image_digest: sha256:cfae8fbd4966b01566593551761340f503b5a50090b23d1801e5ce402a772ceb
+  - repository: https://github.com/openshift/assisted-installer-agent
+    ref: a33c342f49841fbfa721f0171b158a3753a3d50b
+    name: openshift/assisted-installer-agent
+    versioning_selection_mechanism: commit
+    image_url: quay.io/edge-infrastructure/assisted-installer-agent
+    image_digest: sha256:1b864694c5901eba6951f6e0ba7a2547457dcdf1ec229065466d59a0648e4f88
+  - repository: https://github.com/openshift/assisted-installer
+    ref: c251e83adcadc862e4e43f02d9b460a812efd8cb
+    name: openshift/assisted-installer
+    versioning_selection_mechanism: commit
+    image_url: quay.io/edge-infrastructure/assisted-installer
+    image_digest: sha256:ed3546a6f43758d8a6e19d854f5369b55e1331fabf46075bc043f28b5d55aead
+  - repository: https://github.com/openshift/assisted-installer
+    ref: c251e83adcadc862e4e43f02d9b460a812efd8cb
+    name: openshift/assisted-installer-controller
+    versioning_selection_mechanism: commit
+    image_url: quay.io/edge-infrastructure/assisted-installer-controller
+    image_digest: sha256:3dbe90529f6757f03bad82e5f49442eef23b4975b97686f859fe31084f87baec
+- metadata:
     id: 8f0e9bc16f47155bf36fe5b2ebb36fea
     generated_at: 2025-06-23 12:06:32.394984
     status: pending

@@ -562,7 +562,11 @@ func (r *OpenshiftAssistedControlPlaneReconciler) ensureClusterDeployment(
 			AgentBareMetal: &agent.BareMetalPlatform{},
 		}
 		cd.Spec.PullSecretRef = acp.Spec.Config.PullSecretRef
-
+		if acp.Spec.Config.InstallConfigSecretRef != nil {
+			cd.Spec.Provisioning = &hivev1.Provisioning{
+				InstallConfigSecretRef: acp.Spec.Config.InstallConfigSecretRef,
+			}
+		}
 		return nil
 	})
 

@@ -103,6 +103,11 @@ func (in *OpenshiftAssistedControlPlaneConfigSpec) DeepCopyInto(out *OpenshiftAs
 		*out = new(v1beta1.Proxy)
 		**out = **in
 	}
+	if in.InstallConfigSecretRef != nil {
+		in, out := &in.InstallConfigSecretRef, &out.InstallConfigSecretRef
+		*out = new(corev1.LocalObjectReference)
+		**out = **in
+	}
 	if in.PullSecretRef != nil {
 		in, out := &in.PullSecretRef, &out.PullSecretRef
 		*out = new(corev1.LocalObjectReference)

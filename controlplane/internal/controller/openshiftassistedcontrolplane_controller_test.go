@@ -215,6 +215,82 @@ var _ = Describe("OpenshiftAssistedControlPlane Controller", func() {
 			})
 		})
 
+		When("OpenshiftAssistedControlPlane has InstallConfigSecretRef", func() {
+			It("should successfully copy InstallConfigSecretRef to ClusterDeployment", func() {
+				By("creating an install config secret")
+				installConfigSecret := &corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "my-install-config",
+						Namespace: namespace,
+					},
+					Data: map[string][]byte{
+						"install-config.yaml": []byte("fake-install-config"),
+					},
+				}
+				Expect(k8sClient.Create(ctx, installConfigSecret)).To(Succeed())
+
+				By("setting the cluster as the owner ref on the OpenshiftAssistedControlPlane")
+				openshiftAssistedControlPlane := testutils.NewOpenshiftAssistedControlPlane(namespace, openshiftAssistedControlPlaneName)
+				openshiftAssistedControlPlane.Spec.Config.InstallConfigSecretRef = &corev1.LocalObjectReference{
+					Name: "my-install-config",
+				}
+				openshiftAssistedControlPlane.SetOwnerReferences(
+					[]metav1.OwnerReference{
+						*metav1.NewControllerRef(cluster, clusterv1.GroupVersion.WithKind(clusterv1.ClusterKind)),
+					},
+				)
+				Expect(k8sClient.Create(ctx, openshiftAssistedControlPlane)).To(Succeed())
+
+				By("checking if the OpenshiftAssistedControlPlane created the cluster deployment after reconcile")
+				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: typeNamespacedName,
+				})
+				Expect(err).NotTo(HaveOccurred())
+				err = k8sClient.Get(ctx, typeNamespacedName, openshiftAssistedControlPlane)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(openshiftAssistedControlPlane.Status.ClusterDeploymentRef).NotTo(BeNil())
+				Expect(openshiftAssistedControlPlane.Status.ClusterDeploymentRef.Name).Should(Equal(openshiftAssistedControlPlane.Name))
+
+				By("checking that the cluster deployment was created with InstallConfigSecretRef")
+				cd := &hivev1.ClusterDeployment{}
+				err = k8sClient.Get(ctx, typeNamespacedName, cd)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(cd).NotTo(BeNil())
+
+				// assert ClusterDeployment has the InstallConfigSecretRef properly set
+				Expect(cd.Spec.Provisioning).NotTo(BeNil())
+				Expect(cd.Spec.Provisioning.InstallConfigSecretRef).To(Equal(openshiftAssistedControlPlane.Spec.Config.InstallConfigSecretRef))
+			})
+		})
+
+		When("OpenshiftAssistedControlPlane has no InstallConfigSecretRef", func() {
+			It("should create ClusterDeployment without Provisioning field", func() {
+				By("setting the cluster as the owner ref on the OpenshiftAssistedControlPlane")
+				openshiftAssistedControlPlane := testutils.NewOpenshiftAssistedControlPlane(namespace, openshiftAssistedControlPlaneName)
+				openshiftAssistedControlPlane.SetOwnerReferences(
+					[]metav1.OwnerReference{
+						*metav1.NewControllerRef(cluster, clusterv1.GroupVersion.WithKind(clusterv1.ClusterKind)),
+					},
+				)
+				Expect(k8sClient.Create(ctx, openshiftAssistedControlPlane)).To(Succeed())
+
+				By("checking if the OpenshiftAssistedControlPlane created the cluster deployment after reconcile")
+				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: typeNamespacedName,
+				})
+				Expect(err).NotTo(HaveOccurred())
+
+				By("checking that the cluster deployment was created without Provisioning field")
+				cd := &hivev1.ClusterDeployment{}
+				err = k8sClient.Get(ctx, typeNamespacedName, cd)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(cd).NotTo(BeNil())
+
+				// assert ClusterDeployment does not have Provisioning field when InstallConfigSecretRef is not set
+				Expect(cd.Spec.Provisioning).To(BeNil())
+			})
+		})
+
 		When("a pull secret isn't set on the OpenshiftAssistedControlPlane", func() {
 			It("should successfully create the ClusterDeployment with the default fake pull secret", func() {
 				By("setting the cluster as the owner ref on the OpenshiftAssistedControlPlane")

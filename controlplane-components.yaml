@@ -188,6 +188,24 @@ spec:
                       type: string
                     maxItems: 2
                     type: array
+                  installConfigSecretRef:
+                    description: |-
+                      InstallConfigSecretRef is the reference to a secret that contains an openshift-install
+                      InstallConfig. This file will be passed through directly to the installer.
+                      Any version of InstallConfig can be used, provided it can be parsed by the openshift-install
+                      version for the release you are provisioning.
+                    properties:
+                      name:
+                        default: ""
+                        description: |-
+                          Name of the referent.
+                          This field is effectively required, but due to backwards compatibility is
+                          allowed to be empty. Instances of this type with an empty value here are
+                          almost certainly wrong.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                    type: object
+                    x-kubernetes-map-type: atomic
                   manifestsConfigMapRefs:
                     description: |-
                       ManifestsConfigMapRefs is an array of references to user-provided manifests ConfigMaps to

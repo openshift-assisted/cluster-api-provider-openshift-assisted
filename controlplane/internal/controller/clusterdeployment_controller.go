@@ -165,9 +165,17 @@ func (r *ClusterDeploymentReconciler) ensureAgentClusterInstall(
 			aci.Spec.IngressVIPs = oacp.Spec.Config.IngressVIPs
 			aci.Spec.PlatformType = hiveext.PlatformType(configv1.BareMetalPlatformType)
 		}
-		if err := setACICapabilities(&oacp, aci); err != nil {
+		installConfigOverride, err := getInstallConfigOverride(&oacp, aci)
+		if err != nil {
 			return err
 		}
+		if installConfigOverride != "" {
+			if aci.Annotations == nil {
+				aci.Annotations = make(map[string]string)
+			}
+			aci.Annotations[InstallConfigOverrides] = installConfigOverride
+		}
+
 		return nil
 	}
 
@@ -295,38 +303,84 @@ type InstallConfigOverride struct {
 	Capability configv1.ClusterVersionCapabilitiesSpec `json:"capabilities,omitempty"`
 }
 
-// setACICapabilities will set the install config override annotation in the AgentClusterInstall if there
-// are additional enabled capabilities that need to be defined.
-// For SNO (single node openshift) and non-baremetal platform MNO (multi-node openshift), this is set if
-// the OpenshiftAssistedControlPlane has additional capabilities set.
-// For MNO (multi-node openshift), this is set to the default list for baremetal platform,
-// but the OpenshiftAssistedControlPlane can specify additional capabilities to be appended to this list.
-func setACICapabilities(oacp *controlplanev1alpha2.OpenshiftAssistedControlPlane, aci *hiveext.AgentClusterInstall) error {
-	isBaremetalPlatform := aci.Spec.PlatformType == hiveext.BareMetalPlatformType
-	if isCapabilitiesEmpty(oacp.Spec.Config.Capabilities) && !isBaremetalPlatform {
-		return nil
-	}
-	var installCfgOverride InstallConfigOverride
-	baselineCapability, err := getBaselineCapability(oacp.Spec.Config.Capabilities.BaselineCapability, isBaremetalPlatform)
+// isBaremetalPlatform checks if the AgentClusterInstall is configured for a baremetal platform.
+// Returns true if the platform type is BareMetalPlatformType, false otherwise.
+func isBaremetalPlatform(aci *hiveext.AgentClusterInstall) bool {
+	return aci.Spec.PlatformType == hiveext.BareMetalPlatformType
+}
+
+// getInstallConfigOverride merges install config override from annotations with capabilities-based overrides.
+// It returns the final merged install config override as a JSON string, or empty string if no overrides are needed.
+// The function combines user-provided install config overrides from annotations with automatically
+// generated capabilities configuration based on the cluster platform type.
+func getInstallConfigOverride(oacp *controlplanev1alpha2.OpenshiftAssistedControlPlane, aci *hiveext.AgentClusterInstall) (string, error) {
+	installConfigOverrideStr := oacp.Annotations[controlplanev1alpha2.InstallConfigOverrideAnnotation]
+
+	capabilitiesCfgOverride, err := getInstallConfigOverrideForCapabilities(oacp, aci)
 	if err != nil {
-		return err
+		return "", err
+	}
+	// if no override and no capabilities, no need to merge install config override
+	if installConfigOverrideStr == "" && capabilitiesCfgOverride == "" {
+		return "", nil
+	}
+	if capabilitiesCfgOverride == "" {
+		return installConfigOverrideStr, nil
+	}
+	if installConfigOverrideStr == "" {
+		return capabilitiesCfgOverride, nil
+	}
+
+	installConfigOverrideStr, err = mergeJson(installConfigOverrideStr, capabilitiesCfgOverride)
+	if err != nil {
+		return "", err
+	}
+	return installConfigOverrideStr, nil
+}
+
+// getInstallConfigOverrideForCapabilities generates install config override JSON for OpenShift capabilities configuration.
+// It automatically sets appropriate capabilities based on the platform type:
+// - Baremetal platforms: Sets baseline to "None" and includes default baremetal capabilities
+// - Non-baremetal platforms: Sets baseline to "vCurrent" and only includes user-specified capabilities
+// Returns empty string if no capabilities configuration is needed (non-baremetal with empty capabilities).
+func getInstallConfigOverrideForCapabilities(oacp *controlplanev1alpha2.OpenshiftAssistedControlPlane, aci *hiveext.AgentClusterInstall) (string, error) {
+	var installCfgOverride InstallConfigOverride
+	if isCapabilitiesEmpty(oacp.Spec.Config.Capabilities) && !isBaremetalPlatform(aci) {
+		return "", nil
+	}
+	baselineCapability, err := getBaselineCapability(oacp.Spec.Config.Capabilities.BaselineCapability, isBaremetalPlatform(aci))
+	if err != nil {
+		return "", err
 	}
 	installCfgOverride.Capability.BaselineCapabilitySet = configv1.ClusterVersionCapabilitySet(baselineCapability)
 
-	additionalEnabledCapabilities := getAdditionalCapabilities(oacp.Spec.Config.Capabilities.AdditionalEnabledCapabilities, isBaremetalPlatform)
+	additionalEnabledCapabilities := getAdditionalCapabilities(oacp.Spec.Config.Capabilities.AdditionalEnabledCapabilities, isBaremetalPlatform(aci))
 	installCfgOverride.Capability.AdditionalEnabledCapabilities = additionalEnabledCapabilities
 
-	installCfgOverrideStr, err := json.Marshal(installCfgOverride)
+	installCfgOverrideBytes, err := json.Marshal(installCfgOverride)
 	if err != nil {
-		return err
+		return "", err
 	}
+	installCfgOverrideStr := string(installCfgOverrideBytes)
+	return installCfgOverrideStr, nil
+}
 
-	if aci.Annotations == nil {
-		aci.Annotations = make(map[string]string)
+// mergeJson merges two JSON strings by unmarshaling them into maps and combining them.
+// The second JSON takes precedence over the first in case of key conflicts.
+// Returns the merged JSON as a string, error if unmarshalling or marshalling fails.
+func mergeJson(json1, json2 string) (string, error) {
+	var merged map[string]interface{}
+	if err := json.Unmarshal([]byte(json1), &merged); err != nil {
+		return "", fmt.Errorf("failed to unmarshal json1: %w", err)
 	}
-
-	aci.Annotations[InstallConfigOverrides] = string(installCfgOverrideStr)
-	return nil
+	if err := json.Unmarshal([]byte(json2), &merged); err != nil {
+		return "", fmt.Errorf("failed to unmarshal json2: %w", err)
+	}
+	mergedJson, err := json.Marshal(merged)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal merged json: %w", err)
+	}
+	return string(mergedJson), nil
 }
 
 func getBaselineCapability(capability string, isBaremetalPlatform bool) (string, error) {

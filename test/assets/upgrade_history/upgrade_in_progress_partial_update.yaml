@@ -1,0 +1,17 @@
+history:
+- acceptedRisks: 'Precondition "ClusterVersionRecommendedUpdate" failed because
+    of "UnknownUpdate": RetrievedUpdates=False (VersionNotFound), so the recommended
+    status of updating from 4.19.0-ec.2 to 4.19.0-ec.5 is unknown.'
+  completionTime: null
+  image: quay.io/openshift-release-dev/ocp-release@sha256:fde51d1c35425759c83ea0895d0d4fc0f88f6a49a0d080207f15a7bbe3e9982c
+  startedTime: "2025-06-16T10:40:09Z"
+  state: Partial
+  verified: true
+  version: 4.19.0-ec.5
+- completionTime: "2025-06-16T10:31:06Z"
+  image: quay.io/openshift-release-dev/ocp-release@sha256:573a86d57acab6dfb90799f568421e80a41f85aaef1e94a16e13af13339524c1
+  startedTime: "2025-06-16T09:59:54Z"
+  state: Completed
+  verified: false
+  version: 4.19.0-ec.2
+

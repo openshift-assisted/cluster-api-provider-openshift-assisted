@@ -3,10 +3,14 @@ package upgrade_test
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
+	"runtime"
 
 	"github.com/golang/mock/gomock"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+
 	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/internal/upgrade"
 	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/internal/workloadclient"
 	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/pkg/containers"
@@ -14,6 +18,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/yaml"
 )
 
 const pullsecret string = `
@@ -184,6 +189,67 @@ var _ = Describe("OpenShift Upgrader", func() {
 			})
 		})
 	})
+})
+
+type UpdateHistory struct {
+	History []configv1.UpdateHistory `yaml:"history"`
+}
+
+var _ = Describe("detect upgrade status", func() {
+	var (
+		ctx             context.Context
+		mockCtrl        *gomock.Controller
+		mockRemoteImage *containers.MockRemoteImage
+		assetDir        string
+	)
+
+	BeforeEach(func() {
+		ctx = context.Background()
+		mockCtrl = gomock.NewController(GinkgoT())
+		mockRemoteImage = containers.NewMockRemoteImage(mockCtrl)
+
+		// Find the directory of this test file and set assetDir
+		_, filename, _, _ := runtime.Caller(0)
+		assetDir = filepath.Join(filepath.Dir(filename), "../../../test/assets/upgrade_history")
+	})
+	AfterEach(func() {
+		mockCtrl.Finish()
+	})
+	DescribeTable("detect upgrade status", func(historyFile string, isUpgradeExpected bool) {
+		filePath := filepath.Join(assetDir, historyFile)
+		data, err := os.ReadFile(filePath)
+		Expect(err).NotTo(HaveOccurred())
+		updateHistory := &UpdateHistory{}
+		Expect(yaml.Unmarshal(data, updateHistory)).To(Succeed())
+
+		clusterVersion := getClusterVersion(updateHistory.History)
+
+		fakeClient := fake.NewClientBuilder().
+			WithScheme(testScheme).
+			WithObjects(&clusterVersion).
+			WithStatusSubresource(&configv1.ClusterVersion{}).
+			Build()
+
+		upgrader := upgrade.NewOpenshiftUpgrader(fakeClient, mockRemoteImage)
+
+		inProgress, err := upgrader.IsUpgradeInProgress(ctx)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(inProgress).To(Equal(isUpgradeExpected))
+	},
+		Entry("regular upgrade completed",
+			"regular_upgrade_completed.yaml",
+			false),
+		Entry(
+			"upgrade completed, no upgrade in progress",
+			"upgrade_completed_no_in_progress.yaml",
+			false,
+		),
+		Entry(
+			"upgrade in progress, partial update",
+			"upgrade_in_progress_partial_update.yaml",
+			true,
+		),
+	)
 })
 
 func getClusterVersion(history []configv1.UpdateHistory) configv1.ClusterVersion {

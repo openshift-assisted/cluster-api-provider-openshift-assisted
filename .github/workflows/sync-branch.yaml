@@ -1,0 +1,31 @@
+---
+name: Sync from master branch
+
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  fast-forward:
+    runs-on: ubuntu-latest
+    env:
+      TARGET_BRANCH: backplane-2.10
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.PAT }}
+
+      - name: Fetch all branches
+        run: git fetch --all
+
+      - name: Fast-forward master commits into  ${{ env.TARGET_BRANCH }}
+        run: |
+          git config --global user.email "capi-openshift-assisted@redhat.com"
+          git config --global user.name "CAPOA GitHub Action"
+          git checkout "${TARGET_BRANCH}"
+          git merge --ff-only origin/master
+          git push origin "${TARGET_BRANCH}"

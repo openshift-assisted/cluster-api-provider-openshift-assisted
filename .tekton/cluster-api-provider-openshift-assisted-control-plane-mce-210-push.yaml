@@ -8,13 +8,13 @@ metadata:
     pipelinesascode.tekton.dev/cancel-in-progress: "false"
     pipelinesascode.tekton.dev/max-keep-runs: "3"
     pipelinesascode.tekton.dev/on-cel-expression: event == "push" && target_branch
-      == "backplane-2.9"
+      == "backplane-2.10"
   creationTimestamp: null
   labels:
-    appstudio.openshift.io/application: release-mce-29
-    appstudio.openshift.io/component: cluster-api-provider-openshift-assisted-control-plane-mce-29
+    appstudio.openshift.io/application: release-mce-210
+    appstudio.openshift.io/component: cluster-api-provider-openshift-assisted-control-plane-mce-210
     pipelines.appstudio.openshift.io/type: build
-  name: cluster-api-provider-openshift-assisted-control-plane-mce-29-on-push
+  name: cluster-api-provider-openshift-assisted-control-plane-mce-210-on-push
   namespace: crt-redhat-acm-tenant
 spec:
   params:
@@ -23,7 +23,7 @@ spec:
   - name: revision
     value: '{{revision}}'
   - name: output-image
-    value: quay.io/redhat-user-workloads/crt-redhat-acm-tenant/cluster-api-provider-openshift-assisted-control-plane-mce-29:{{revision}}
+    value: quay.io/redhat-user-workloads/crt-redhat-acm-tenant/cluster-api-provider-openshift-assisted-control-plane-mce-210:{{revision}}
   - name: build-platforms
     value:
     - linux/x86_64
@@ -611,7 +611,7 @@ spec:
     - name: netrc
       optional: true
   taskRunTemplate:
-    serviceAccountName: build-pipeline-cluster-api-provider-openshift-assisted-control-plane-mce-29
+    serviceAccountName: build-pipeline-cluster-api-provider-openshift-assisted-control-plane-mce-210
   workspaces:
   - name: git-auth
     secret:

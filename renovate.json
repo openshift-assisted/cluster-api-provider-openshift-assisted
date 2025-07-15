@@ -1,8 +1,18 @@
 {
-    "schedule": ["on Saturday"],
-    "groupName": "Konflux build pipeline",
-    "baseBranches": ["master"],
-    "includePaths": [".tekton/*"],
-    "commitMessagePrefix": "NO-ISSUE: ",
-    "labels": ["lgtm", "approved"]
+  "schedule": [
+    "on Saturday"
+  ],
+  "groupName": "Konflux build pipeline",
+  "baseBranches": [
+    "master",
+    "backplane-2.9"
+  ],
+  "includePaths": [
+    ".tekton/*"
+  ],
+  "commitMessagePrefix": "NO-ISSUE: ",
+  "labels": [
+    "lgtm",
+    "approved"
+  ]
 }

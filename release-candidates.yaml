@@ -1,9 +1,9 @@
 snapshots:
 - metadata:
     id: ec6368dd4d1c93736a81ed264db76451
-    generated_at: 2025-07-15 00:46:13.256256
-    status: failed
-    tested_with_ref: 96298aa97b589132fad6228b42ed12eaed708aa3
+    generated_at: 2025-07-15 12:30:45.893076
+    status: pending
+    tested_with_ref:
   artifacts:
   - repository: https://github.com/kubernetes-sigs/cluster-api
     ref: v1.10.3

@@ -230,6 +230,19 @@
   retries: "{{ medium_retries | int }}"
   delay: "{{ medium_delay | int }}"
 
+- name: Create capm3 kustomization
+  delegate_to: localhost
+  ansible.builtin.template:
+    src: "{{ playbook_dir }}/../../test/e2e/manifests/capm3/kustomization.yaml.j2"
+    dest: "{{ playbook_dir }}/../../test/e2e/manifests/capm3/kustomization.yaml"
+    mode: '0644'
+
+- name: Deploy capm3 crds
+  kubernetes.core.k8s:
+    definition: "{{ lookup('kubernetes.core.kustomize', dir=playbook_dir + '/../../test/e2e/manifests/capm3') }}"
+    state: present
+    apply: true
+
 - name: Install clusterctl
   ansible.builtin.get_url:
     url: "https://github.com/kubernetes-sigs/cluster-api/releases/download/{{ capi_version }}/clusterctl-linux-amd64"

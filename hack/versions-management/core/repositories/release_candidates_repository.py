@@ -37,9 +37,7 @@ class ReleaseCandidateRepository:
             None,
         )
 
-        if index_of_snapshot is not None:
-            snapshots[index_of_snapshot] = snapshot
-        else:
+        if index_of_snapshot is None:
             snapshots.insert(0, snapshot)
 
         return self._write_snapshots(snapshots)

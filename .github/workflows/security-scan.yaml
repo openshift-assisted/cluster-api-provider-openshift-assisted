@@ -54,8 +54,3 @@ jobs:
         with:
           scan-type: 'fs'
           output: 'trivy-results-repo.sarif'
-      - name: Upload Trivy repo scan results to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v3
-        if: always()
-        with:
-          sarif_file: 'trivy-results-repo.sarif'

@@ -24,8 +24,7 @@ import (
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
+const InstallConfigOverrideAnnotation = "controlplane.cluster.x-k8s.io/install-config-override"
 
 type OpenshiftAssistedControlPlaneMachineTemplate struct {
 	// Standard object's metadata.

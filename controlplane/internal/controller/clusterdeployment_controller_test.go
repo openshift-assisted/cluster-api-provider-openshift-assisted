@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 
@@ -36,6 +37,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	configv1 "github.com/openshift/api/config/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -204,7 +206,12 @@ var _ = Describe("ClusterDeployment Controller", func() {
 				Expect(aci.Spec.IngressVIPs).To(Equal(ingressVIPs))
 				Expect(aci.Spec.APIVIPs).To(Equal(apiVIPs))
 				Expect(aci.Annotations).To(HaveKey(InstallConfigOverrides))
-				Expect(aci.Annotations[InstallConfigOverrides]).To(Equal(`{"capabilities":{"baselineCapabilitySet":"None","additionalEnabledCapabilities":["baremetal","Console","Insights","OperatorLifecycleManager","Ingress"]}}`))
+
+				cfgOverride := InstallConfigOverride{}
+				Expect(json.Unmarshal([]byte(aci.Annotations[InstallConfigOverrides]), &cfgOverride)).NotTo(HaveOccurred())
+				Expect(cfgOverride.Capability.AdditionalEnabledCapabilities).To(Equal([]configv1.ClusterVersionCapability{"baremetal", "Console", "Insights", "OperatorLifecycleManager", "Ingress", "marketplace", "NodeTuning", "DeploymentConfig"}))
+				Expect(cfgOverride.Capability.BaselineCapabilitySet).To(Equal(configv1.ClusterVersionCapabilitySet("None")))
+
 			})
 		})
 	})
@@ -317,6 +324,44 @@ var _ = Describe("ClusterDeployment Controller", func() {
 					By("Verifying the ACI has the correct install config overrides for baremetal and the specified baseline capability")
 					Expect(aci.Annotations).To(HaveKey(InstallConfigOverrides))
 					Expect(aci.Annotations[InstallConfigOverrides]).To(Equal(`{"capabilities":{"baselineCapabilitySet":"vCurrent","additionalEnabledCapabilities":["baremetal","Console","Insights","OperatorLifecycleManager","Ingress"]}}`))
+				})
+			})
+			When("install config override annotation is set with MAPI capability", func() {
+				It("should still exclude MAPI from baremetal cluster capabilities", func() {
+					// Set install config override annotation
+					installConfigOverride := `{"networking":{"machineNetwork":[{"cidr":"10.0.0.0/16"}]}}`
+					if oacp.Annotations == nil {
+						oacp.Annotations = make(map[string]string)
+					}
+					oacp.Annotations[v1alpha2.InstallConfigOverrideAnnotation] = installConfigOverride
+
+					// Set MAPI in additional capabilities
+					oacp.Spec.Config.Capabilities = v1alpha2.Capabilities{AdditionalEnabledCapabilities: []string{"MachineAPI", "CloudControllerManager"}}
+					Expect(k8sClient.Update(ctx, oacp)).To(Succeed())
+
+					_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+						NamespacedName: client.ObjectKeyFromObject(cd),
+					})
+					Expect(err).NotTo(HaveOccurred())
+
+					aci := &hiveext.AgentClusterInstall{}
+					Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cd), aci)).To(Succeed())
+
+					By("Verifying the ACI has the install config override annotation")
+					Expect(aci.Annotations).To(HaveKey(InstallConfigOverrides))
+
+					By("Verifying the ACI excludes MAPI from capabilities even with install config override")
+
+					// The annotation should contain both the install config override and the capabilities
+					// but MAPI should still be excluded for baremetal platforms
+					cfgOverride := InstallConfigOverride{}
+					Expect(json.Unmarshal([]byte(aci.Annotations[InstallConfigOverrides]), &cfgOverride)).NotTo(HaveOccurred())
+
+					Expect(cfgOverride.Capability.AdditionalEnabledCapabilities).To(Equal([]configv1.ClusterVersionCapability{"baremetal", "Console", "Insights", "OperatorLifecycleManager", "Ingress", "marketplace", "NodeTuning", "DeploymentConfig", "CloudControllerManager"}))
+					Expect(cfgOverride.Capability.BaselineCapabilitySet).To(Equal(configv1.ClusterVersionCapabilitySet("None")))
+
+					// Verify MAPI is not in the capabilities
+					Expect(aci.Annotations[InstallConfigOverrides]).NotTo(ContainSubstring("MachineAPI"))
 				})
 			})
 		})
@@ -444,6 +489,76 @@ var _ = Describe("ClusterDeployment Controller", func() {
 		})
 
 	})
+
+	Context("Install Config Override Annotation", func() {
+		When("OpenshiftAssistedControlPlane has install config override annotation", func() {
+			It("should propagate the annotation to the AgentClusterInstall", func() {
+				cluster := utils.NewCluster(clusterName, namespace)
+				Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
+
+				cd := utils.NewClusterDeployment(namespace, clusterDeploymentName)
+
+				oacp := utils.NewOpenshiftAssistedControlPlane(namespace, openshiftAssistedControlPlaneName)
+				oacp.Spec.DistributionVersion = openShiftVersion
+
+				// Set the install config override annotation
+				installConfigOverride := `{"networking":{"machineNetwork":[{"cidr":"10.0.0.0/16"}]}}`
+				if oacp.Annotations == nil {
+					oacp.Annotations = make(map[string]string)
+				}
+				oacp.Annotations[v1alpha2.InstallConfigOverrideAnnotation] = installConfigOverride
+
+				Expect(controllerutil.SetOwnerReference(cluster, oacp, testScheme)).To(Succeed())
+				Expect(controllerutil.SetOwnerReference(oacp, cd, testScheme)).To(Succeed())
+				ref, _ := reference.GetReference(testScheme, cd)
+				oacp.Status.ClusterDeploymentRef = ref
+				Expect(k8sClient.Create(ctx, oacp)).To(Succeed())
+				Expect(k8sClient.Create(ctx, cd)).To(Succeed())
+
+				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: client.ObjectKeyFromObject(cd),
+				})
+				Expect(err).NotTo(HaveOccurred())
+
+				aci := &hiveext.AgentClusterInstall{}
+				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cd), aci)).To(Succeed())
+
+				By("Verifying the ACI has the install config override annotation propagated from the control plane")
+				Expect(aci.Annotations).To(HaveKey(InstallConfigOverrides))
+				Expect(aci.Annotations[InstallConfigOverrides]).To(Equal(installConfigOverride))
+			})
+		})
+		When("OpenshiftAssistedControlPlane does not have install config override annotation", func() {
+			It("should not set the annotation on the AgentClusterInstall", func() {
+				cluster := utils.NewCluster(clusterName, namespace)
+				Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
+
+				cd := utils.NewClusterDeployment(namespace, clusterDeploymentName)
+
+				oacp := utils.NewOpenshiftAssistedControlPlane(namespace, openshiftAssistedControlPlaneName)
+				oacp.Spec.DistributionVersion = openShiftVersion
+
+				Expect(controllerutil.SetOwnerReference(cluster, oacp, testScheme)).To(Succeed())
+				Expect(controllerutil.SetOwnerReference(oacp, cd, testScheme)).To(Succeed())
+				ref, _ := reference.GetReference(testScheme, cd)
+				oacp.Status.ClusterDeploymentRef = ref
+				Expect(k8sClient.Create(ctx, oacp)).To(Succeed())
+				Expect(k8sClient.Create(ctx, cd)).To(Succeed())
+
+				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: client.ObjectKeyFromObject(cd),
+				})
+				Expect(err).NotTo(HaveOccurred())
+
+				aci := &hiveext.AgentClusterInstall{}
+				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cd), aci)).To(Succeed())
+
+				By("Verifying the ACI does not have the install config override annotation when not set on the control plane")
+				Expect(aci.Annotations).NotTo(HaveKey(InstallConfigOverrides))
+			})
+		})
+	})
+
 	AfterEach(func() {
 		k8sClient = nil
 		controllerReconciler = nil

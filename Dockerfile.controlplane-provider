@@ -31,4 +31,15 @@ WORKDIR /
 COPY --from=builder /opt/app-root/src/manager .
 USER 65532:65532
 
+ENV SUMMARY="Cluster API Controlplane Provider OpenShift Assisted is a CAPI controlplane provider for provisioning OpenShift clusters" \
+    DESCRIPTION="Cluster API Controlplane Provider OpenShift Assisted orchestrates cluster provisioning leveraging Assisted Installer"
+
+LABEL name="cluster-api-controlplane-provider-openshift-assisted" \
+      summary="${SUMMARY}" \
+      description="${DESCRIPTION}" \
+      com.redhat.component="cluster-api-controlplane-provider-openshift-assisted" \
+      io.k8s.display-name="CAPI Controlplane Provider OpenShift Assisted" \
+      io.k8s.description="${DESCRIPTION}" \
+      io.openshift.tags="capi,install,cluster,provisioning,controlplane"
+
 ENTRYPOINT ["/manager"]

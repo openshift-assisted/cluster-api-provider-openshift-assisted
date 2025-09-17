@@ -33,9 +33,10 @@ ENV SUMMARY="The OpenShift Assisted controlplane provider for use when installin
     DESCRIPTION="The OpenShift Assisted controlplane provider implements the CAPI controlplane provider contract and allows installing OpenShift by integrating with Assisted Installer"
 
 
-LABEL name="cluster-api-provider-openshift-assisted-controlplane" \
+LABEL name="multicluster-engine/capoa-control-plane-rhel9" \
       summary="${SUMMARY}" \
       description="${DESCRIPTION}" \
+      cpe="cpe:/a:redhat:multicluster_engine:2.9::el9" \
       com.redhat.component="cluster-api-provider-openshift-assisted-controlplane" \
       io.k8s.display-name="OpenShift Assisted cluster API controlplane provider" \
       io.k8s.description="${DESCRIPTION}" \

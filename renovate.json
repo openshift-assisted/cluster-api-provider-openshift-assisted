@@ -3,7 +3,7 @@
     "on Saturday"
   ],
   "groupName": "Konflux build pipeline",
-  "baseBranches": [
+  "baseBranchPatterns": [
     "master",
     "backplane-2.9"
   ],

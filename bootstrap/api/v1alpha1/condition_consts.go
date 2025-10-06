@@ -12,5 +12,5 @@ const (
 	DataSecretAvailableCondition          clusterv1.ConditionType = "DataSecretAvailable"
 	PullSecretAvailableCondition          clusterv1.ConditionType = "PullSecretAvailable"
 	OpenshiftAssistedConfigLabel                                  = "bootstrap.cluster.x-k8s.io/openshiftAssistedConfig"
-	InfraEnvCooldownReason                                        = "WaitingForInfraEnvToBeReady"
+	InfraEnvNotReadyReason                                        = "WaitingForInfraEnvToBeReady"
 )

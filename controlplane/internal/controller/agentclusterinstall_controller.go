@@ -55,10 +55,10 @@ func (r *AgentClusterInstallReconciler) Reconcile(ctx context.Context, req ctrl.
 	log := ctrl.LoggerFrom(ctx)
 
 	defer func() {
-		log.V(logutil.TraceLevel).Info("Agent Cluster Install Reconcile ended")
+		log.V(logutil.DebugLevel).Info("agent cluster install reconcile ended")
 	}()
 
-	log.V(logutil.TraceLevel).Info("Agent Cluster Install Reconcile started")
+	log.V(logutil.DebugLevel).Info("agent cluster install reconcile started")
 	aci := &hiveext.AgentClusterInstall{}
 	if err := r.Client.Get(ctx, req.NamespacedName, aci); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)

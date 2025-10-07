@@ -207,7 +207,7 @@ var _ = Describe("OpenshiftAssistedConfig Controller", func() {
 			})
 		})
 		When("ClusterDeployment and AgentClusterInstall are already created", func() {
-			It("should create infraenv with a CreatedAt time not past cooldown", func() {
+			It("should create infraenv with no EventsURL", func() {
 				oac := setupControlPlaneOpenshiftAssistedConfigWithPullSecretRef(ctx, k8sClient)
 				mockControlPlaneInitialization(ctx, k8sClient)
 
@@ -220,7 +220,7 @@ var _ = Describe("OpenshiftAssistedConfig Controller", func() {
 					bootstrapv1alpha1.DataSecretAvailableCondition,
 				)
 				Expect(dataSecretReadyCondition).NotTo(BeNil())
-				Expect(dataSecretReadyCondition.Reason).To(Equal(bootstrapv1alpha1.InfraEnvCooldownReason))
+				Expect(dataSecretReadyCondition.Reason).To(Equal(bootstrapv1alpha1.InfraEnvNotReadyReason))
 
 				assertThereAreMatchingInfraEnvs(ctx, k8sClient, oac)
 			})
@@ -239,7 +239,7 @@ var _ = Describe("OpenshiftAssistedConfig Controller", func() {
 					_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
 						NamespacedName: client.ObjectKeyFromObject(oac),
 					})
-					Expect(err).To(MatchError("error while retrieving ignitionURL: cannot generate ignition url if events URL is not generated"))
+					Expect(err).To(MatchError(HavePrefix("infraenv not ready yet. CreatedTime")))
 				})
 			},
 		)

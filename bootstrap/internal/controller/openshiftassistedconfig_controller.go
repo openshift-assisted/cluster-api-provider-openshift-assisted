@@ -62,7 +62,6 @@ import (
 
 const (
 	openshiftAssistedConfigFinalizer = "openshiftassistedconfig." + bootstrapv1alpha1.Group + "/deprovision"
-	InfraEnvIgnitionCooldownPeriod   = 60 * time.Second
 )
 
 // OpenshiftAssistedConfigReconciler reconciles a OpenshiftAssistedConfig object
@@ -194,13 +193,14 @@ func (r *OpenshiftAssistedConfigReconciler) Reconcile(ctx context.Context, req c
 		return ctrl.Result{}, nil
 	}
 
-	if infraEnv.Status.CreatedTime == nil || !hasIgnitionCooldownPeriodExpired(infraEnv.Status.CreatedTime.Time) {
+	if infraEnv.Status.InfraEnvDebugInfo.EventsURL == "" {
+		// infraenv never reconciled
 		log.V(logutil.TraceLevel).Info("infraenv not ready yet", "infraEnv", infraEnv.Status)
 
 		conditions.MarkFalse(
 			config,
 			bootstrapv1alpha1.DataSecretAvailableCondition,
-			bootstrapv1alpha1.InfraEnvCooldownReason,
+			bootstrapv1alpha1.InfraEnvNotReadyReason,
 			clusterv1.ConditionSeverityInfo,
 			"",
 		)
@@ -232,10 +232,6 @@ func (r *OpenshiftAssistedConfigReconciler) Reconcile(ctx context.Context, req c
 	config.Status.DataSecretName = &secret.Name
 	conditions.MarkTrue(config, bootstrapv1alpha1.DataSecretAvailableCondition)
 	return ctrl.Result{}, rerr
-}
-
-func hasIgnitionCooldownPeriodExpired(t time.Time) bool {
-	return t.Add(InfraEnvIgnitionCooldownPeriod).Before(time.Now())
 }
 
 func (r *OpenshiftAssistedConfigReconciler) getIgnition(ctx context.Context, infraEnv *aiv1beta1.InfraEnv, log logr.Logger) ([]byte, error) {

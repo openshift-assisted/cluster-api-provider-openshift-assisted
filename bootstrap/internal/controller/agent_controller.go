@@ -51,12 +51,12 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 	machine, err := r.getMachineFromAgent(ctx, agent)
 	if err != nil {
-		log.Error(err, "can't find machine for agent", "agent", agent)
+		log.Error(err, "cannot find machine for agent", "agent", agent)
 		return ctrl.Result{}, err
 	}
 
 	if machine.Spec.Bootstrap.ConfigRef == nil {
-		log.V(logutil.TraceLevel).Info("agent doesn't belong to CAPI cluster", "agent", agent)
+		log.V(logutil.DebugLevel).Info("agent doesn't belong to CAPI cluster", "agent", agent)
 		return ctrl.Result{}, nil
 	}
 
@@ -102,7 +102,7 @@ func (r *AgentReconciler) setAgentFields(ctx context.Context, agent *aiv1beta1.A
 	}
 	jsonBytes, err := json.Marshal(installerArgs)
 	if err != nil {
-		logger.V(logutil.InfoLevel).Info("failed to marshal installer args", "error", err)
+		logger.V(logutil.DebugLevel).Info("failed to marshal installer args", "error", err)
 	} else {
 		agent.Spec.InstallerArgs = string(jsonBytes)
 	}
@@ -119,7 +119,7 @@ func (r *AgentReconciler) canApproveAgent(ctx context.Context, agent *aiv1beta1.
 		if existingAgent.Name != agent.Name &&
 			existingAgent.Spec.Approved {
 			log := ctrl.LoggerFrom(ctx)
-			log.V(logutil.WarningLevel).Info(
+			log.V(logutil.DebugLevel).Info(
 				"not approving agent: another agent is already approved with the same infraenv",
 				"agent", agent.Name,
 				"infraenv", agent.Labels[aiv1beta1.InfraEnvNameLabel])

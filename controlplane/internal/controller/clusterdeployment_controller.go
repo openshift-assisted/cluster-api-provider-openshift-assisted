@@ -80,11 +80,11 @@ func (r *ClusterDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	log.WithValues("cluster_deployment", clusterDeployment.Name, "cluster_deployment_namespace", clusterDeployment.Namespace)
-	log.V(logutil.TraceLevel).Info("Reconciling ClusterDeployment")
+	log.V(logutil.DebugLevel).Info("reconciling ClusterDeployment")
 
 	acp := controlplanev1alpha2.OpenshiftAssistedControlPlane{}
 	if err := util.GetTypedOwner(ctx, r.Client, clusterDeployment, &acp); err != nil {
-		log.V(logutil.TraceLevel).Info("Cluster deployment is not owned by OpenshiftAssistedControlPlane")
+		log.V(logutil.DebugLevel).Info("cluster deployment is not owned by OpenshiftAssistedControlPlane")
 		return ctrl.Result{}, nil
 	}
 	log.WithValues("openshiftassisted_control_plane", acp.Name, "openshiftassisted_control_plane_namespace", acp.Namespace)

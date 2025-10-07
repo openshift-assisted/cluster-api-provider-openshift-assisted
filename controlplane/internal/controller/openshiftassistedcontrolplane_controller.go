@@ -110,7 +110,7 @@ func (r *OpenshiftAssistedControlPlaneReconciler) Reconcile(ctx context.Context,
 	}
 
 	log.WithValues("openshift_assisted_control_plane", oacp.Name, "openshift_assisted_control_plane_namespace", oacp.Namespace)
-	log.V(logutil.TraceLevel).Info("Started reconciling OpenshiftAssistedControlPlane")
+	log.V(logutil.DebugLevel).Info("started reconciling OpenshiftAssistedControlPlane")
 
 	// Initialize the patch helper.
 	patchHelper, err := patch.NewHelper(oacp, r.Client)
@@ -138,7 +138,7 @@ func (r *OpenshiftAssistedControlPlaneReconciler) Reconcile(ctx context.Context,
 			rerr = kerrors.NewAggregate([]error{rerr, err})
 		}
 
-		log.V(logutil.TraceLevel).Info("Finished reconciling OpenshiftAssistedControlPlane")
+		log.V(logutil.DebugLevel).Info("finished reconciling OpenshiftAssistedControlPlane")
 	}()
 
 	if oacp.DeletionTimestamp != nil {
@@ -152,7 +152,7 @@ func (r *OpenshiftAssistedControlPlaneReconciler) Reconcile(ctx context.Context,
 	acpVersion, err := semver.ParseTolerant(oacp.Spec.DistributionVersion)
 	if err != nil {
 		// we accept any format (i.e. latest)
-		log.V(logutil.WarningLevel).Info("invalid OpenShift version", "version", oacp.Spec.DistributionVersion)
+		log.V(logutil.DebugLevel).Info("invalid OpenShift version", "version", oacp.Spec.DistributionVersion)
 	}
 	if err == nil && acpVersion.LT(minVersion) {
 		conditions.MarkFalse(oacp, controlplanev1alpha2.MachinesCreatedCondition, controlplanev1alpha2.MachineGenerationFailedReason,
@@ -162,16 +162,16 @@ func (r *OpenshiftAssistedControlPlaneReconciler) Reconcile(ctx context.Context,
 
 	cluster, err := capiutil.GetOwnerCluster(ctx, r.Client, oacp.ObjectMeta)
 	if err != nil {
-		log.Error(err, "Failed to retrieve owner Cluster from the API Server")
+		log.Error(err, "failed to retrieve owner Cluster from the API Server")
 		return ctrl.Result{}, err
 	}
 	if cluster == nil {
-		log.V(logutil.TraceLevel).Info("Cluster Controller has not yet set OwnerRef")
+		log.V(logutil.DebugLevel).Info("cluster Controller has not yet set OwnerRef")
 		return ctrl.Result{Requeue: true, RequeueAfter: 10 * time.Second}, nil
 	}
 
 	if annotations.IsPaused(cluster, oacp) {
-		log.V(logutil.TraceLevel).Info("Reconciliation is paused for this object")
+		log.V(logutil.DebugLevel).Info("reconciliation is paused for this object")
 		return ctrl.Result{}, nil
 	}
 
@@ -319,7 +319,7 @@ func (r *OpenshiftAssistedControlPlaneReconciler) upgradeWorkloadCluster(ctx con
 
 	oacp.Status.DistributionVersion, err = upgrader.GetCurrentVersion(ctx)
 	if err != nil {
-		log.V(logutil.WarningLevel).Info("failed to get OpenShift version from ClusterVersion", "error", err.Error())
+		log.V(logutil.DebugLevel).Info("failed to get OpenShift version from ClusterVersion", "error", err.Error())
 	}
 
 	// TODO: check for upgrade errors, mark relevant conditions
@@ -328,7 +328,7 @@ func (r *OpenshiftAssistedControlPlaneReconciler) upgradeWorkloadCluster(ctx con
 		return ctrl.Result{}, err
 	}
 	if isDesiredVersionUpdated && isUpdateInProgress {
-		log.V(logutil.WarningLevel).Info("desired version is updated, but did not complete upgrade yet. Re-reconciling")
+		log.V(logutil.DebugLevel).Info("desired version is updated, but did not complete upgrade yet, re-reconciling")
 		return ctrl.Result{
 			Requeue:      true,
 			RequeueAfter: 1 * time.Minute,
@@ -336,7 +336,7 @@ func (r *OpenshiftAssistedControlPlaneReconciler) upgradeWorkloadCluster(ctx con
 	}
 
 	if isWorkloadClusterRunningDesiredVersion(oacp) && !isUpdateInProgress {
-		log.V(logutil.WarningLevel).Info("Cluster is now running expected version, upgraded completed")
+		log.V(logutil.DebugLevel).Info("cluster is now running expected version, upgrade completed")
 
 		return ctrl.Result{}, nil
 	}
@@ -417,7 +417,7 @@ func (r *OpenshiftAssistedControlPlaneReconciler) handleDeletion(ctx context.Con
 	log := ctrl.LoggerFrom(ctx)
 
 	if !controllerutil.ContainsFinalizer(acp, acpFinalizer) {
-		log.V(logutil.TraceLevel).Info("ACP doesn't contain finalizer, allow deletion")
+		log.V(logutil.DebugLevel).Info("ACP doesn't contain finalizer, allow deletion")
 		return nil
 	}
 

@@ -94,7 +94,7 @@ type OpenshiftAssistedConfigReconciler struct {
 func (r *OpenshiftAssistedConfigReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Result, rerr error) {
 	log := ctrl.LoggerFrom(ctx)
 
-	log.V(logutil.TraceLevel).Info("Reconciling OpenshiftAssistedConfig")
+	log.V(logutil.DebugLevel).Info("reconciling OpenshiftAssistedConfig")
 
 	config := &bootstrapv1alpha1.OpenshiftAssistedConfig{}
 	if err := r.Client.Get(ctx, req.NamespacedName, config); err != nil {
@@ -124,14 +124,14 @@ func (r *OpenshiftAssistedConfigReconciler) Reconcile(ctx context.Context, req c
 		if err := patchHelper.Patch(ctx, config, patchOpts...); err != nil {
 			rerr = kerrors.NewAggregate([]error{rerr, err})
 		}
-		log.V(logutil.TraceLevel).Info("Finished reconciling OpenshiftAssistedConfig")
+		log.V(logutil.DebugLevel).Info("finished reconciling OpenshiftAssistedConfig")
 	}()
 
 	// Look up the owner of this openshiftassistedconfig if there is one
 	configOwner, err := bsutil.GetTypedConfigOwner(ctx, r.Client, config)
 	if apierrors.IsNotFound(err) {
 		// Could not find the owner yet, this is not an error and will re-reconcile when the owner gets set.
-		log.V(logutil.InfoLevel).Info("config owner not found", "name", configOwner.GetName())
+		log.V(logutil.DebugLevel).Info("config owner not found", "name", configOwner.GetName())
 		return ctrl.Result{}, nil
 	}
 	if err != nil {
@@ -154,21 +154,21 @@ func (r *OpenshiftAssistedConfigReconciler) Reconcile(ctx context.Context, req c
 	cluster, err := capiutil.GetClusterByName(ctx, r.Client, configOwner.GetNamespace(), configOwner.ClusterName())
 	if err != nil {
 		if errors.Cause(err) == capiutil.ErrNoCluster {
-			log.V(logutil.TraceLevel).
+			log.V(logutil.DebugLevel).
 				Info(fmt.Sprintf("%s does not belong to a cluster yet, waiting until it's part of a cluster", configOwner.GetKind()))
 			return ctrl.Result{}, nil
 		}
 
 		if apierrors.IsNotFound(err) {
-			log.V(logutil.TraceLevel).Info("Cluster does not exist yet, waiting until it is created")
+			log.V(logutil.DebugLevel).Info("cluster does not exist yet, waiting until it is created")
 			return ctrl.Result{}, nil
 		}
-		log.Error(err, "Could not get cluster with metadata")
+		log.Error(err, "could not get cluster with metadata")
 		return ctrl.Result{}, err
 	}
 
 	if !cluster.Status.InfrastructureReady {
-		log.V(logutil.TraceLevel).Info("Cluster infrastructure is not read, waiting")
+		log.V(logutil.DebugLevel).Info("cluster infrastructure is not ready, waiting")
 		conditions.MarkFalse(
 			config,
 			bootstrapv1alpha1.DataSecretAvailableCondition,
@@ -189,7 +189,7 @@ func (r *OpenshiftAssistedConfigReconciler) Reconcile(ctx context.Context, req c
 
 	s := &corev1.Secret{}
 	if err := r.Get(ctx, getSecretObjectKey(config), s); !apierrors.IsNotFound(err) && config.Status.Ready {
-		log.V(logutil.TraceLevel).Info("bootstrap config ready and secret already created")
+		log.V(logutil.DebugLevel).Info("bootstrap config ready and secret already created")
 		return ctrl.Result{}, nil
 	}
 
@@ -209,14 +209,14 @@ func (r *OpenshiftAssistedConfigReconciler) Reconcile(ctx context.Context, req c
 
 	ignition, err := r.getIgnition(ctx, infraEnv, log)
 	if err != nil {
-		log.V(logutil.TraceLevel).Info("error retrieving ignition", "err", err)
+		log.V(logutil.DebugLevel).Info("error retrieving ignition", "err", err)
 		return ctrl.Result{}, err
 	}
 	log.V(logutil.TraceLevel).Info("ignition retrieved", "ignition", ignition)
 
 	secret, err := r.createUserDataSecret(ctx, config, ignition)
 	if err != nil {
-		log.Error(err, "couldn't create user data secret", "name", config.Name)
+		log.Error(err, "could not create user data secret", "name", config.Name)
 		conditions.MarkFalse(
 			config,
 			bootstrapv1alpha1.DataSecretAvailableCondition,
@@ -282,7 +282,7 @@ func (r *OpenshiftAssistedConfigReconciler) ensureInfraEnv(ctx context.Context, 
 
 	// if found, no need to reconcile, as the OpenshiftAssistedConfig it's immutable
 	if getInfraEnvErr == nil {
-		log.V(logutil.TraceLevel).Info("infraenv already exists", "name", ie.Name, "namespace", ie.Namespace)
+		log.V(logutil.DebugLevel).Info("infraenv already exists", "name", ie.Name, "namespace", ie.Namespace)
 		return &ie, nil
 	}
 
@@ -459,7 +459,7 @@ func (r *OpenshiftAssistedConfigReconciler) FilterInfraEnv(ctx context.Context, 
 	result := []ctrl.Request{}
 	infraEnv, ok := o.(*aiv1beta1.InfraEnv)
 	if !ok {
-		logger.V(logutil.TraceLevel).Info("not an InfraEnv, skipping", "object", o.GetName())
+		logger.V(logutil.DebugLevel).Info("not an InfraEnv, skipping", "object", o.GetName())
 		return result
 	}
 	config := &bootstrapv1alpha1.OpenshiftAssistedConfig{}
@@ -477,7 +477,7 @@ func (r *OpenshiftAssistedConfigReconciler) FilterMachine(ctx context.Context, o
 	result := []ctrl.Request{}
 	m, ok := o.(*clusterv1.Machine)
 	if !ok {
-		logger.V(logutil.TraceLevel).Info("not a Machine, skipping", "object", o.GetName())
+		logger.V(logutil.DebugLevel).Info("not a Machine, skipping", "object", o.GetName())
 		return result
 	}
 
@@ -496,13 +496,13 @@ func (r *OpenshiftAssistedConfigReconciler) reconcileAssistedResources(ctx conte
 	// Get the Machine that owns this openshiftassistedconfig
 	machine, err := capiutil.GetOwnerMachine(ctx, r.Client, config.ObjectMeta)
 	if err != nil {
-		logger.Error(err, "couldn't get machine associated with openshiftassistedconfig", "name", config.Name)
+		logger.Error(err, "could not get machine associated with openshiftassistedconfig", "name", config.Name)
 		return nil, ctrl.Result{}, err
 	}
 
 	clusterDeployment, err := r.getClusterDeployment(ctx, cluster.GetName())
 	if err != nil {
-		logger.V(logutil.InfoLevel).Info("could not retrieve ClusterDeployment... requeuing", "cluster", cluster.GetName())
+		logger.V(logutil.InfoLevel).Info("could not retrieve ClusterDeployment, requeuing", "cluster", cluster.GetName())
 		conditions.MarkFalse(
 			config,
 			bootstrapv1alpha1.DataSecretAvailableCondition,
@@ -515,7 +515,7 @@ func (r *OpenshiftAssistedConfigReconciler) reconcileAssistedResources(ctx conte
 
 	aci, err := r.getAgentClusterInstall(ctx, clusterDeployment)
 	if err != nil {
-		logger.V(logutil.InfoLevel).Info("could not retrieve AgentClusterInstall... requeuing")
+		logger.V(logutil.InfoLevel).Info("could not retrieve AgentClusterInstall, requeuing")
 		conditions.MarkFalse(
 			config,
 			bootstrapv1alpha1.DataSecretAvailableCondition,

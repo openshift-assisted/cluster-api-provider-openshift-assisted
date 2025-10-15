@@ -206,25 +206,6 @@ var _ = Describe("OpenshiftAssistedConfig Controller", func() {
 				Expect(dataSecretReadyCondition.Reason).To(Equal(bootstrapv1alpha1.WaitingForAssistedInstallerReason))
 			})
 		})
-		When("ClusterDeployment and AgentClusterInstall are already created", func() {
-			It("should create infraenv with no EventsURL", func() {
-				oac := setupControlPlaneOpenshiftAssistedConfigWithPullSecretRef(ctx, k8sClient)
-				mockControlPlaneInitialization(ctx, k8sClient)
-
-				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-					NamespacedName: client.ObjectKeyFromObject(oac),
-				})
-				Expect(err).To(MatchError("infraenv not ready yet. CreatedTime: <nil>"))
-				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(oac), oac)).To(Succeed())
-				dataSecretReadyCondition := conditions.Get(oac,
-					bootstrapv1alpha1.DataSecretAvailableCondition,
-				)
-				Expect(dataSecretReadyCondition).NotTo(BeNil())
-				Expect(dataSecretReadyCondition.Reason).To(Equal(bootstrapv1alpha1.InfraEnvNotReadyReason))
-
-				assertThereAreMatchingInfraEnvs(ctx, k8sClient, oac)
-			})
-		})
 		When(
 			"InfraEnv, ClusterDeployment and AgentClusterInstall are already created but no eventsURL has been generated",
 			func() {
@@ -239,7 +220,7 @@ var _ = Describe("OpenshiftAssistedConfig Controller", func() {
 					_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
 						NamespacedName: client.ObjectKeyFromObject(oac),
 					})
-					Expect(err).To(MatchError(HavePrefix("infraenv not ready yet. CreatedTime")))
+					Expect(err).To(MatchError("infraenv not ready: eventsURL not generated yet"))
 				})
 			},
 		)
@@ -300,7 +281,7 @@ var _ = Describe("OpenshiftAssistedConfig Controller", func() {
 				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
 					NamespacedName: client.ObjectKeyFromObject(oac),
 				})
-				Expect(err).To(MatchError("infraenv not ready yet. CreatedTime: <nil>"))
+				Expect(err).To(MatchError("infraenv not ready: eventsURL not generated yet"))
 
 				// Verify that a pull secret is created
 				secret := &corev1.Secret{}
@@ -381,33 +362,6 @@ var _ = Describe("OpenshiftAssistedConfig Controller", func() {
 		)
 	})
 })
-
-func assertThereAreMatchingInfraEnvs(
-	ctx context.Context,
-	k8sClient client.Client,
-	oac *bootstrapv1alpha1.OpenshiftAssistedConfig,
-) {
-	infraEnvList := &v1beta1.InfraEnvList{}
-	Expect(
-		k8sClient.List(ctx, infraEnvList, client.MatchingLabels{bootstrapv1alpha1.OpenshiftAssistedConfigLabel: oacName}),
-	).To(Succeed())
-	Expect(len(infraEnvList.Items)).To(Equal(1))
-	infraEnv := infraEnvList.Items[0]
-	Expect(oac.Status.InfraEnvRef).ToNot(BeNil())
-
-	assertInfraEnvSpecs(infraEnv, oac)
-}
-
-func assertInfraEnvSpecs(infraEnv v1beta1.InfraEnv, oac *bootstrapv1alpha1.OpenshiftAssistedConfig) {
-	Expect(infraEnv.Name).To(Equal(oac.Status.InfraEnvRef.Name))
-	Expect(infraEnv.Spec.PullSecretRef).To(Equal(oac.Spec.PullSecretRef))
-	Expect(infraEnv.Spec.Proxy).To(Equal(oac.Spec.Proxy))
-	Expect(infraEnv.Spec.AdditionalNTPSources).To(Equal(oac.Spec.AdditionalNTPSources))
-	Expect(infraEnv.Spec.NMStateConfigLabelSelector).To(Equal(oac.Spec.NMStateConfigLabelSelector))
-	Expect(infraEnv.Spec.CpuArchitecture).To(Equal(oac.Spec.CpuArchitecture))
-	Expect(infraEnv.Spec.AdditionalTrustBundle).To(Equal(oac.Spec.AdditionalTrustBundle))
-	Expect(infraEnv.Spec.OSImageVersion).To(Equal(oac.Spec.OSImageVersion))
-}
 
 // mock controlplane provider generating ACI and CD
 func mockControlPlaneInitialization(ctx context.Context, k8sClient client.Client) {

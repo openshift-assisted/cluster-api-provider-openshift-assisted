@@ -6,3 +6,5 @@
     archive: true
     recursive: true
     delete: true
+    rsync_opts:
+      - "--protocol=29"

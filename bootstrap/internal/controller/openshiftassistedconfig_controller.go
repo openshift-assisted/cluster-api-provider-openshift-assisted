@@ -194,9 +194,7 @@ func (r *OpenshiftAssistedConfigReconciler) Reconcile(ctx context.Context, req c
 	}
 
 	if infraEnv.Status.InfraEnvDebugInfo.EventsURL == "" {
-		// infraenv never reconciled
-		log.V(logutil.TraceLevel).Info("infraenv not ready yet", "infraEnv", infraEnv.Status)
-
+		log.V(logutil.TraceLevel).Info("infraenv not ready", "infraEnv", infraEnv.Status)
 		conditions.MarkFalse(
 			config,
 			bootstrapv1alpha1.DataSecretAvailableCondition,
@@ -204,7 +202,7 @@ func (r *OpenshiftAssistedConfigReconciler) Reconcile(ctx context.Context, req c
 			clusterv1.ConditionSeverityInfo,
 			"",
 		)
-		return ctrl.Result{}, fmt.Errorf("infraenv not ready yet. CreatedTime: %v", infraEnv.Status.CreatedTime)
+		return ctrl.Result{}, errors.New("infraenv not ready: eventsURL not generated yet")
 	}
 
 	ignition, err := r.getIgnition(ctx, infraEnv, log)

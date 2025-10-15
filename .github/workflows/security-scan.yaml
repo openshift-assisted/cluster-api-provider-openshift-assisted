@@ -31,19 +31,29 @@ jobs:
           image-ref: 'quay.io/edge-infrastructure/cluster-api-controlplane-provider-openshift-assisted:${{ github.sha }}'
           trivy-config: .trivy.yaml
           output: 'scans/trivy-results-controlplane.sarif'
+      - name: Upload Trivy scan controlplane image scanning
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'scans/trivy-results-controlplane.sarif'
+          category: 'controlplane-image'
       - name: Run Trivy vulnerability scanner for bootstrap
         uses: aquasecurity/trivy-action@0.30.0
         with:
           image-ref: 'quay.io/edge-infrastructure/cluster-api-bootstrap-provider-openshift-assisted:${{ github.sha }}'
           trivy-config: .trivy.yaml
           output: 'scans/trivy-results-bootstrap.sarif'
+      - name: Upload Trivy scan bootstrap image scanning
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'scans/trivy-results-bootstrap.sarif'
+          category: 'bootstrap-image'
       - name: Run Trivy vulnerability scanner in repo mode
         uses: aquasecurity/trivy-action@0.30.0
         with:
           scan-type: 'fs'
-          output: 'trivy-results-repo.sarif'
-      - name: Upload Trivy scan results to GitHub Security tab
+          output: 'scans/trivy-results-repo.sarif'
+      - name: Upload Trivy scan repo results to GitHub Security tab
         uses: github/codeql-action/upload-sarif@v3
-        if: always()
         with:
-          sarif_file: 'scans/'
+          sarif_file: 'scans/trivy-results-repo.sarif'
+          category: 'repo'

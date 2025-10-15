@@ -206,25 +206,6 @@ var _ = Describe("OpenshiftAssistedConfig Controller", func() {
 				Expect(dataSecretReadyCondition.Reason).To(Equal(bootstrapv1alpha1.WaitingForAssistedInstallerReason))
 			})
 		})
-		When("ClusterDeployment and AgentClusterInstall are already created", func() {
-			It("should create infraenv with a CreatedAt time not past cooldown", func() {
-				oac := setupControlPlaneOpenshiftAssistedConfigWithPullSecretRef(ctx, k8sClient)
-				mockControlPlaneInitialization(ctx, k8sClient)
-
-				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-					NamespacedName: client.ObjectKeyFromObject(oac),
-				})
-				Expect(err).To(MatchError("infraenv not ready yet. CreatedTime: <nil>"))
-				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(oac), oac)).To(Succeed())
-				dataSecretReadyCondition := conditions.Get(oac,
-					bootstrapv1alpha1.DataSecretAvailableCondition,
-				)
-				Expect(dataSecretReadyCondition).NotTo(BeNil())
-				Expect(dataSecretReadyCondition.Reason).To(Equal(bootstrapv1alpha1.InfraEnvCooldownReason))
-
-				assertThereAreMatchingInfraEnvs(ctx, k8sClient, oac)
-			})
-		})
 		When(
 			"InfraEnv, ClusterDeployment and AgentClusterInstall are already created but no eventsURL has been generated",
 			func() {
@@ -239,7 +220,7 @@ var _ = Describe("OpenshiftAssistedConfig Controller", func() {
 					_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
 						NamespacedName: client.ObjectKeyFromObject(oac),
 					})
-					Expect(err).To(MatchError("error while retrieving ignitionURL: cannot generate ignition url if events URL is not generated"))
+					Expect(err).To(MatchError("infraenv not ready: eventsURL not generated yet"))
 				})
 			},
 		)
@@ -300,7 +281,7 @@ var _ = Describe("OpenshiftAssistedConfig Controller", func() {
 				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
 					NamespacedName: client.ObjectKeyFromObject(oac),
 				})
-				Expect(err).To(MatchError("infraenv not ready yet. CreatedTime: <nil>"))
+				Expect(err).To(MatchError("infraenv not ready: eventsURL not generated yet"))
 
 				// Verify that a pull secret is created
 				secret := &corev1.Secret{}

@@ -23,22 +23,16 @@ patches:
         path: /spec/template/spec/containers/0/env/0/value
         value: {{ assisted_service_image ~ '@' ~ assisted_service_version }}
       - op: replace
-        path: /spec/template/spec/containers/0/env/1/value
-        value: {{ assisted_service_el8_image ~ '@' ~ assisted_service_el8_version }}
-      - op: replace
         path: /spec/template/spec/containers/0/env/2/value
-        value: {{ assisted_image_service_image ~ '@' ~ assisted_image_service_version }}
-      - op: replace
-        path: /spec/template/spec/containers/0/env/3/value
         value: quay.io/sclorg/postgresql-12-c8s@sha256:663089471e999a4175341ac4d97dcff9cd15ec5f2e96b2309dc8de806106198b
       - op: replace
-        path: /spec/template/spec/containers/0/env/4/value
+        path: /spec/template/spec/containers/0/env/3/value
         value: {{ assisted_installer_agent_image ~ '@' ~ assisted_installer_agent_version }}
       - op: replace
-        path: /spec/template/spec/containers/0/env/5/value
+        path: /spec/template/spec/containers/0/env/4/value
         value: {{ assisted_installer_controller_image ~ '@' ~ assisted_installer_controller_version }}
       - op: replace
-        path: /spec/template/spec/containers/0/env/6/value
+        path: /spec/template/spec/containers/0/env/5/value
         value: {{ assisted_installer_image ~ '@' ~ assisted_installer_version }}
 
   - target:

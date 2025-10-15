@@ -126,21 +126,13 @@
     dest: "{{ playbook_dir }}/../../test/e2e/manifests/infrastructure-operator/kustomization.yaml"
     mode: '0644'
   vars:
+    assisted_service_image: >-
+      {{ lookup('ansible.builtin.env',
+      'ASSISTED_SERVICE_IMAGE', default=default_assisted_service_image) }}
     infrastructure_operator_image: >-
       {{ lookup('ansible.builtin.env',
       'INFRASTRUCTURE_OPERATOR_IMAGE',
       default=default_infrastructure_operator_image) }}
-    assisted_service_image: >-
-      {{ lookup('ansible.builtin.env',
-      'ASSISTED_SERVICE_IMAGE', default=default_assisted_service_image) }}
-    assisted_service_el8_image: >-
-      {{ lookup('ansible.builtin.env',
-      'ASSISTED_SERVICE_EL8_IMAGE',
-      default=default_assisted_service_el8_image) }}
-    assisted_image_service_image: >-
-      {{ lookup('ansible.builtin.env',
-      'ASSISTED_IMAGE_SERVICE_IMAGE',
-      default=default_assisted_image_service_image) }}
     assisted_installer_agent_image: >-
       {{ lookup('ansible.builtin.env',
       'ASSISTED_INSTALLER_AGENT_IMAGE',
@@ -161,14 +153,6 @@
       {{ lookup('ansible.builtin.env',
       'ASSISTED_SERVICE_VERSION',
       default=default_assisted_service_version) }}
-    assisted_service_el8_version: >-
-      {{ lookup('ansible.builtin.env',
-      'ASSISTED_SERVICE_EL8_VERSION',
-      default=default_assisted_service_el8_version) }}
-    assisted_image_service_version: >-
-      {{ lookup('ansible.builtin.env',
-      'ASSISTED_IMAGE_SERVICE_VERSION',
-      default=default_assisted_image_service_version) }}
     assisted_installer_agent_version: >-
       {{ lookup('ansible.builtin.env',
       'ASSISTED_INSTALLER_AGENT_VERSION',
@@ -206,24 +190,6 @@
     assisted_service_status.resources | length > 0 and
     assisted_service_status.resources[0].status.conditions |
     selectattr('type', 'equalto', 'Available') |
-    selectattr('status', 'equalto', 'True') |
-    list |
-    length > 0
-  retries: "{{ medium_retries | int }}"
-  delay: "{{ medium_delay | int }}"
-
-- name: Wait for assisted-image-service
-  kubernetes.core.k8s_info:
-    api_version: v1
-    kind: Pod
-    name: assisted-image-service-0
-    namespace: assisted-installer
-  register: image_service_status
-  until: >-
-    image_service_status.resources is defined and
-    image_service_status.resources | length > 0 and
-    image_service_status.resources[0].status.conditions |
-    selectattr('type', 'equalto', 'Ready') |
     selectattr('status', 'equalto', 'True') |
     list |
     length > 0

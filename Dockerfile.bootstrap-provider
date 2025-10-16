@@ -33,9 +33,10 @@ ENV SUMMARY="The OpenShift Assisted bootstrap provider for use when installing O
     DESCRIPTION="The OpenShift Assisted bootstrap provider implements the CAPI bootstrap provider contract and allows installing OpenShift by integrating with Assisted Installer"
 
 
-LABEL name="cluster-api-provider-openshift-assisted-bootstrap" \
+LABEL name="multicluster-engine/capoa-bootstrap-rhel9" \
       summary="${SUMMARY}" \
       description="${DESCRIPTION}" \
+      cpe="cpe:/a:redhat:multicluster_engine:2.9::el9" \
       com.redhat.component="cluster-api-provider-openshift-assisted-bootstrap" \
       io.k8s.display-name="OpenShift Assisted cluster API bootstrap provider" \
       io.k8s.description="${DESCRIPTION}" \

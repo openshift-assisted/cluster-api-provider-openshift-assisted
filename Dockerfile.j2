@@ -33,9 +33,10 @@ ENV SUMMARY="The OpenShift Assisted {{ provider }} provider for use when install
     DESCRIPTION="The OpenShift Assisted {{ provider }} provider implements the CAPI {{ provider }} provider contract and allows installing OpenShift by integrating with Assisted Installer"
 
 
-LABEL name="cluster-api-provider-openshift-assisted-{{ provider }}" \
+LABEL name="multicluster-engine/capoa-{{ provider }}-rhel9" \
       summary="${SUMMARY}" \
       description="${DESCRIPTION}" \
+      cpe="cpe:/a:redhat:multicluster_engine:2.9::el9" \
       com.redhat.component="cluster-api-provider-openshift-assisted-{{ provider }}" \
       io.k8s.display-name="OpenShift Assisted cluster API {{ provider }} provider" \
       io.k8s.description="${DESCRIPTION}" \

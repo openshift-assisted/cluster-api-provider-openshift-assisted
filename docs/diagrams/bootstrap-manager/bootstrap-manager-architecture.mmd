@@ -1,0 +1,69 @@
+graph TD
+    %% External Actors
+    User[👤 User/Administrator]
+    CAPI[🔧 Cluster API Controller]
+    AI[🚀 Assisted Installer Service]
+    InfraProvider[🏗️ Infrastructure Provider<br/>Generic CAPI Provider]
+    
+    %% Bootstrap Manager Components
+    subgraph BootstrapManager["🎯 Bootstrap Manager Pod"]
+        BootstrapController[Bootstrap Controller<br/>OpenshiftAssistedConfig & Agent]
+    end
+    
+    %% Kubernetes API Resources
+    subgraph K8sAPI["☸️ Kubernetes API Server"]
+        MachineDeployment[MachineDeployment/MachineSet<br/>CAPI Resource]
+        Machine[Machine<br/>CAPI Resource]
+        OAC[OpenshiftAssistedConfig<br/>Bootstrap CRD]
+        OACTemplate[OpenshiftAssistedConfigTemplate<br/>Bootstrap Template]
+        
+        %% AI Resources
+        InfraEnv[InfraEnv<br/>AI Resource]
+        Agent[Agent<br/>AI Resource]
+        
+        %% Generated Resources
+        Secret[Bootstrap Secret<br/>Contains ignition userdata]
+    end
+    
+    %% Physical Infrastructure
+    subgraph PhysicalInfra["🖥️ Physical Infrastructure"]
+        BaremetalNode[Baremetal Host<br/>Running user-defined image]
+    end
+    
+    %% Main Flow
+    User -->|1. Creates| MachineDeployment
+    CAPI -->|2. Creates Machine<br/>from deployment/set| Machine
+    CAPI -->|3. Creates OpenshiftAssistedConfig<br/>from template for each machine| OAC
+    OAC -->|References| OACTemplate
+    
+    BootstrapController -->|4. Creates InfraEnv<br/>for each bootstrap config| InfraEnv
+    BootstrapController -->|5. Direct HTTP call<br/>to retrieve userdata| AI
+    BootstrapController -->|6. Places retrieved userdata<br/>in secret| Secret
+    
+    %% Infrastructure Flow
+    InfraProvider -->|Reads userdata from| Secret
+    InfraProvider -->|Provisions & boots with<br/>user-defined image + userdata injection| BaremetalNode
+    
+    %% Agent Flow
+    BaremetalNode -->|Registers itself<br/>via injected userdata| Agent
+    BootstrapController -->|7. Sets roles and<br/>approves agent| Agent
+    
+    %% AI Integration  
+    AI -->|Responds to HTTP calls<br/>with userdata| BootstrapController
+    
+    %% Status Updates
+    Secret -->|Bootstrap data ready| Machine
+    Agent -->|Agent approved & ready| Machine
+    
+    %% Styling
+    classDef userActor fill:#e1f5fe
+    classDef externalSystem fill:#f3e5f5
+    classDef bootstrapComponent fill:#e8f5e8
+    classDef k8sResource fill:#fff3e0
+    classDef physicalInfra fill:#fce4ec
+    
+    class User userActor
+    class CAPI,AI,InfraProvider externalSystem
+    class BootstrapController bootstrapComponent
+    class MachineDeployment,Machine,OAC,OACTemplate,InfraEnv,Agent,Secret k8sResource
+    class BaremetalNode physicalInfra

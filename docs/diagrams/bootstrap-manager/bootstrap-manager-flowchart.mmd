@@ -1,0 +1,88 @@
+flowchart TD
+    A[Bootstrap Manager Starts] --> B[Initialize Controllers]
+    B --> C[OpenshiftAssistedConfig Controller]
+    B --> D[Agent Controller]
+    
+    %% OpenshiftAssistedConfig Controller Flow
+    C --> E[Watch OpenshiftAssistedConfig]
+    E --> F{Config Found?}
+    F -->|No| E
+    F -->|Yes| G{Being Deleted?}
+    G -->|Yes| H[Handle Deletion<br/>- Delete Agent<br/>- Delete InfraEnv<br/>- Remove Finalizer]
+    G -->|No| I[Add Finalizer]
+    I --> J{Config Owner Found?}
+    J -->|No| K[Wait & Requeue]
+    J -->|Yes| L{Cluster Infrastructure Ready?}
+    L -->|No| M[Mark Condition False<br/>Wait for Infrastructure]
+    L -->|Yes| N[Reconcile Assisted Resources]
+    
+    N --> O[Get Machine from Owner]
+    O --> P[Get ClusterDeployment]
+    P --> Q[Get AgentClusterInstall]
+    Q --> R{Worker Node & Install Started?}
+    R -->|Yes| S[Wait for Install Complete<br/>Requeue after 60s]
+    R -->|No| T[Ensure InfraEnv Exists]
+    
+    T --> U{InfraEnv Exists?}
+    U -->|Yes| V[Use Existing InfraEnv]
+    U -->|No| W[Create InfraEnv]
+    W --> X{Pull Secret Ref Set?}
+    X -->|No| Y[Create Fake Pull Secret]
+    X -->|Yes| Z[Set Owner References]
+    Y --> Z
+    Z --> AA[Create InfraEnv]
+    
+    V --> BB{Secret Already Created & Ready?}
+    AA --> BB
+    BB -->|Yes| CC[Complete - No Action Needed]
+    BB -->|No| DD{InfraEnv Ready & Cooldown Expired?}
+    DD -->|No| EE[Mark Condition False<br/>Wait for InfraEnv]
+    DD -->|Yes| FF[Get Ignition from InfraEnv]
+    FF --> GG[Create User Data Secret]
+    GG --> HH[Mark Config Ready<br/>Set DataSecretName]
+    
+    %% Agent Controller Flow
+    D --> II[Watch Agent Resources]
+    II --> JJ{Agent Found?}
+    JJ -->|No| II
+    JJ -->|Yes| KK[Get Machine from Agent]
+    KK --> LL{Machine has Bootstrap ConfigRef?}
+    LL -->|No| MM[Skip - Not CAPI Cluster]
+    LL -->|Yes| NN[Ensure Bootstrap Config Reference]
+    NN --> OO[Set Agent Fields]
+    
+    OO --> PP{Control Plane Machine?}
+    PP -->|Yes| QQ[Set Role = Master]
+    PP -->|No| RR[Set Role = Worker]
+    QQ --> SS[Set Ignition Config Overrides]
+    RR --> SS
+    SS --> TT{Can Approve Agent?}
+    TT -->|No - Another Agent Approved| UU[Set Approved = False]
+    TT -->|Yes| VV[Set Approved = True]
+    UU --> WW[Add Installer Args from KernelArguments]
+    VV --> WW
+    WW --> XX[Update Agent Resource]
+    
+    %% Error Handling
+    M --> K
+    EE --> K
+    S --> K
+    K --> E
+    
+    %% Success Paths
+    CC --> YY[Success - Bootstrap Ready]
+    HH --> YY
+    XX --> ZZ[Success - Agent Configured]
+    MM --> ZZ
+    
+    %% Manager Lifecycle
+    YY --> AAA{Manager Running?}
+    ZZ --> AAA
+    AAA -->|Yes| E
+    AAA -->|No| BBB[Shutdown Manager]
+    
+    style A fill:#e1f5fe
+    style YY fill:#c8e6c9
+    style ZZ fill:#c8e6c9
+    style BBB fill:#ffcdd2
+    style H fill:#fff3e0

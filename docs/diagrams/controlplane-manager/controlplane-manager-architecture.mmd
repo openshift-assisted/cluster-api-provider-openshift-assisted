@@ -1,0 +1,73 @@
+graph TD
+    %% External Actors
+    User[👤 User/Administrator]
+    CAPI[🔧 Cluster API Controller]
+    AI[🚀 Assisted Installer Service]
+    InfraProvider[🏗️ Infrastructure Provider<br/>Generic CAPI Provider]
+    WorkloadCluster[🎯 Workload OpenShift Cluster]
+    
+    %% Controlplane Manager Components
+    subgraph ControlplaneManager["⚡ Controlplane Manager Pod"]
+        CPController[OpenshiftAssistedControlPlane<br/>Controller]
+    end
+    
+    %% Kubernetes API Resources
+    subgraph K8sAPI["☸️ Kubernetes API Server"]
+        %% Main CRD
+        OACP[OpenshiftAssistedControlPlane<br/>CRD]
+        
+        %% CAPI Resources
+        Cluster[Cluster<br/>CAPI Resource]
+        Machine[Machine<br/>CAPI Resource]
+        BootstrapConfig[OpenshiftAssistedConfig<br/>Bootstrap CRD]
+        InfraMachineTemplate[InfraMachineTemplate<br/>Provider-specific]
+        
+        %% Hive/AI Resources
+        ClusterDeployment[ClusterDeployment<br/>Hive Resource]
+        AgentClusterInstall[AgentClusterInstall<br/>AI Resource]
+    end
+    
+    %% Physical Infrastructure
+    subgraph PhysicalInfra["🖥️ Physical Infrastructure"]
+        ControlPlaneNodes[Control Plane Nodes<br/>Running OpenShift]
+    end
+    
+    %% Main Flow
+    User -->|1. Creates| OACP
+    OACP -->|References| InfraMachineTemplate
+    
+    CPController -->|2. Reconciles replicas<br/>Creates/Scales| Machine
+    CPController -->|3. Creates bootstrap config<br/>for each machine| BootstrapConfig
+    CPController -->|4. Sets up cluster<br/>provisioning| ClusterDeployment
+    CPController -->|5. Configures<br/>installation| AgentClusterInstall
+    CPController -->|6. Orchestrates<br/>upgrades| WorkloadCluster
+    
+    %% CAPI Integration
+    CAPI -->|Watches and manages| Machine
+    Machine -->|References| BootstrapConfig
+    Machine -->|References| InfraMachineTemplate
+    
+    %% Infrastructure Flow
+    InfraProvider -->|Provisions based on| InfraMachineTemplate
+    
+    %% AI Flow
+    AI -->|Uses ClusterDeployment &<br/>AgentClusterInstall to provision| ControlPlaneNodes
+    ControlPlaneNodes -->|Forms| WorkloadCluster
+    
+    %% Status Updates
+    WorkloadCluster -->|Status & health| CPController
+    AgentClusterInstall -->|Installation progress| CPController
+    CPController -->|Updates status| OACP
+    
+    %% Styling
+    classDef userActor fill:#e1f5fe
+    classDef externalSystem fill:#f3e5f5
+    classDef controlplaneComponent fill:#e8f5e8
+    classDef k8sResource fill:#fff3e0
+    classDef physicalInfra fill:#fce4ec
+    
+    class User userActor
+    class CAPI,AI,InfraProvider,WorkloadCluster externalSystem
+    class CPController controlplaneComponent
+    class OACP,Cluster,Machine,BootstrapConfig,InfraMachineTemplate,ClusterDeployment,AgentClusterInstall k8sResource
+    class ControlPlaneNodes physicalInfra

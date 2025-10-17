@@ -1,0 +1,142 @@
+flowchart TD
+    A[ControlPlane Manager Starts] --> B[Initialize Controllers]
+    B --> C[OpenshiftAssistedControlPlane Controller]
+    B --> D[ClusterDeployment Controller]
+    B --> E[AgentClusterInstall Controller]
+    
+    %% OpenshiftAssistedControlPlane Controller Flow
+    C --> F[Watch OpenshiftAssistedControlPlane]
+    F --> G{OACP Found?}
+    G -->|No| F
+    G -->|Yes| H{Being Deleted?}
+    H -->|Yes| I[Handle Deletion<br/>- Delete ClusterDeployment<br/>- Remove Finalizer]
+    H -->|No| J[Add Finalizer]
+    J --> K{Version Supported?}
+    K -->|No| L[Mark Version Error Condition]
+    K -->|Yes| M{Owner Cluster Found?}
+    M -->|No| N[Wait & Requeue]
+    M -->|Yes| O{Cluster Paused?}
+    O -->|Yes| P[Skip Reconciliation]
+    O -->|No| Q{Infrastructure Ready & ControlPlane Endpoint Valid?}
+    Q -->|No| R[Requeue after 20s]
+    Q -->|Yes| S[Ensure Pull Secret]
+    
+    S --> T[Ensure ClusterDeployment]
+    T --> U[Set ClusterDeployment Reference]
+    U --> V[Get Architecture from Bootstrap Configs]
+    V --> W[Get Release Image]
+    W --> X[Detect Kubernetes Version]
+    X --> Y{Image Found?}
+    Y -->|No| Z[Mark Upgrade Unavailable Condition]
+    Y -->|Yes| AA{Kubeconfig Available?}
+    AA -->|Yes| BB[Upgrade Workload Cluster]
+    AA -->|No| CC[Skip Upgrade]
+    BB --> DD[Reconcile Replicas]
+    CC --> DD
+    
+    %% Replica Reconciliation Logic
+    DD --> EE[Get Current Machines]
+    EE --> FF[Filter Up-to-Date Machines]
+    FF --> GG{Need Scale Up?}
+    GG -->|Yes| HH[Find Failure Domain for Scale Up]
+    HH --> II[Scale Up Control Plane]
+    GG -->|No| JJ{Need Scale Down?}
+    JJ -->|Yes| KK[Find Failure Domain for Scale Down]
+    KK --> LL[Scale Down Control Plane]
+    JJ -->|No| MM[Update Replica Status]
+    II --> MM
+    LL --> MM
+    
+    %% Scale Up Process
+    II --> NN[Generate Machine Name]
+    NN --> OO[Create Bootstrap Config]
+    OO --> PP[Create Infrastructure Reference]
+    PP --> QQ[Create Machine with References]
+    QQ --> RR[Set Owner References]
+    
+    %% ClusterDeployment Controller Flow
+    D --> SS[Watch ClusterDeployment]
+    SS --> TT{ClusterDeployment Found?}
+    TT -->|No| SS
+    TT -->|Yes| UU{Owned by OACP?}
+    UU -->|No| VV[Skip - Not OACP Owned]
+    UU -->|Yes| WW[Get Architecture from Bootstrap Configs]
+    WW --> XX[Ensure ClusterImageSet]
+    XX --> YY{Image Registry Ref Set?}
+    YY -->|Yes| ZZ[Create Image Registry Config]
+    YY -->|No| AAA[Skip Image Registry]
+    ZZ --> BBB[Ensure AgentClusterInstall]
+    AAA --> BBB
+    
+    %% AgentClusterInstall Creation
+    BBB --> CCC[Get Owner Cluster]
+    CCC --> DDD[Calculate Worker Node Count]
+    DDD --> EEE[Get Cluster Networks]
+    EEE --> FFF[Get Additional Manifests]
+    FFF --> GGG[Create/Update AgentClusterInstall]
+    GGG --> HHH[Set Platform Type & Capabilities]
+    HHH --> III[Update ClusterDeployment Reference]
+    
+    %% AgentClusterInstall Controller Flow
+    E --> JJJ[Watch AgentClusterInstall]
+    JJJ --> KKK{ACI Found?}
+    KKK -->|No| JJJ
+    KKK -->|Yes| LLL{Owned by OACP?}
+    LLL -->|No| MMM[Skip - Not OACP Owned]
+    LLL -->|Yes| NNN{Has Kubeconfig Reference?}
+    NNN -->|No| OOO[Mark Kubeconfig Unavailable]
+    NNN -->|Yes| PPP[Get ACI Kubeconfig Secret]
+    PPP --> QQQ[Update Secret Labels]
+    QQQ --> RRR{Cluster Kubeconfig Secret Exists?}
+    RRR -->|Yes| SSS[Mark Kubeconfig Available]
+    RRR -->|No| TTT[Create Cluster Kubeconfig Secret]
+    TTT --> SSS
+    SSS --> UUU[Mark ACP as Initialized]
+    UUU --> VVV{Installation Complete?}
+    VVV -->|Yes| WWW[Mark Control Plane Ready]
+    VVV -->|No| XXX[Mark Control Plane Installing]
+    
+    %% Upgrade Process (when triggered)
+    BB --> YYY[Get Workload Kubeconfig]
+    YYY --> ZZZ{Upgrade In Progress?}
+    ZZZ -->|Yes| AAAA[Check Upgrade Status]
+    ZZZ -->|No| BBBB{Desired Version Updated?}
+    BBBB -->|Yes & Upgrade Active| CCCC[Requeue - Wait for Completion]
+    BBBB -->|No| DDDD{Running Desired Version?}
+    DDDD -->|Yes| EEEE[Mark Upgrade Complete]
+    DDDD -->|No| FFFF[Update Cluster Version]
+    AAAA --> GGGG[Update Status Message]
+    FFFF --> HHHH[Requeue after 1 minute]
+    CCCC --> HHHH
+    
+    %% Error Handling Paths
+    L --> N
+    R --> F
+    Z --> DD
+    OOO --> JJJ
+    XXX --> JJJ
+    
+    %% Success Paths
+    MM --> IIII[Success - Replicas Reconciled]
+    III --> JJJJ[Success - ClusterDeployment Ready]
+    WWW --> KKKK[Success - Control Plane Ready]
+    EEEE --> LLLL[Success - Upgrade Complete]
+    
+    %% Manager Lifecycle
+    IIII --> MMMM{Manager Running?}
+    JJJJ --> MMMM
+    KKKK --> MMMM
+    LLLL --> MMMM
+    VV --> MMMM
+    MMM --> MMMM
+    P --> MMMM
+    MMMM -->|Yes| F
+    MMMM -->|No| NNNN[Shutdown Manager]
+    
+    style A fill:#e1f5fe
+    style IIII fill:#c8e6c9
+    style JJJJ fill:#c8e6c9
+    style KKKK fill:#c8e6c9
+    style LLLL fill:#c8e6c9
+    style NNNN fill:#ffcdd2
+    style I fill:#fff3e0

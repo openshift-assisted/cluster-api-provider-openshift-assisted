@@ -96,7 +96,7 @@ func main() {
 	pflag.CommandLine.SetNormalizeFunc(cliflag.WordSepNormalizeFunc)
 	pflag.CommandLine.AddGoFlagSet(flag.CommandLine)
 	// Set log level 1 as default.
-	if err := pflag.CommandLine.Set("v", "1"); err != nil {
+	if err := pflag.CommandLine.Set("v", "3"); err != nil {
 		fmt.Println("failed to set default log level", err)
 		os.Exit(1)
 	}

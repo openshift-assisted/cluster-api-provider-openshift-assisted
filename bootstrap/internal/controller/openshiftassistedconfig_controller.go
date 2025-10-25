@@ -22,6 +22,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sync"
 	"time"
 
 	"k8s.io/client-go/tools/reference"
@@ -64,12 +65,27 @@ const (
 	openshiftAssistedConfigFinalizer = "openshiftassistedconfig." + bootstrapv1alpha1.Group + "/deprovision"
 )
 
+// HTTPClientFactory is an interface for creating HTTP clients
+type HTTPClientFactory interface {
+	CreateHTTPClient(config assistedinstaller.ServiceConfig, k8sClient client.Client) (*http.Client, error)
+}
+
+// DefaultHTTPClientFactory implements HTTPClientFactory using the real assistedinstaller package
+type DefaultHTTPClientFactory struct{}
+
+func (f *DefaultHTTPClientFactory) CreateHTTPClient(config assistedinstaller.ServiceConfig, k8sClient client.Client) (*http.Client, error) {
+	return assistedinstaller.GetAssistedHTTPClient(config, k8sClient)
+}
+
 // OpenshiftAssistedConfigReconciler reconciles a OpenshiftAssistedConfig object
 type OpenshiftAssistedConfigReconciler struct {
 	client.Client
 	Scheme                  *runtime.Scheme
 	AssistedInstallerConfig assistedinstaller.ServiceConfig
-	HttpClient              *http.Client
+
+	HttpClient        *http.Client
+	HTTPClientFactory HTTPClientFactory
+	httpClientMutex   sync.Mutex
 }
 
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=*,verbs=create;delete;get;list;patch;update;watch
@@ -177,7 +193,7 @@ func (r *OpenshiftAssistedConfigReconciler) Reconcile(ctx context.Context, req c
 			"",
 		)
 
-		return ctrl.Result{Requeue: true, RequeueAfter: retryAfter}, nil
+		return ctrl.Result{Requeue: true, RequeueAfter: 60 * time.Second}, nil
 	}
 
 	// make sure Assisted Installer resources are reconciled. When they are, we'll get the infraEnv
@@ -208,7 +224,14 @@ func (r *OpenshiftAssistedConfigReconciler) Reconcile(ctx context.Context, req c
 	ignition, err := r.getIgnition(ctx, infraEnv, log)
 	if err != nil {
 		log.V(logutil.DebugLevel).Info("error retrieving ignition", "err", err)
-		return ctrl.Result{}, err
+		conditions.MarkFalse(
+			config,
+			bootstrapv1alpha1.DataSecretAvailableCondition,
+			bootstrapv1alpha1.WaitingForAssistedInstallerReason,
+			clusterv1.ConditionSeverityInfo,
+			"retrying ignition retrieval: %v", err,
+		)
+		return ctrl.Result{Requeue: true, RequeueAfter: retryAfter}, err
 	}
 	log.V(logutil.TraceLevel).Info("ignition retrieved", "ignition", ignition)
 
@@ -247,18 +270,44 @@ func (r *OpenshiftAssistedConfigReconciler) getIgnition(ctx context.Context, inf
 	return ignition, nil
 }
 
+// getHTTPClient returns a lazily-loaded HTTP client or the pre-set test client
+func (r *OpenshiftAssistedConfigReconciler) getHTTPClient() (*http.Client, error) {
+	r.httpClientMutex.Lock()
+	defer r.httpClientMutex.Unlock()
+
+	if r.HttpClient != nil {
+		return r.HttpClient, nil
+	}
+
+	if r.HTTPClientFactory == nil {
+		return nil, errors.New("HTTPClientFactory is not set")
+	}
+
+	httpClient, err := r.HTTPClientFactory.CreateHTTPClient(r.AssistedInstallerConfig, r.Client)
+	if err != nil {
+		return nil, err
+	}
+
+	r.HttpClient = httpClient
+	return r.HttpClient, nil
+}
+
 func (r *OpenshiftAssistedConfigReconciler) getIgnitionBytes(ctx context.Context, ignitionURL *url.URL) ([]byte, error) {
 	httpReq, err := http.NewRequestWithContext(ctx, "GET", ignitionURL.String(), nil)
 	if err != nil {
 		return nil, err
 	}
-	if r.HttpClient == nil {
-		return nil, fmt.Errorf("http client not initialized")
+
+	httpClient, err := r.getHTTPClient()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create HTTP client: %w", err)
 	}
-	httpResp, err := r.HttpClient.Do(httpReq)
+
+	httpResp, err := httpClient.Do(httpReq)
 	if err != nil {
 		return nil, err
 	}
+
 	if httpResp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("ignition request to %s returned status %d", httpReq.URL.String(), httpResp.StatusCode)
 	}

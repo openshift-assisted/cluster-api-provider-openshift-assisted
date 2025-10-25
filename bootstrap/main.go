@@ -44,7 +44,6 @@ import (
 	logsv1 "k8s.io/component-base/logs/api/v1"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -181,21 +180,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	tempClient, err := client.New(clientConfig, client.Options{Scheme: scheme})
-	if err != nil {
-		setupLog.Error(err, "failed to create temp client")
-		os.Exit(1)
-	}
-	httpClient, err := assistedinstaller.GetAssistedHTTPClient(Options.AssistedInstallerServiceConfig, tempClient)
-	if err != nil {
-		setupLog.Error(err, "failed to create assisted-service http client")
-		os.Exit(1)
-	}
 	if err = (&controller.OpenshiftAssistedConfigReconciler{
 		Client:                  mgr.GetClient(),
 		Scheme:                  mgr.GetScheme(),
+		HTTPClientFactory:       &controller.DefaultHTTPClientFactory{},
 		AssistedInstallerConfig: Options.AssistedInstallerServiceConfig,
-		HttpClient:              httpClient,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "OpenshiftAssistedConfig")
 		os.Exit(1)

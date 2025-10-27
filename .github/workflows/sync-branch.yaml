@@ -10,7 +10,7 @@ jobs:
   fast-forward:
     runs-on: ubuntu-latest
     env:
-      TARGET_BRANCH: backplane-2.10
+      TARGET_BRANCH: backplane-2.11
 
     steps:
       - name: Checkout repo

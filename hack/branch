@@ -21,7 +21,7 @@ for f in $(ls -1 .tekton); do
 done
 
 # add old branch to the renovate.json to target konflux updates, as it's no longer ffwd
-cat renovate.json | jq '.baseBranchPattern += ["'${previous_branch}'"]' > renovate.updated.json
+cat renovate.json | jq '.baseBranchPatterns += ["'${previous_branch}'"]' > renovate.updated.json
 
 cp renovate.updated.json renovate.json
 

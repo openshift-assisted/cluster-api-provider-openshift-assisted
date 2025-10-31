@@ -94,6 +94,16 @@ func (t *mockTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	return t.mockHandler(req)
 }
 
+// mockHTTPClientFactory allows us to mock HTTP client creation for tests
+type mockHTTPClientFactory struct {
+	client *http.Client
+	err    error
+}
+
+func (m *mockHTTPClientFactory) CreateHTTPClient(config assistedinstaller.ServiceConfig, k8sClient client.Client) (*http.Client, error) {
+	return m.client, m.err
+}
+
 var _ = Describe("OpenshiftAssistedConfig Controller", func() {
 	Context("When reconciling a resource", func() {
 		ctx := context.Background()
@@ -310,7 +320,7 @@ var _ = Describe("OpenshiftAssistedConfig Controller", func() {
 					mockResponse := `{"fake":"ignition"}`
 
 					mockHandler := func(req *http.Request) (*http.Response, error) {
-						if req.URL.Host != "assisted-service.assisted-installer.svc.cluster.local:8090" {
+						if req.URL.Host != "assisted-service.assisted-installer.com" {
 							return nil, fmt.Errorf("unexpected host: %s", req.URL.Host)
 						}
 						mockBody := io.NopCloser(strings.NewReader(mockResponse))
@@ -320,17 +330,15 @@ var _ = Describe("OpenshiftAssistedConfig Controller", func() {
 							Header:     make(http.Header),
 						}, nil
 					}
-					controllerReconciler = &OpenshiftAssistedConfigReconciler{
-						Client: k8sClient,
-						Scheme: k8sClient.Scheme(),
-						HttpClient: &http.Client{
+					mockClientFactory := &mockHTTPClientFactory{
+						client: &http.Client{
 							Transport: &mockTransport{mockHandler: mockHandler},
 						},
-						AssistedInstallerConfig: assistedinstaller.ServiceConfig{
-							UseInternalImageURL:        true,
-							AssistedServiceName:        "assisted-service",
-							AssistedInstallerNamespace: "assisted-installer",
-						},
+					}
+					controllerReconciler = &OpenshiftAssistedConfigReconciler{
+						Client:            k8sClient,
+						Scheme:            k8sClient.Scheme(),
+						HTTPClientFactory: mockClientFactory,
 					}
 
 					oac := setupControlPlaneOpenshiftAssistedConfigWithPullSecretRef(ctx, k8sClient)
@@ -358,8 +366,76 @@ var _ = Describe("OpenshiftAssistedConfig Controller", func() {
 					Expect(string(ignition)).To(Equal(mockResponse))
 
 				})
-			},
-		)
+			})
+		When("HTTPClientFactory returns an error", func() {
+			It("should handle HTTP client creation errors gracefully", func() {
+				// Set up mock factory that returns an error
+				mockFactory := &mockHTTPClientFactory{
+					client: nil,
+					err:    fmt.Errorf("failed to create HTTP client: TLS certificate error"),
+				}
+
+				controllerReconciler = &OpenshiftAssistedConfigReconciler{
+					Client:            k8sClient,
+					Scheme:            k8sClient.Scheme(),
+					HTTPClientFactory: mockFactory,
+				}
+
+				oac := setupControlPlaneOpenshiftAssistedConfigWithPullSecretRef(ctx, k8sClient)
+				mockControlPlaneInitialization(ctx, k8sClient)
+				infraEnv := testutils.NewInfraEnv(namespace, machineName)
+				Expect(k8sClient.Create(ctx, infraEnv)).To(Succeed())
+				infraEnv.Status.InfraEnvDebugInfo.EventsURL = "http://assisted-service.assisted-installer.com/api/assisted-install/v2/events?api_key=test&infra_env_id=test"
+				Expect(k8sClient.Status().Update(ctx, infraEnv)).To(Succeed())
+
+				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: client.ObjectKeyFromObject(oac),
+				})
+
+				// Should return an error that includes the HTTP client creation failure
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("failed to create HTTP client"))
+				Expect(err.Error()).To(ContainSubstring("TLS certificate error"))
+
+				// Verify the condition is set correctly
+				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(oac), oac)).To(Succeed())
+				condition := conditions.Get(oac, bootstrapv1alpha1.DataSecretAvailableCondition)
+				Expect(condition).NotTo(BeNil())
+				Expect(condition.Status).To(Equal(corev1.ConditionFalse))
+				Expect(condition.Reason).To(Equal(bootstrapv1alpha1.WaitingForAssistedInstallerReason))
+			})
+		})
+		When("HTTPClientFactory is nil", func() {
+			It("should return an error when HTTPClientFactory is not set", func() {
+				controllerReconciler = &OpenshiftAssistedConfigReconciler{
+					Client:            k8sClient,
+					Scheme:            k8sClient.Scheme(),
+					HTTPClientFactory: nil, // Explicitly set to nil
+				}
+
+				oac := setupControlPlaneOpenshiftAssistedConfigWithPullSecretRef(ctx, k8sClient)
+				mockControlPlaneInitialization(ctx, k8sClient)
+				infraEnv := testutils.NewInfraEnv(namespace, machineName)
+				Expect(k8sClient.Create(ctx, infraEnv)).To(Succeed())
+				infraEnv.Status.InfraEnvDebugInfo.EventsURL = "http://assisted-service.assisted-installer.com/api/assisted-install/v2/events?api_key=test&infra_env_id=test"
+				Expect(k8sClient.Status().Update(ctx, infraEnv)).To(Succeed())
+
+				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: client.ObjectKeyFromObject(oac),
+				})
+
+				// Should return an error about HTTPClientFactory not being set
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("HTTPClientFactory is not set"))
+
+				// Verify the condition is set correctly
+				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(oac), oac)).To(Succeed())
+				condition := conditions.Get(oac, bootstrapv1alpha1.DataSecretAvailableCondition)
+				Expect(condition).NotTo(BeNil())
+				Expect(condition.Status).To(Equal(corev1.ConditionFalse))
+				Expect(condition.Reason).To(Equal(bootstrapv1alpha1.WaitingForAssistedInstallerReason))
+			})
+		})
 	})
 })
 

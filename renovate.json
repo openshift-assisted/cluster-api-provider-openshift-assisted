@@ -5,7 +5,8 @@
   "groupName": "Konflux build pipeline",
   "baseBranchPatterns": [
     "master",
-    "backplane-2.9"
+    "backplane-2.9",
+    "backplane-2.10"
   ],
   "includePaths": [
     ".tekton/*"

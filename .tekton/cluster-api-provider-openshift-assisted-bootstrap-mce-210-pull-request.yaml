@@ -33,6 +33,10 @@ spec:
     value: Dockerfile.bootstrap-provider
   - name: path-context
     value: .
+  - name: build-args
+    value:
+    - release={{target_branch}}
+    - version={{revision}}
   pipelineSpec:
     description: |
       This pipeline is ideal for building multi-arch container images from a Containerfile while maintaining trust after pipeline customization.

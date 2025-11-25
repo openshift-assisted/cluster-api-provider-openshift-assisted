@@ -27,6 +27,9 @@ COPY controlplane/internal/ controlplane/internal/
 RUN CGO_ENABLED=1 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64} go build -mod=vendor -a -o manager controlplane/main.go
 
 FROM registry.access.redhat.com/ubi9/ubi-minimal:latest
+ARG release=main
+ARG version=latest
+
 WORKDIR /
 COPY --from=builder /opt/app-root/src/manager .
 USER 65532:65532
@@ -40,6 +43,11 @@ LABEL name="cluster-api-controlplane-provider-openshift-assisted" \
       com.redhat.component="cluster-api-controlplane-provider-openshift-assisted" \
       io.k8s.display-name="CAPI Controlplane Provider OpenShift Assisted" \
       io.k8s.description="${DESCRIPTION}" \
-      io.openshift.tags="capi,install,cluster,provisioning,controlplane"
+      io.openshift.tags="capi,install,cluster,provisioning,controlplane" \
+      distribution-scope="public" \
+      release="${release}" \
+      version="${version}" \
+      url="https://github.com/openshift-assisted/cluster-api-provider-openshift-assisted" \
+      vendor="Red Hat, Inc."
 
 ENTRYPOINT ["/manager"]

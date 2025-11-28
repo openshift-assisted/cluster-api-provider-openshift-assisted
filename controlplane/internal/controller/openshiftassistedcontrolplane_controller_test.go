@@ -42,6 +42,7 @@ import (
 	fakeclient "sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	bootstrapv1alpha1 "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/bootstrap/api/v1alpha1"
 	controlplanev1alpha2 "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/api/v1alpha2"
 	testutils "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/test/utils"
 	corev1 "k8s.io/api/core/v1"
@@ -869,6 +870,98 @@ var _ = Describe("Scale operations and machine updates", func() {
 			// Verify machines are marked for update
 			Expect(k8sClient.Get(ctx, typeNamespacedName, oacp)).To(Succeed())
 			Expect(oacp.Status.UpdatedReplicas).To(Equal(int32(0)))
+		})
+	})
+
+	Context("Label propagation", func() {
+		BeforeEach(func() {
+			oacp.Spec.Replicas = 1
+			// Add custom labels to the OpenshiftAssistedControlPlane
+			oacp.Labels = map[string]string{
+				"custom-label":       "custom-value",
+				"discovery-ignition": "enabled",
+				"test-label":         "test-value",
+			}
+			Expect(k8sClient.Create(ctx, oacp)).To(Succeed())
+		})
+
+		It("should copy labels from OpenshiftAssistedControlPlane to OpenshiftAssistedConfig", func() {
+			// Reconcile to create machines and bootstrap configs
+			result, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(ctrlruntime.Result{}))
+
+			// Get the created bootstrap configs
+			bootstrapConfigList := &bootstrapv1alpha1.OpenshiftAssistedConfigList{}
+			Expect(k8sClient.List(ctx, bootstrapConfigList, client.InNamespace(namespace))).To(Succeed())
+			Expect(bootstrapConfigList.Items).To(HaveLen(1))
+
+			bootstrapConfig := &bootstrapConfigList.Items[0]
+
+			// Verify that custom labels from oacp are present in the bootstrap config
+			Expect(bootstrapConfig.Labels).To(HaveKeyWithValue("custom-label", "custom-value"))
+			Expect(bootstrapConfig.Labels).To(HaveKeyWithValue("discovery-ignition", "enabled"))
+			Expect(bootstrapConfig.Labels).To(HaveKeyWithValue("test-label", "test-value"))
+
+			// Verify that standard control plane labels are also present
+			Expect(bootstrapConfig.Labels).To(HaveKeyWithValue(clusterv1.ClusterNameLabel, clusterName))
+			Expect(bootstrapConfig.Labels).To(HaveKey(clusterv1.MachineControlPlaneLabel))
+			Expect(bootstrapConfig.Labels).To(HaveKey(clusterv1.MachineControlPlaneNameLabel))
+		})
+
+		It("should not override standard control plane labels with custom labels", func() {
+			// Update oacp with labels that would conflict with standard labels
+			Expect(k8sClient.Get(ctx, typeNamespacedName, oacp)).To(Succeed())
+			oacp.Labels[clusterv1.ClusterNameLabel] = "wrong-cluster-name"
+			Expect(k8sClient.Update(ctx, oacp)).To(Succeed())
+
+			// Reconcile to create machines and bootstrap configs
+			result, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(ctrlruntime.Result{}))
+
+			// Get the created bootstrap configs
+			bootstrapConfigList := &bootstrapv1alpha1.OpenshiftAssistedConfigList{}
+			Expect(k8sClient.List(ctx, bootstrapConfigList, client.InNamespace(namespace))).To(Succeed())
+			Expect(bootstrapConfigList.Items).To(HaveLen(1))
+
+			bootstrapConfig := &bootstrapConfigList.Items[0]
+
+			// Verify that the standard cluster name label is NOT overridden by the custom label
+			Expect(bootstrapConfig.Labels).To(HaveKeyWithValue(clusterv1.ClusterNameLabel, clusterName))
+			Expect(bootstrapConfig.Labels).NotTo(HaveKeyWithValue(clusterv1.ClusterNameLabel, "wrong-cluster-name"))
+		})
+	})
+
+	Context("Annotation propagation for discovery ignition", func() {
+		BeforeEach(func() {
+			oacp.Spec.Replicas = 1
+		})
+
+		It("should propagate discovery-ignition-override annotation from OpenshiftAssistedControlPlane to OpenshiftAssistedConfig", func() {
+			// Add discovery-ignition-override annotation to the OpenshiftAssistedControlPlane
+			discoveryIgnitionOverride := `{"ignition":{"version":"3.2.0"},"storage":{"files":[{"path":"/etc/test","contents":{"source":"data:,test"}}]}}`
+			oacp.Annotations = map[string]string{
+				bootstrapv1alpha1.DiscoveryIgnitionOverrideAnnotation: discoveryIgnitionOverride,
+				"custom-annotation": "custom-value",
+			}
+			Expect(k8sClient.Create(ctx, oacp)).To(Succeed())
+
+			// Reconcile to create machines and bootstrap configs
+			result, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(ctrlruntime.Result{}))
+
+			// Get the created bootstrap configs
+			bootstrapConfigList := &bootstrapv1alpha1.OpenshiftAssistedConfigList{}
+			Expect(k8sClient.List(ctx, bootstrapConfigList, client.InNamespace(namespace))).To(Succeed())
+			Expect(bootstrapConfigList.Items).To(HaveLen(1))
+
+			bootstrapConfig := &bootstrapConfigList.Items[0]
+
+			// Verify that annotations from oacp are present in the bootstrap config
+			Expect(bootstrapConfig.Annotations).To(HaveKeyWithValue(bootstrapv1alpha1.DiscoveryIgnitionOverrideAnnotation, discoveryIgnitionOverride))
+			Expect(bootstrapConfig.Annotations).To(HaveKeyWithValue("custom-annotation", "custom-value"))
 		})
 	})
 })

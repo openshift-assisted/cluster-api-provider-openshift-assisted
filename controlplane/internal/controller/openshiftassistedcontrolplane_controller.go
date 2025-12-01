@@ -779,18 +779,41 @@ func (r *OpenshiftAssistedControlPlaneReconciler) computeInfraRef(ctx context.Co
 	return infraRef, nil
 }
 
-func (r *OpenshiftAssistedControlPlaneReconciler) generateOpenshiftAssistedConfig(acp *controlplanev1alpha2.OpenshiftAssistedControlPlane, clusterName string, name string) *bootstrapv1alpha1.OpenshiftAssistedConfig {
+func (r *OpenshiftAssistedControlPlaneReconciler) generateOpenshiftAssistedConfig(oacp *controlplanev1alpha2.OpenshiftAssistedControlPlane, clusterName string, name string) *bootstrapv1alpha1.OpenshiftAssistedConfig {
+	labels := util.ControlPlaneMachineLabelsForCluster(oacp, clusterName)
+
+	// Merge in labels from the OpenshiftAssistedControlPlane itself
+	// This allows users to set labels on the control plane that will be propagated to the configs
+	for k, v := range oacp.Labels {
+		if _, exists := labels[k]; !exists {
+			labels[k] = v
+		}
+	}
+
+	annotations := make(map[string]string)
+	for k, v := range oacp.Spec.MachineTemplate.ObjectMeta.Annotations {
+		annotations[k] = v
+	}
+
+	// Merge in annotations from the OpenshiftAssistedControlPlane itself
+	// This allows propagation of discovery-ignition-override and other annotations
+	for k, v := range oacp.Annotations {
+		if _, exists := annotations[k]; !exists {
+			annotations[k] = v
+		}
+	}
+
 	bootstrapConfig := &bootstrapv1alpha1.OpenshiftAssistedConfig{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        name,
-			Namespace:   acp.Namespace,
-			Labels:      util.ControlPlaneMachineLabelsForCluster(acp, clusterName),
-			Annotations: acp.Spec.MachineTemplate.ObjectMeta.Annotations,
+			Namespace:   oacp.Namespace,
+			Labels:      labels,
+			Annotations: annotations,
 		},
-		Spec: *acp.Spec.OpenshiftAssistedConfigSpec.DeepCopy(),
+		Spec: *oacp.Spec.OpenshiftAssistedConfigSpec.DeepCopy(),
 	}
 
-	_ = controllerutil.SetOwnerReference(acp, bootstrapConfig, r.Scheme)
+	_ = controllerutil.SetOwnerReference(oacp, bootstrapConfig, r.Scheme)
 	return bootstrapConfig
 }
 

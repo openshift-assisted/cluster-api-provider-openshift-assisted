@@ -6,42 +6,94 @@ target_branch="backplane-${target_version}"
 previous_branch=$(echo $target_branch | cut -d. -f1).$(($(echo $target_branch | cut -d. -f2)-1))
 pr_branch="ffwd_${target_branch}"
 
-git fetch --all
-git checkout master
-git checkout -b "${pr_branch}"
-
-short_version=${target_version//.}
-for f in $(ls -1 .tekton); do
-    in="./.tekton/${f}"
-    out=$(echo "${in}" | sed "s/mce-[0-9]\+/mce-${short_version}/g")
-    git mv "${in}" "${out}"
-    sed -i "s/mce-[0-9]\+/mce-${short_version}/g" "${out}"
-    sed -i "s/${previous_branch}/${target_branch}/g" "${out}"
-    git add "${out}"
-done
-
-# add old branch to the renovate.json to target konflux updates, as it's no longer ffwd
-cat renovate.json | jq '.baseBranchPatterns += ["'${previous_branch}'"]' > renovate.updated.json
-
-cp renovate.updated.json renovate.json
-
-git add renovate.json
-
-sed -i "s/TARGET_BRANCH: .*$/TARGET_BRANCH: ${target_branch}/g" .github/workflows/sync-branch.yaml
-
-git add .github/workflows/sync-branch.yaml
-# commit the changes
-
-git commit -s -m "create ffwd branch ${target_branch}, freeze ${previous_branch}"
-
-read -p "Push changes to ${pr_branch} (y/n)? " -n 1 -r
-if [[ $REPLY =~ ^[Yy]$ ]]; then
-    git push origin "${pr_branch}"
+if [[ "${CI:-}" != "true" ]]; then
+    git fetch --all
+    git checkout master
+    git checkout -b "${pr_branch}"
 fi
 
-# branch out the new branch
-git checkout -b "upstream/${target_branch}"
-read -p "Create (push) branch ${target_branch}? (y/n)? " -n 1 -r
-if [[ $REPLY =~ ^[Yy]$ ]]; then
-    git push upstream "${target_branch}"
+short_version=${target_version//.}
+
+# Handle .tekton directory safely
+if [ -d ".tekton" ]; then
+    tekton_files_found=false
+    for f in .tekton/*; do
+        [ ! -e "$f" ] && continue
+        tekton_files_found=true
+        
+        filename=$(basename "$f")
+        in="./.tekton/${filename}"
+        out=$(echo "${in}" | sed "s/mce-[0-9]\+/mce-${short_version}/g")
+        
+        if [ -f "${in}" ]; then
+            [ "${in}" != "${out}" ] && git mv "${in}" "${out}"
+            sed -i "s/mce-[0-9]\+/mce-${short_version}/g" "${out}"
+            sed -i "s/${previous_branch}/${target_branch}/g" "${out}"
+            git add "${out}"
+        fi
+    done
+    
+    [ "$tekton_files_found" = false ] && echo "Note: .tekton directory is empty, skipping"
+else
+    echo "Note: .tekton directory does not exist, skipping"
+fi
+
+# add old branch to the renovate.json to target konflux updates, as it's no longer ffwd
+if [ ! -f "renovate.json" ]; then
+    echo "Error: renovate.json does not exist"
+    exit 1
+fi
+
+if ! jq . renovate.json > /dev/null 2>&1; then
+    echo "Error: renovate.json contains malformed JSON"
+    exit 1
+fi
+
+if ! jq '.baseBranchPatterns += ["'"${previous_branch}"'"]' renovate.json > renovate.updated.json; then
+    echo "Error: Failed to update renovate.json"
+    rm -f renovate.updated.json
+    exit 1
+fi
+
+cp renovate.updated.json renovate.json
+rm -f renovate.updated.json
+git add renovate.json
+
+# Update sync-branch.yaml with validation
+SYNC_BRANCH_FILE=".github/workflows/sync-branch.yaml"
+if [ ! -f "${SYNC_BRANCH_FILE}" ]; then
+    echo "Error: ${SYNC_BRANCH_FILE} does not exist"
+    exit 1
+fi
+
+sed -i "s/TARGET_BRANCH: .*$/TARGET_BRANCH: ${target_branch}/g" "${SYNC_BRANCH_FILE}"
+
+if ! grep -q "TARGET_BRANCH: ${target_branch}" "${SYNC_BRANCH_FILE}"; then
+    echo "Error: Failed to update TARGET_BRANCH in ${SYNC_BRANCH_FILE}"
+    exit 1
+fi
+
+git add "${SYNC_BRANCH_FILE}"
+# commit the changes
+
+if [[ "${CI:-}" == "true" ]]; then
+    if git commit -m "Prepare release branch ${target_branch} with updated Tekton YAML, sync-branch.yaml and renovate.json"; then
+        git push origin "${target_branch}"
+    else
+        echo "No changes to commit on release branch"
+    fi
+else
+    git commit -s -m "create ffwd branch ${target_branch}, freeze ${previous_branch}"
+
+    read -p "Push changes to ${pr_branch} (y/n)? " -n 1 -r
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        git push origin "${pr_branch}"
+    fi
+
+    # branch out the new branch
+    git checkout -b "upstream/${target_branch}"
+    read -p "Create (push) branch ${target_branch}? (y/n)? " -n 1 -r
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        git push upstream "${target_branch}"
+    fi
 fi

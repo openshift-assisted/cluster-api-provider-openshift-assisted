@@ -1,10 +1,116 @@
 ---
+- name: Validate pullsecret file is valid JSON using jq
+  ansible.builtin.shell:
+    cmd: jq -e . ~/pull-secret.txt > /dev/null
+  register: json_validation
+  failed_when: false
+  changed_when: false
+
+- name: Fail if pullsecret is not valid JSON
+  ansible.builtin.fail:
+    msg: |
+      Pullsecret is not valid JSON!
+      Error occurred while parsing the pullsecret from ~/pull-secret.txt
+
+      Common issues:
+      - File contains Python dict syntax with single quotes (') instead of JSON double quotes (")
+      - File contains invalid escape sequences
+      - File is not properly formatted JSON
+
+      Please verify the file contains valid JSON format.
+      Download a fresh pull secret from https://console.redhat.com/openshift/install/pull-secret
+
+      jq exit code: {{ json_validation.rc }}
+  when: json_validation.rc != 0
+
+- name: Validate pullsecret has required 'auths' field using jq
+  ansible.builtin.shell:
+    cmd: jq -e '.auths' ~/pull-secret.txt > /dev/null
+  register: auths_check
+  failed_when: false
+  changed_when: false
+
+- name: Fail if pullsecret is missing 'auths' field
+  ansible.builtin.fail:
+    msg: |
+      Pullsecret is missing required 'auths' field!
+      A valid pull secret must have the structure: {"auths": {...}}
+  when: auths_check.rc != 0
+
+- name: Get registry list from pullsecret
+  ansible.builtin.shell:
+    cmd: jq -r '.auths | keys[]' ~/pull-secret.txt
+  register: registry_list
+  changed_when: false
+
+- name: Fail if pullsecret 'auths' is empty
+  ansible.builtin.fail:
+    msg: |
+      Pullsecret 'auths' field is empty!
+      A valid pull secret must have at least one registry in the 'auths' field.
+  when: registry_list.stdout_lines | length == 0
+
+- name: Display pullsecret validation success
+  ansible.builtin.debug:
+    msg: |
+      Pullsecret validation successful!
+      Registries found: {{ registry_list.stdout_lines }}
+
+- name: Read pullsecret from file on remote host
+  ansible.builtin.slurp:
+    src: ~/pull-secret.txt
+  register: pullsecret_file
+
+- name: Set pullsecret from file content
+  ansible.builtin.set_fact:
+    pullsecret: "{{ pullsecret_file.content | b64decode }}"
+
 - name: Create test namespace
   kubernetes.core.k8s:
     api_version: v1
     kind: Namespace
     name: "{{ test_namespace }}"
     state: present
+
+- name: Wait for CAPI controller manager deployment to be available
+  kubernetes.core.k8s_info:
+    api_version: apps/v1
+    kind: Deployment
+    name: capi-controller-manager
+    namespace: capi-system
+  register: capi_controller_status
+  until: >-
+    capi_controller_status.resources is defined and
+    capi_controller_status.resources | length > 0 and
+    capi_controller_status.resources[0].status.conditions |
+    selectattr('type', 'equalto', 'Available') |
+    selectattr('status', 'equalto', 'True') |
+    list |
+    length > 0
+  retries: "{{ medium_retries | int }}"
+  delay: "{{ medium_delay | int }}"
+
+- name: Wait for CAPI webhook service endpoints to be ready
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Endpoints
+    name: capi-webhook-service
+    namespace: capi-system
+  register: webhook_endpoints
+  until: >-
+    webhook_endpoints.resources is defined and
+    webhook_endpoints.resources | length > 0 and
+    webhook_endpoints.resources[0].subsets is defined and
+    webhook_endpoints.resources[0].subsets | length > 0 and
+    webhook_endpoints.resources[0].subsets[0].addresses is defined and
+    webhook_endpoints.resources[0].subsets[0].addresses | length > 0
+  retries: "{{ medium_retries | int }}"
+  delay: "{{ low_delay | int }}"
+
+- name: Wait additional time for webhook certificates to be fully ready
+  ansible.builtin.pause:
+    seconds: 30
+    prompt: "Waiting for CAPI webhook certificates to be injected and trusted"
 
 - name: Apply example manifest
   kubernetes.core.k8s:

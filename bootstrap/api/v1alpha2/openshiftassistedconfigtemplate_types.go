@@ -21,9 +21,15 @@ import (
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 )
 
+// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
+// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
+
 // OpenshiftAssistedConfigTemplateSpec defines the desired state of OpenshiftAssistedConfigTemplate
 type OpenshiftAssistedConfigTemplateSpec struct {
-	// Template specifies the OpenshiftAssistedConfig template
+	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
+	// Important: Run "make" to regenerate code after modifying this file
+
+	// OpenshiftAssistedConfig template
 	Template OpenshiftAssistedConfigTemplateResource `json:"template"`
 }
 
@@ -39,6 +45,8 @@ type OpenshiftAssistedConfigTemplateResource struct {
 
 // OpenshiftAssistedConfigTemplateStatus defines the observed state of OpenshiftAssistedConfigTemplate
 type OpenshiftAssistedConfigTemplateStatus struct {
+	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
+	// Important: Run "make" to regenerate code after modifying this file
 }
 
 //+kubebuilder:object:root=true

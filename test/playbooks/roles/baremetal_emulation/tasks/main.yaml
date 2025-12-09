@@ -1,4 +1,11 @@
 ---
+- name: Stop and disable existing sushy systemd service
+  ansible.builtin.systemd:
+    name: sushy-emulator.service
+    state: stopped
+    enabled: false
+  failed_when: false
+
 - name: Creating sushy-tools-config
   ansible.builtin.copy:
     dest: "/tmp/sushy-emulator.conf"
@@ -9,11 +16,21 @@
       SUSHY_EMULATOR_LISTEN_PORT = 8000
       # The libvirt URI to use. This option enables libvirt driver.
       SUSHY_EMULATOR_LIBVIRT_URI = u"qemu:///system"
+      SUSHY_EMULATOR_VMEDIA_VERIFY_SSL = False
+  become: false
+
+- name: Remove existing sushy-tools container
+  ansible.builtin.shell: podman rm -f sushy-tools
+  failed_when: false
+  changed_when: false
+  become: false
+
 - name: Start sushytools
   ansible.builtin.shell: |
-    podman rm -f sushy-tools && podman run --name sushy-tools --rm --network host --privileged -d \
+    podman run --name sushy-tools --replace --network host --privileged -d \
     -v /var/run/libvirt:/var/run/libvirt:z \
-    -v "/tmp/sushy-emulator.conf:/etc/sushy/sushy-emulator.conf:z" \
-    -e SUSHY_EMULATOR_CONFIG=/etc/sushy/sushy-emulator.conf \
-    quay.io/metal3-io/sushy-tools:latest sushy-emulator
+    -v "/tmp/sushy-emulator.conf:/root/sushy/conf.py:z" \
+    quay.io/metal3-io/sushy-tools:latest sushy-emulator \
+    --interface 192.168.222.1 --port 8000 --config /root/sushy/conf.py
   changed_when: true
+  become: true

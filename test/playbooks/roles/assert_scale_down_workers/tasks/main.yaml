@@ -1,0 +1,106 @@
+---
+- name: Display scale down workers test information
+  ansible.builtin.debug:
+    msg:
+      - "================================================================================"
+      - "Starting Scale Down Worker Nodes Test"
+      - "================================================================================"
+      - "Cluster:               {{ cluster_name }}"
+      - "Namespace:             {{ test_namespace }}"
+      - "Cluster Topology:      {{ cluster_topology }}"
+      - "================================================================================"
+
+- name: Check preconditions for scale down workers test
+  ansible.builtin.include_tasks: preconditions.yaml
+
+# Scale down: Remove one worker from the MachineDeployment
+- name: Get current MachineDeployment
+  kubernetes.core.k8s_info:
+    api_version: cluster.x-k8s.io/v1beta1
+    kind: MachineDeployment
+    name: "{{ cluster_name }}-worker"
+    namespace: "{{ test_namespace }}"
+  register: machine_deployment
+
+- name: Get current replica count
+  ansible.builtin.set_fact:
+    current_replicas: "{{ machine_deployment.resources[0].spec.replicas | int }}"
+    new_replicas: "{{ (machine_deployment.resources[0].spec.replicas | int) - 1 }}"
+
+- name: Display scale down operation
+  ansible.builtin.debug:
+    msg:
+      - "================================================================================"
+      - "Scaling Down MachineDeployment"
+      - "================================================================================"
+      - "MachineDeployment:         {{ cluster_name }}-worker"
+      - "Current replicas:          {{ current_replicas }}"
+      - "New replicas:              {{ new_replicas }}"
+      - "================================================================================"
+
+- name: Scale down MachineDeployment by removing 1 replica
+  ansible.builtin.command: >
+    kubectl scale machinedeployment {{ cluster_name }}-worker
+    --namespace {{ test_namespace }}
+    --replicas={{ new_replicas | int }}
+
+- name: Display scale down initiated
+  ansible.builtin.debug:
+    msg: "Scale down initiated: MachineDeployment {{ cluster_name }}-worker now has {{ new_replicas }} replicas"
+
+# Wait for MachineDeployment to reach desired replicas
+- name: Wait for MachineDeployment to have correct ready replicas
+  kubernetes.core.k8s_info:
+    api_version: cluster.x-k8s.io/v1beta1
+    kind: MachineDeployment
+    name: "{{ cluster_name }}-worker"
+    namespace: "{{ test_namespace }}"
+  register: md_status
+  until:
+    - md_status.resources is defined
+    - md_status.resources | length > 0
+    - md_status.resources[0].status.readyReplicas is defined
+    - md_status.resources[0].status.readyReplicas | int == new_replicas | int
+  retries: "{{ high_retries | int }}"
+  delay: "{{ high_delay | int }}"
+
+- name: Display MachineDeployment status
+  ansible.builtin.debug:
+    msg:
+      - "MachineDeployment {{ cluster_name }}-worker status:"
+      - "  - Desired replicas:  {{ md_status.resources[0].spec.replicas }}"
+      - "  - Ready replicas:    {{ md_status.resources[0].status.readyReplicas | default(0) }}"
+      - "  - Updated replicas:  {{ md_status.resources[0].status.updatedReplicas | default(0) }}"
+
+# Verify worker nodes on the spoke cluster
+# Note: Node deletion is asynchronous, so we need to wait for it to complete
+- name: Wait for worker node count to match expected on spoke cluster
+  ansible.builtin.shell: |
+    kubectl get nodes --selector='!node-role.kubernetes.io/master,!node-role.kubernetes.io/control-plane' -o name | wc -l
+  register: worker_node_count
+  environment:
+    KUBECONFIG: "/tmp/{{ cluster_name }}-kubeconfig"
+  changed_when: false
+  until: worker_node_count.stdout | int == new_replicas | int
+  retries: "{{ high_retries | int }}"
+  delay: "{{ high_delay | int }}"
+
+- name: Verify worker node count matches expected
+  ansible.builtin.assert:
+    that:
+      - worker_node_count.stdout | int == new_replicas | int
+    fail_msg: "Worker node count mismatch: expected {{ new_replicas }}, got {{ worker_node_count.stdout | trim }}"
+    success_msg: "Worker node count verified: {{ worker_node_count.stdout | trim }} workers (expected {{ new_replicas }})"
+
+# Display final summary
+- name: Display scale down completed
+  ansible.builtin.debug:
+    msg:
+      - "================================================================================"
+      - "Scale Down Workers Test Completed Successfully"
+      - "================================================================================"
+      - "MachineDeployment:         {{ cluster_name }}-worker"
+      - "Previous replicas:         {{ current_replicas }}"
+      - "New replicas:              {{ new_replicas }}"
+      - "Worker nodes in cluster:   {{ worker_node_count.stdout | trim }}"
+      - "================================================================================"

@@ -50,8 +50,11 @@ The following environment variables must be set before running the playbook:
 - `NUMBER_OF_NODES`: Number of available nodes (BMHs) in the test cluster (default: "7")
 - `CLUSTER_TOPOLOGY`: Cluster topology type - "multinode", "sno", "multinode-okd" or "sno-okd" (default: "multinode")
 - `CAPI_VERSION`: Cluster API version to use (default: "v1.9.6")
-- `CAPM3_VERSION`: Cluster API Provider Metal3 version (default: "v1.9.3")  
+- `CAPM3_VERSION`: Cluster API Provider Metal3 version (default: "v1.9.3")
 - `CONTAINER_TAG`: Container image tag for built images (default: "local")
+- `UPGRADE_TO_VERSION`: OCP version to upgrade to (e.g., "4.20.8"). Leave empty to skip upgrade
+- `RUN_SCALE_UP_WORKERS_TEST`: Enable scale up worker nodes test (default: "false")
+- `RUN_SCALE_DOWN_WORKERS_TEST`: Enable scale down worker nodes test (default: "false")
 
 ### Example Environment Setup
 
@@ -125,7 +128,32 @@ The playbook executes a series of roles in sequence, each handling a specific as
 - Validates that all components are running correctly
 - Performs post-installation verification tests
 
-### 11. assert_upgrade (conditional)
+### 11. app_deploy
+**Purpose**: Deploy a test application to validate cluster functionality
+- Deploys a sample application to the spoke cluster
+- Validates that workloads can be scheduled and run correctly
+
+### 12. assert_scale_up_workers (conditional)
+**Purpose**: Test scaling up worker nodes in the cluster
+- Only runs when `RUN_SCALE_UP_WORKERS_TEST` environment variable is set to `true`
+- Increases the MachineDeployment replica count by 1
+- Waits for the new worker node to become ready
+- Validates the worker node count on the spoke cluster
+- **Preconditions**:
+  - Cluster topology must not be SNO
+  - At least one unassigned BareMetalHost must be available
+
+### 13. assert_scale_down_workers (conditional)
+**Purpose**: Test scaling down worker nodes in the cluster
+- Only runs when `RUN_SCALE_DOWN_WORKERS_TEST` environment variable is set to `true`
+- Decreases the MachineDeployment replica count by 1
+- Waits for the worker node to be removed
+- Validates the worker node count on the spoke cluster
+- **Preconditions**:
+  - Cluster topology must not be SNO
+  - At least 2 worker replicas must exist before scaling down
+
+### 14. assert_upgrade (conditional)
 **Purpose**: Validate cluster upgrade functionality
 - Only runs when `upgrade_to_version` variable is defined
 - Tests cluster upgrade scenarios

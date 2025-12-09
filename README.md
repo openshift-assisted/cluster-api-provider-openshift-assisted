@@ -67,12 +67,12 @@ E2E tests can be executed through ansible tasks in a target remote host.
 
 Export the following env vars:
 
-`SSH_KEY_FILE` path to the private SSH key file to access the remote host
-`SSH_AUTHORIZED_KEY` value of your public SSH key which is used to access the hosts used for deploying the workload cluster
-`REMOTE_HOST` remote host name where to execute the tests: `root@<REMOTE_HOST>`
-`PULLSECRET` base64-encoded pull secret to inject into the tests
-`DIST_DIR` is this repository directory `/dist` i.e. `$(pwd)/dist`
-`CONTAINER_TAG` is the tag of the controller images built and deployed in the testing environment. Defaults to `local` if unset.
+* `SSH_KEY_FILE` - path to the private SSH key file to access the remote host
+* `SSH_AUTHORIZED_KEY` - (optional) value of your public SSH key which is used to access the hosts used for deploying the workload cluster. If not provided, a key pair will be auto-generated on the remote host.
+* `REMOTE_HOST` - remote host name where to execute the tests
+* `REMOTE_USER` - SSH user to connect to the remote host
+* `PULLSECRET` - path to a JSON-formatted pull secret file (e.g., `~/pull-secret.txt`), or leave empty if the file already exists on the remote host at `~/pull-secret.txt`
+* `CONTAINER_TAG` - the tag of the controller images built and deployed in the testing environment. Defaults to `local` if unset.
 
 Run the following to generate all the manifests before starting:
 

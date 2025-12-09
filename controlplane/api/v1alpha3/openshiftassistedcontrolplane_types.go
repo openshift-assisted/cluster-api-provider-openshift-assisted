@@ -44,7 +44,10 @@ type OpenshiftAssistedControlPlaneMachineTemplate struct {
 
 // OpenshiftAssistedControlPlaneSpec defines the desired state of OpenshiftAssistedControlPlane
 type OpenshiftAssistedControlPlaneSpec struct {
-	// Config contains configuration specs for the OpenshiftAssistedControlPlane
+	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
+	// Important: Run "make" to regenerate code after modifying this file
+
+	// Config specs for the OpenshiftAssistedControlPlane
 	Config                      OpenshiftAssistedControlPlaneConfigSpec       `json:"config,omitempty"`
 	MachineTemplate             OpenshiftAssistedControlPlaneMachineTemplate  `json:"machineTemplate"`
 	OpenshiftAssistedConfigSpec bootstrapv1alpha2.OpenshiftAssistedConfigSpec `json:"openshiftAssistedConfigSpec,omitempty"`

@@ -30,6 +30,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/ptr"
+	clusterv1beta1 "sigs.k8s.io/cluster-api/api/core/v1beta1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -240,6 +241,6 @@ func GenerateSecretWithOwner(clusterName client.ObjectKey, data []byte, owner me
 		Data: map[string][]byte{
 			"value": data,
 		},
-		Type: clusterv1.ClusterSecretType,
+		Type: clusterv1beta1.ClusterSecretType,
 	}
 }

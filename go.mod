@@ -1,8 +1,6 @@
 module github.com/openshift-assisted/cluster-api-provider-openshift-assisted
 
-go 1.23.0
-
-toolchain go1.23.6
+go 1.25.5
 
 require (
 	github.com/blang/semver/v4 v4.0.0

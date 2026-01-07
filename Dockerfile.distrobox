@@ -1,4 +1,4 @@
-FROM golang:1.23-bookworm
+FROM golang:1.25-bookworm
 RUN curl -sSLO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" &&\
     install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl &&\
     curl -sSLo ./kind https://kind.sigs.k8s.io/dl/v0.22.0/kind-linux-amd64 &&\

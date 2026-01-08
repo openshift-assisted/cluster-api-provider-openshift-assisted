@@ -23,6 +23,8 @@
     dist_dir: "{{ lookup('ansible.builtin.env', 'DIST_DIR') }}"
     src_dir: "/tmp/capbcoa"
     kind_cluster_name: capi-baremetal-provider
+    kind_network_prefix: "{{ lookup('ansible.builtin.env', 'KIND_NETWORK_PREFIX', default='10.89.0') }}"
+    kubectl_version: "{{ lookup('ansible.builtin.env', 'KUBECTL_VERSION', default='v1.31.4') }}"
     ssh_authorized_key: "{{ lookup('ansible.builtin.env', 'SSH_AUTHORIZED_KEY') }}"
     pullsecret: "{{ lookup('ansible.builtin.env', 'PULLSECRET') }}"
     container_tag: "{{ lookup('ansible.builtin.env', 'CONTAINER_TAG', default='local')}}"

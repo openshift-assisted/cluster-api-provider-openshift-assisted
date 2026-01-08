@@ -85,7 +85,7 @@
 
 - name: Deploy metallb IPAddressPool
   kubernetes.core.k8s:
-    src: "{{ src_dir }}/test/e2e/manifests/metallb/metallb.yaml"
+    definition: "{{ lookup('template', playbook_dir ~ '/../../test/e2e/manifests/metallb/metallb.yaml.j2') }}"
     state: present
     apply: true
 

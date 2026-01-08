@@ -21,9 +21,33 @@
     kind_version_check.stdout | length == 0 or
     kind_setup_kind_version not in kind_version_check.stdout
 
-- name: Recreate kind cluster
+- name: Delete existing kind cluster
+  ansible.builtin.command: kind delete cluster --name {{ kind_cluster_name }}
+  changed_when: true
+  failed_when: false
+
+- name: Remove existing kind network
+  ansible.builtin.command: podman network rm kind
+  changed_when: true
+  failed_when: false
+
+- name: Create kind network with specific subnet
+  ansible.builtin.command:
+    argv:
+      - podman
+      - network
+      - create
+      - kind
+      - --subnet
+      - "{{ kind_network_prefix }}.0/24"
+      - --gateway
+      - "{{ kind_network_prefix }}.1"
+      - --opt
+      - mtu=1400
+  changed_when: true
+
+- name: Create kind cluster
   ansible.builtin.shell: |
-    kind delete cluster --name {{ kind_cluster_name }}
     set -o pipefail
     export INTERNAL_IP={{ internal_ip }} && \
     cat {{ src_dir }}/test/kind.yaml | \
@@ -31,16 +55,18 @@
     kind create cluster --name {{ kind_cluster_name }} --config /tmp/kind_with_ip.yaml
   changed_when: true
 
-- name: Get latest kubectl version if not specified
-  ansible.builtin.uri:
-    url: https://dl.k8s.io/release/stable.txt
-    return_content: true
+- name: Get latest kubectl version if not specified  # noqa: command-instead-of-module
+  ansible.builtin.command: >
+    curl -4 -sL --fail --retry 5 --retry-delay 5 --max-time 30
+    https://dl.k8s.io/release/stable.txt
   register: stable_version
+  changed_when: false
+  failed_when: stable_version.rc != 0 or not stable_version.stdout is regex('^v[0-9]+\.[0-9]+\.[0-9]+')
   when: kubectl_version is not defined
 
 - name: Set kubectl version
   ansible.builtin.set_fact:
-    kubectl_version: "{{ kubectl_version | default(stable_version.content | trim) }}"
+    kubectl_version: "{{ kubectl_version | default(stable_version.stdout | trim) }}"
 
 - name: Check if kubectl exists and get version
   ansible.builtin.shell: |

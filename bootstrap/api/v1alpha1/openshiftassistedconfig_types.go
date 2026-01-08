@@ -20,7 +20,7 @@ import (
 	aiv1beta1 "github.com/openshift/assisted-service/api/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	clusterv1beta1 "sigs.k8s.io/cluster-api/api/core/v1beta1"
 )
 
 const DiscoveryIgnitionOverrideAnnotation = "openshiftassistedconfig.cluster.x-k8s.io/discovery-ignition-override"
@@ -93,8 +93,6 @@ type NodeRegistrationOptions struct {
 
 // OpenshiftAssistedConfigStatus defines the observed state of OpenshiftAssistedConfig
 type OpenshiftAssistedConfigStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
 	// InfraEnvRef references the infra env to generate the ISO
 	InfraEnvRef *corev1.ObjectReference `json:"infraEnvRef,omitempty"`
 
@@ -123,12 +121,13 @@ type OpenshiftAssistedConfigStatus struct {
 
 	// Conditions defines current service state of the OpenshiftAssistedConfig.
 	// +optional
-	Conditions clusterv1.Conditions `json:"conditions,omitempty"`
+	Conditions clusterv1beta1.Conditions `json:"conditions,omitempty"`
 }
 
 //+kubebuilder:object:root=true
 //+kubebuilder:resource:shortName=oac;oacs
 //+kubebuilder:subresource:status
+//+kubebuilder:deprecatedversion:warning="v1alpha1 is deprecated, use v1alpha2"
 
 // OpenshiftAssistedConfig is the Schema for the openshiftassistedconfig API
 type OpenshiftAssistedConfig struct {
@@ -140,12 +139,12 @@ type OpenshiftAssistedConfig struct {
 }
 
 // GetConditions returns the set of conditions for this object.
-func (c *OpenshiftAssistedConfig) GetConditions() clusterv1.Conditions {
+func (c *OpenshiftAssistedConfig) GetConditions() clusterv1beta1.Conditions {
 	return c.Status.Conditions
 }
 
 // SetConditions sets the conditions on this object.
-func (c *OpenshiftAssistedConfig) SetConditions(conditions clusterv1.Conditions) {
+func (c *OpenshiftAssistedConfig) SetConditions(conditions clusterv1beta1.Conditions) {
 	c.Status.Conditions = conditions
 }
 

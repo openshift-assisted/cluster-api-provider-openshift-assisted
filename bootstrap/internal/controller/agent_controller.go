@@ -11,21 +11,19 @@ import (
 	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/bootstrap/internal/ignition"
 	logutil "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/util/log"
 
-	bootstrapv1alpha1 "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/bootstrap/api/v1alpha1"
+	bootstrapv1alpha2 "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/bootstrap/api/v1alpha2"
 	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/util"
 	aiv1beta1 "github.com/openshift/assisted-service/api/v1beta1"
 	"github.com/openshift/assisted-service/models"
 
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const (
-	retryAfter               = 20 * time.Second
-	metal3ProviderIDLabelKey = "metal3.io/uuid"
+	retryAfter = 20 * time.Second
 )
 
 // AgentReconciler reconciles an Agent object
@@ -45,7 +43,7 @@ func (r *AgentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
 	agent := &aiv1beta1.Agent{}
-	if err := r.Client.Get(ctx, req.NamespacedName, agent); err != nil {
+	if err := r.Get(ctx, req.NamespacedName, agent); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
@@ -55,21 +53,24 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		return ctrl.Result{}, err
 	}
 
-	if machine.Spec.Bootstrap.ConfigRef == nil {
+	if !machine.Spec.Bootstrap.ConfigRef.IsDefined() {
 		log.V(logutil.DebugLevel).Info("agent doesn't belong to CAPI cluster", "agent", agent)
 		return ctrl.Result{}, nil
 	}
 
-	config, err := r.ensureBootstrapConfigReference(ctx, machine, agent.Name)
-	if err != nil {
-		log.Error(err, "failed to ensure Agent Bootstrap Config references this agent")
+	config := &bootstrapv1alpha2.OpenshiftAssistedConfig{}
+	if err := r.Get(ctx,
+		client.ObjectKey{
+			Name:      machine.Spec.Bootstrap.ConfigRef.Name,
+			Namespace: machine.Namespace},
+		config); err != nil {
 		return ctrl.Result{}, err
 	}
 
 	return ctrl.Result{}, r.setAgentFields(ctx, agent, machine, config)
 }
 
-func (r *AgentReconciler) setAgentFields(ctx context.Context, agent *aiv1beta1.Agent, machine *clusterv1.Machine, config *bootstrapv1alpha1.OpenshiftAssistedConfig) error {
+func (r *AgentReconciler) setAgentFields(ctx context.Context, agent *aiv1beta1.Agent, machine *clusterv1.Machine, config *bootstrapv1alpha2.OpenshiftAssistedConfig) error {
 	logger := ctrl.LoggerFrom(ctx)
 	role := models.HostRoleWorker
 	if _, ok := machine.Labels[clusterv1.MachineControlPlaneLabel]; ok {
@@ -86,12 +87,14 @@ func (r *AgentReconciler) setAgentFields(ctx context.Context, agent *aiv1beta1.A
 		return err
 	}
 
-	// Check if any changes are needed
-	if agent.Spec.Role == role &&
-		agent.Spec.IgnitionConfigOverrides == ignitionConfigOverrides &&
-		agent.Spec.Approved == approvable {
+	specModified := agent.Spec.Role != role ||
+		agent.Spec.IgnitionConfigOverrides != ignitionConfigOverrides ||
+		agent.Spec.Approved != approvable
+
+	if !specModified {
 		return nil
 	}
+
 	agent.Spec.Role = role
 	agent.Spec.IgnitionConfigOverrides = ignitionConfigOverrides
 	agent.Spec.Approved = approvable
@@ -103,15 +106,16 @@ func (r *AgentReconciler) setAgentFields(ctx context.Context, agent *aiv1beta1.A
 	jsonBytes, err := json.Marshal(installerArgs)
 	if err != nil {
 		logger.V(logutil.DebugLevel).Info("failed to marshal installer args", "error", err)
-	} else {
-		agent.Spec.InstallerArgs = string(jsonBytes)
+		return r.Update(ctx, agent)
 	}
-	return r.Client.Update(ctx, agent)
+
+	agent.Spec.InstallerArgs = string(jsonBytes)
+	return r.Update(ctx, agent)
 }
 
 func (r *AgentReconciler) canApproveAgent(ctx context.Context, agent *aiv1beta1.Agent) (bool, error) {
 	agentList := &aiv1beta1.AgentList{}
-	if err := r.Client.List(ctx, agentList, client.MatchingLabels{aiv1beta1.InfraEnvNameLabel: agent.Labels[aiv1beta1.InfraEnvNameLabel]}); err != nil {
+	if err := r.List(ctx, agentList, client.MatchingLabels{aiv1beta1.InfraEnvNameLabel: agent.Labels[aiv1beta1.InfraEnvNameLabel]}); err != nil {
 		return false, err
 	}
 
@@ -130,7 +134,7 @@ func (r *AgentReconciler) canApproveAgent(ctx context.Context, agent *aiv1beta1.
 	return true, nil
 }
 
-func getIgnitionConfig(config *bootstrapv1alpha1.OpenshiftAssistedConfig) (string, error) {
+func getIgnitionConfig(config *bootstrapv1alpha2.OpenshiftAssistedConfig) (string, error) {
 	// get labels and set them as KUBELET_EXTRA_LABELS in ignition
 	extraLabels := strings.Join(config.Spec.NodeRegistration.KubeletExtraLabels, ",")
 	content := `#!/bin/bash
@@ -142,31 +146,16 @@ echo "CUSTOM_KUBELET_LABELS=` + extraLabels + `" | tee -a /etc/kubernetes/kubele
 	return ignition.GetIgnitionConfigOverrides(kubeletCustomLabels)
 }
 
-func (r *AgentReconciler) ensureBootstrapConfigReference(ctx context.Context, machine *clusterv1.Machine, agentName string) (*bootstrapv1alpha1.OpenshiftAssistedConfig, error) {
-	config := &bootstrapv1alpha1.OpenshiftAssistedConfig{}
-	if err := r.Client.Get(ctx,
-		client.ObjectKey{
-			Name:      machine.Spec.Bootstrap.ConfigRef.Name,
-			Namespace: machine.Spec.Bootstrap.ConfigRef.Namespace},
-		config); err != nil {
-		return nil, err
-	}
-	if config.Status.AgentRef == nil {
-		config.Status.AgentRef = &corev1.LocalObjectReference{Name: agentName}
-		return config, r.Client.Status().Update(ctx, config)
-	}
-	return config, nil
-}
-
 func (r *AgentReconciler) getMachineFromAgent(ctx context.Context, agent *aiv1beta1.Agent) (*clusterv1.Machine, error) {
 	infraEnvName, ok := agent.Labels[aiv1beta1.InfraEnvNameLabel]
 	if !ok {
 		return nil, fmt.Errorf("no %s label on Agent %s", aiv1beta1.InfraEnvNameLabel, agent.GetNamespace()+"/"+agent.GetName())
 	}
 	infraEnv := aiv1beta1.InfraEnv{}
-	if err := r.Client.Get(ctx, client.ObjectKey{Name: infraEnvName, Namespace: agent.GetNamespace()}, &infraEnv); err != nil {
+	if err := r.Get(ctx, client.ObjectKey{Name: infraEnvName, Namespace: agent.GetNamespace()}, &infraEnv); err != nil {
 		return nil, err
 	}
+
 	machine := &clusterv1.Machine{}
 	if err := util.GetTypedOwner(ctx, r.Client, &infraEnv, machine); err != nil {
 		return nil, err

@@ -8,8 +8,10 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	"k8s.io/utils/ptr"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/util/collections"
+	"sigs.k8s.io/cluster-api/util/conditions"
 )
 
 var _ = Describe("Failure Domains", func() {
@@ -26,16 +28,13 @@ var _ = Describe("Failure Domains", func() {
 			It("returns nil", func() {
 				cluster := &clusterv1.Cluster{
 					Status: clusterv1.ClusterStatus{
-						FailureDomains: clusterv1.FailureDomains{},
+						FailureDomains: []clusterv1.FailureDomain{},
 					},
 				}
 				machines := collections.Machines{}
-
-				upToDateMachines := collections.Machines{}
-
-				domain, err := NextFailureDomainForScaleUp(ctx, cluster, machines, upToDateMachines)
+				domain, err := NextFailureDomainForScaleUp(ctx, cluster, machines)
 				Expect(err).ToNot(HaveOccurred())
-				Expect(domain).To(BeNil())
+				Expect(domain).To(Equal(""))
 			})
 		})
 
@@ -43,20 +42,19 @@ var _ = Describe("Failure Domains", func() {
 			It("returns the single control plane domain", func() {
 				cluster := &clusterv1.Cluster{
 					Status: clusterv1.ClusterStatus{
-						FailureDomains: clusterv1.FailureDomains{
-							"zone-1": clusterv1.FailureDomainSpec{
-								ControlPlane: true,
+						FailureDomains: []clusterv1.FailureDomain{
+							{
+								Name:         "zone-1",
+								ControlPlane: ptr.To(true),
 							},
 						},
 					},
 				}
 				machines := collections.Machines{}
-				upToDateMachines := collections.Machines{}
 
-				domain, err := NextFailureDomainForScaleUp(ctx, cluster, machines, upToDateMachines)
+				domain, err := NextFailureDomainForScaleUp(ctx, cluster, machines)
 				Expect(err).ToNot(HaveOccurred())
-				Expect(domain).ToNot(BeNil())
-				Expect(*domain).To(Equal("zone-1"))
+				Expect(domain).To(Equal("zone-1"))
 			})
 		})
 
@@ -64,12 +62,14 @@ var _ = Describe("Failure Domains", func() {
 			It("returns the domain with fewest machines", func() {
 				cluster := &clusterv1.Cluster{
 					Status: clusterv1.ClusterStatus{
-						FailureDomains: clusterv1.FailureDomains{
-							"zone-1": clusterv1.FailureDomainSpec{
-								ControlPlane: true,
+						FailureDomains: []clusterv1.FailureDomain{
+							{
+								Name:         "zone-1",
+								ControlPlane: ptr.To(true),
 							},
-							"zone-2": clusterv1.FailureDomainSpec{
-								ControlPlane: true,
+							{
+								Name:         "zone-2",
+								ControlPlane: ptr.To(true),
 							},
 						},
 					},
@@ -78,12 +78,16 @@ var _ = Describe("Failure Domains", func() {
 					machinesParams{"zone-1", 3},
 					machinesParams{"zone-2", 1},
 				)
-				upToDateMachines := machines
-
-				domain, err := NextFailureDomainForScaleUp(ctx, cluster, machines, upToDateMachines)
+				for _, machine := range machines {
+					conditions.Set(machine, metav1.Condition{
+						Type:   clusterv1.MachineUpToDateCondition,
+						Status: metav1.ConditionTrue,
+						Reason: clusterv1.MachineUpToDateReason,
+					})
+				}
+				domain, err := NextFailureDomainForScaleUp(ctx, cluster, machines)
 				Expect(err).ToNot(HaveOccurred())
-				Expect(domain).ToNot(BeNil())
-				Expect(*domain).To(Equal("zone-2"))
+				Expect(domain).To(Equal("zone-2"))
 			})
 		})
 	})
@@ -93,14 +97,14 @@ var _ = Describe("Failure Domains", func() {
 			It("returns nil when no machines exist", func() {
 				cluster := &clusterv1.Cluster{
 					Status: clusterv1.ClusterStatus{
-						FailureDomains: clusterv1.FailureDomains{},
+						FailureDomains: []clusterv1.FailureDomain{},
 					},
 				}
 				machines := collections.Machines{}
 
 				domain, err := NextFailureDomainForScaleDown(ctx, cluster, machines)
 				Expect(err).ToNot(HaveOccurred())
-				Expect(domain).To(BeNil())
+				Expect(domain).To(Equal(""))
 			})
 		})
 
@@ -108,12 +112,14 @@ var _ = Describe("Failure Domains", func() {
 			It("returns the domain with most machines", func() {
 				cluster := &clusterv1.Cluster{
 					Status: clusterv1.ClusterStatus{
-						FailureDomains: clusterv1.FailureDomains{
-							"zone-1": clusterv1.FailureDomainSpec{
-								ControlPlane: true,
+						FailureDomains: []clusterv1.FailureDomain{
+							{
+								Name:         "zone-1",
+								ControlPlane: ptr.To(true),
 							},
-							"zone-2": clusterv1.FailureDomainSpec{
-								ControlPlane: true,
+							{
+								Name:         "zone-2",
+								ControlPlane: ptr.To(true),
 							},
 						},
 					},
@@ -125,19 +131,20 @@ var _ = Describe("Failure Domains", func() {
 
 				domain, err := NextFailureDomainForScaleDown(ctx, cluster, machines)
 				Expect(err).ToNot(HaveOccurred())
-				Expect(domain).ToNot(BeNil())
-				Expect(*domain).To(Equal("zone-1"))
+				Expect(domain).To(Equal("zone-1"))
 			})
 
 			It("considers only machines with delete annotation when present", func() {
 				cluster := &clusterv1.Cluster{
 					Status: clusterv1.ClusterStatus{
-						FailureDomains: clusterv1.FailureDomains{
-							"zone-1": clusterv1.FailureDomainSpec{
-								ControlPlane: true,
+						FailureDomains: []clusterv1.FailureDomain{
+							{
+								Name:         "zone-1",
+								ControlPlane: ptr.To(true),
 							},
-							"zone-2": clusterv1.FailureDomainSpec{
-								ControlPlane: true,
+							{
+								Name:         "zone-2",
+								ControlPlane: ptr.To(true),
 							},
 						},
 					},
@@ -146,8 +153,7 @@ var _ = Describe("Failure Domains", func() {
 
 				domain, err := NextFailureDomainForScaleDown(ctx, cluster, machines)
 				Expect(err).ToNot(HaveOccurred())
-				Expect(domain).ToNot(BeNil())
-				Expect(*domain).To(Equal("zone-2"))
+				Expect(domain).To(Equal("zone-2"))
 			})
 		})
 	})
@@ -156,7 +162,7 @@ var _ = Describe("Failure Domains", func() {
 		Context("with nil inputs", func() {
 			It("returns empty failure domains for nil cluster", func() {
 				domains := FailureDomains(nil)
-				Expect(domains).To(Equal(clusterv1.FailureDomains{}))
+				Expect(domains).To(Equal([]clusterv1.FailureDomain{}))
 			})
 
 			It("returns empty failure domains for cluster with nil failure domains", func() {
@@ -166,15 +172,16 @@ var _ = Describe("Failure Domains", func() {
 					},
 				}
 				domains := FailureDomains(cluster)
-				Expect(domains).To(Equal(clusterv1.FailureDomains{}))
+				Expect(domains).To(Equal([]clusterv1.FailureDomain{}))
 			})
 		})
 
 		Context("with valid cluster", func() {
 			It("returns the cluster's failure domains", func() {
-				expectedDomains := clusterv1.FailureDomains{
-					"zone-1": clusterv1.FailureDomainSpec{
-						ControlPlane: true,
+				expectedDomains := []clusterv1.FailureDomain{
+					{
+						Name:         "zone-1",
+						ControlPlane: ptr.To(true),
 					},
 				}
 				cluster := &clusterv1.Cluster{
@@ -210,7 +217,7 @@ func createTestMachines(params ...machinesParams) collections.Machines {
 					},
 				},
 				Spec: clusterv1.MachineSpec{
-					FailureDomain: &fd,
+					FailureDomain: fd,
 				},
 			}
 			fmt.Printf("adding machine %v\n", machine)
@@ -229,12 +236,12 @@ func createTestMachinesWithDeleteAnnotation() collections.Machines {
 	zone1 := "zone-1"
 	machine1 := &clusterv1.Machine{
 		Spec: clusterv1.MachineSpec{
-			FailureDomain: &zone1,
+			FailureDomain: zone1,
 		},
 	}
 	machine2 := &clusterv1.Machine{
 		Spec: clusterv1.MachineSpec{
-			FailureDomain: &zone1,
+			FailureDomain: zone1,
 		},
 	}
 
@@ -242,7 +249,7 @@ func createTestMachinesWithDeleteAnnotation() collections.Machines {
 	zone2 := "zone-2"
 	machine3 := &clusterv1.Machine{
 		Spec: clusterv1.MachineSpec{
-			FailureDomain: &zone2,
+			FailureDomain: zone2,
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Annotations: map[string]string{

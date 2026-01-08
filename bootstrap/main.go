@@ -22,14 +22,17 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/bootstrap/api/v1alpha1"
-
 	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/assistedinstaller"
 
 	"github.com/kelseyhightower/envconfig"
 
-	controlplanev1alpha2 "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/api/v1alpha2"
+	bootstrapv1alpha1 "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/bootstrap/api/v1alpha1"
+	bootstrapv1alpha2 "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/bootstrap/api/v1alpha2"
+	controlplanev1alpha3 "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/api/v1alpha3"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 
+	hiveext "github.com/openshift/assisted-service/api/hiveextension/v1beta1"
+	aiv1beta1 "github.com/openshift/assisted-service/api/v1beta1"
 	hivev1 "github.com/openshift/hive/apis/hive/v1"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
@@ -48,13 +51,6 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	metal3v1alpha1 "github.com/metal3-io/baremetal-operator/apis/metal3.io/v1alpha1"
-	metal3 "github.com/metal3-io/cluster-api-provider-metal3/api/v1beta1"
-	hiveext "github.com/openshift/assisted-service/api/hiveextension/v1beta1"
-	aiv1beta1 "github.com/openshift/assisted-service/api/v1beta1"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
-
-	bootstrapv1alpha1 "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/bootstrap/api/v1alpha1"
 	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/bootstrap/internal/controller"
 	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/util/log"
 	//+kubebuilder:scaffold:imports
@@ -78,14 +74,13 @@ var Options struct {
 
 func init() {
 	utilruntime.Must(clusterv1.AddToScheme(scheme))
-	utilruntime.Must(metal3.AddToScheme(scheme))
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(bootstrapv1alpha1.AddToScheme(scheme))
-	utilruntime.Must(controlplanev1alpha2.AddToScheme(scheme))
+	utilruntime.Must(bootstrapv1alpha2.AddToScheme(scheme))
+	utilruntime.Must(controlplanev1alpha3.AddToScheme(scheme))
 	utilruntime.Must(aiv1beta1.AddToScheme(scheme))
 	utilruntime.Must(hivev1.AddToScheme(scheme))
 	utilruntime.Must(hiveext.AddToScheme(scheme))
-	utilruntime.Must(metal3v1alpha1.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
 }
 
@@ -180,6 +175,20 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Set up webhooks first to ensure conversion endpoints are registered before informers start
+	if err = (&bootstrapv1alpha2.OpenshiftAssistedConfig{}).SetupWebhookWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create webhook", "webhook", "OpenshiftAssistedConfig v1alpha2")
+		os.Exit(1)
+	}
+	if err = (&bootstrapv1alpha1.OpenshiftAssistedConfig{}).SetupWebhookWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create webhook", "webhook", "OpenshiftAssistedConfig v1alpha1")
+		os.Exit(1)
+	}
+	if err = (&bootstrapv1alpha2.OpenshiftAssistedConfigTemplate{}).SetupWebhookWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create webhook", "webhook", "OpenshiftAssistedConfigTemplate")
+		os.Exit(1)
+	}
+
 	if err = (&controller.OpenshiftAssistedConfigReconciler{
 		Client:                  mgr.GetClient(),
 		Scheme:                  mgr.GetScheme(),
@@ -187,10 +196,6 @@ func main() {
 		AssistedInstallerConfig: Options.AssistedInstallerServiceConfig,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "OpenshiftAssistedConfig")
-		os.Exit(1)
-	}
-	if err = (&v1alpha1.OpenshiftAssistedConfig{}).SetupWebhookWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create webhook", "webhook", "OpenshiftAssistedConfig")
 		os.Exit(1)
 	}
 

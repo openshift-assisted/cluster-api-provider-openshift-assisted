@@ -27,3 +27,4 @@ go.work
 *.swo
 *~
 hack/**/__pycache__/*
+test/e2e/manifests/infrastructure-operator/kustomization.yaml

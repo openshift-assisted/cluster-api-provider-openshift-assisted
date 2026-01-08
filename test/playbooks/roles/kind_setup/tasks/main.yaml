@@ -64,9 +64,10 @@
   failed_when: stable_version.rc != 0 or not stable_version.stdout is regex('^v[0-9]+\.[0-9]+\.[0-9]+')
   when: kubectl_version is not defined
 
-- name: Set kubectl version
+- name: Set kubectl version from stable release
   ansible.builtin.set_fact:
-    kubectl_version: "{{ kubectl_version | default(stable_version.stdout | trim) }}"
+    kubectl_version: "{{ stable_version.stdout | trim }}"
+  when: kubectl_version is not defined
 
 - name: Check if kubectl exists and get version
   ansible.builtin.shell: |
@@ -79,10 +80,20 @@
 - name: Kubectl version
   ansible.builtin.debug:
     msg: "{{ kubectl_version_check.stdout }}"
-- name: Install kubectl binary
-  ansible.builtin.get_url:
-    url: "https://dl.k8s.io/release/{{ kubectl_version }}/bin/linux/amd64/kubectl"
-    dest: /usr/local/bin/kubectl
+- name: Install kubectl binary  # noqa: command-instead-of-module no-changed-when
+  # Using curl with -4 to force IPv4 - get_url module doesn't support this
+  ansible.builtin.command:
+    cmd: >-
+      curl -4 -fsSL -o /usr/local/bin/kubectl
+      "https://cdn.dl.k8s.io/release/{{ kubectl_version }}/bin/linux/amd64/kubectl"
+  when: >
+    kubectl_version_check.stdout is not defined or
+    kubectl_version_check.stdout | length == 0 or
+    kubectl_version not in kubectl_version_check.stdout
+
+- name: Set kubectl permissions
+  ansible.builtin.file:
+    path: /usr/local/bin/kubectl
     mode: '0755'
   when: >
     kubectl_version_check.stdout is not defined or

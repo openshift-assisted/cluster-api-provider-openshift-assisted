@@ -21,14 +21,14 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	bootstrapv1alpha1 "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/bootstrap/api/v1alpha1"
+	bootstrapv1alpha2 "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/bootstrap/api/v1alpha2"
 	testutils "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/test/utils"
-	"github.com/openshift/assisted-service/api/v1beta1"
+	aiv1beta1 "github.com/openshift/assisted-service/api/v1beta1"
 	"github.com/openshift/assisted-service/models"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	fakeclient "sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -44,7 +44,7 @@ var _ = Describe("Agent Controller", func() {
 		)
 		BeforeEach(func() {
 			k8sClient = fakeclient.NewClientBuilder().WithScheme(testScheme).
-				WithStatusSubresource(&bootstrapv1alpha1.OpenshiftAssistedConfig{}).
+				WithStatusSubresource(&bootstrapv1alpha2.OpenshiftAssistedConfig{}).
 				Build()
 			Expect(k8sClient).NotTo(BeNil())
 
@@ -101,7 +101,7 @@ var _ = Describe("Agent Controller", func() {
 					NamespacedName: client.ObjectKeyFromObject(agent),
 				})
 				Expect(err).To(HaveOccurred())
-				Expect(err.Error()).To(Equal("couldn't find *v1beta1.Machine owner for *v1beta1.InfraEnv"))
+				Expect(err.Error()).To(Equal("couldn't find *v1beta2.Machine owner for *v1beta1.InfraEnv"))
 			})
 		})
 		When("an Agent resource exists with an infraenv, but machine has no OAC reference", func() {
@@ -133,9 +133,8 @@ var _ = Describe("Agent Controller", func() {
 				infraEnv := testutils.NewInfraEnv(namespace, machineName)
 
 				machine := testutils.NewMachine(namespace, machineName, clusterName)
-				machine.Spec.Bootstrap.ConfigRef = &corev1.ObjectReference{
-					Name:      oacName,
-					Namespace: namespace,
+				machine.Spec.Bootstrap.ConfigRef = clusterv1.ContractVersionedObjectReference{
+					Name: oacName,
 				}
 				Expect(controllerutil.SetOwnerReference(machine, infraEnv, testScheme)).To(Succeed())
 				Expect(k8sClient.Create(ctx, machine)).To(Succeed())
@@ -162,9 +161,8 @@ var _ = Describe("Agent Controller", func() {
 
 				infraEnv := testutils.NewInfraEnv(namespace, machineName)
 				machine := testutils.NewMachine(namespace, machineName, clusterName)
-				machine.Spec.Bootstrap.ConfigRef = &corev1.ObjectReference{
-					Name:      oacName,
-					Namespace: namespace,
+				machine.Spec.Bootstrap.ConfigRef = clusterv1.ContractVersionedObjectReference{
+					Name: oacName,
 				}
 				Expect(controllerutil.SetOwnerReference(machine, infraEnv, testScheme)).To(Succeed())
 				Expect(k8sClient.Create(ctx, machine)).To(Succeed())
@@ -175,45 +173,11 @@ var _ = Describe("Agent Controller", func() {
 					NamespacedName: client.ObjectKeyFromObject(agent),
 				})
 				Expect(err).NotTo(HaveOccurred())
-				expectedOAC := bootstrapv1alpha1.OpenshiftAssistedConfig{}
+				expectedOAC := bootstrapv1alpha2.OpenshiftAssistedConfig{}
 				Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: oacName}, &expectedOAC)).To(Succeed())
-				Expect(expectedOAC.Status.AgentRef).NotTo(BeNil())
-				Expect(expectedOAC.Status.AgentRef.Name).To(Equal(agentName))
+
 			})
 		})
-		When("an Agent resource with a valid Machine with OACs, and agent ref", func() {
-			It("should add the agent ref to OAC status", func() {
-
-				agent := testutils.NewAgentWithInfraEnvLabel(namespace, agentName, machineName)
-				Expect(k8sClient.Create(ctx, agent)).To(Succeed())
-
-				By("Creating the OpenshiftAssistedConfig")
-				oac := testutils.NewOpenshiftAssistedConfig(namespace, oacName, clusterName)
-				oac.Status.AgentRef = &corev1.LocalObjectReference{Name: agent.Name}
-				Expect(k8sClient.Create(ctx, oac)).To(Succeed())
-
-				infraEnv := testutils.NewInfraEnv(namespace, machineName)
-				machine := testutils.NewMachine(namespace, machineName, clusterName)
-				machine.Spec.Bootstrap.ConfigRef = &corev1.ObjectReference{
-					Name:      oacName,
-					Namespace: namespace,
-				}
-				Expect(controllerutil.SetOwnerReference(machine, infraEnv, testScheme)).To(Succeed())
-				Expect(k8sClient.Create(ctx, machine)).To(Succeed())
-				Expect(k8sClient.Create(ctx, infraEnv)).To(Succeed())
-
-				By("Reconciling the Agent")
-				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-					NamespacedName: client.ObjectKeyFromObject(agent),
-				})
-				Expect(err).NotTo(HaveOccurred())
-				expectedOAC := bootstrapv1alpha1.OpenshiftAssistedConfig{}
-				Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: oacName}, &expectedOAC)).To(Succeed())
-				Expect(expectedOAC.Status.AgentRef).NotTo(BeNil())
-				Expect(expectedOAC.Status.AgentRef.Name).To(Equal(agentName))
-			})
-		})
-
 		When("an Agent resource with matching InfraEnv, and machine (worker)", func() {
 			It("should reconcile with a valid accepted worker agent", func() {
 				By("Creating the OpenshiftAssistedConfig")
@@ -221,9 +185,8 @@ var _ = Describe("Agent Controller", func() {
 				Expect(k8sClient.Create(ctx, oac)).To(Succeed())
 
 				machine := testutils.NewMachine(namespace, machineName, clusterName)
-				machine.Spec.Bootstrap.ConfigRef = &corev1.ObjectReference{
-					Name:      oacName,
-					Namespace: namespace,
+				machine.Spec.Bootstrap.ConfigRef = clusterv1.ContractVersionedObjectReference{
+					Name: oacName,
 				}
 				Expect(k8sClient.Create(ctx, machine)).To(Succeed())
 
@@ -254,9 +217,8 @@ var _ = Describe("Agent Controller", func() {
 				Expect(k8sClient.Create(ctx, oac)).To(Succeed())
 
 				machine := testutils.NewMachine(namespace, machineName, clusterName)
-				machine.Spec.Bootstrap.ConfigRef = &corev1.ObjectReference{
-					Name:      oacName,
-					Namespace: namespace,
+				machine.Spec.Bootstrap.ConfigRef = clusterv1.ContractVersionedObjectReference{
+					Name: oacName,
 				}
 				machine.Labels[clusterv1.MachineControlPlaneLabel] = "control-plane"
 				Expect(k8sClient.Create(ctx, machine)).To(Succeed())
@@ -279,17 +241,13 @@ var _ = Describe("Agent Controller", func() {
 				By("Checking the result of the reconciliation")
 				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(agent), agent)).To(Succeed())
 				assertAgentIsReadyWithRole(agent, models.HostRoleMaster)
-				postOAC := &bootstrapv1alpha1.OpenshiftAssistedConfig{}
-				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(oac), postOAC)).To(Succeed())
-				Expect(postOAC.Status.AgentRef).NotTo(BeNil())
-				Expect(postOAC.Status.AgentRef.Name).To(Equal(agent.Name))
 			})
 		})
 
 		When("a bootstrap config has configured kernel args", func() {
 			It("should reconcile with a valid coreos install args", func() {
 				oac := testutils.NewOpenshiftAssistedConfig(namespace, oacName, clusterName)
-				oac.Spec.KernelArguments = []v1beta1.KernelArgument{
+				oac.Spec.KernelArguments = []aiv1beta1.KernelArgument{
 					{
 						Operation: "append",
 						Value:     "console=tty0 console=ttyS0,115200n8",
@@ -302,9 +260,8 @@ var _ = Describe("Agent Controller", func() {
 				Expect(k8sClient.Create(ctx, oac)).To(Succeed())
 
 				machine := testutils.NewMachine(namespace, machineName, clusterName)
-				machine.Spec.Bootstrap.ConfigRef = &corev1.ObjectReference{
-					Name:      oacName,
-					Namespace: namespace,
+				machine.Spec.Bootstrap.ConfigRef = clusterv1.ContractVersionedObjectReference{
+					Name: oacName,
 				}
 				machine.Labels[clusterv1.MachineControlPlaneLabel] = "control-plane"
 				Expect(k8sClient.Create(ctx, machine)).To(Succeed())
@@ -338,9 +295,8 @@ var _ = Describe("Agent Controller", func() {
 				Expect(k8sClient.Create(ctx, oac)).To(Succeed())
 
 				machine := testutils.NewMachine(namespace, machineName, clusterName)
-				machine.Spec.Bootstrap.ConfigRef = &corev1.ObjectReference{
-					Name:      oacName,
-					Namespace: namespace,
+				machine.Spec.Bootstrap.ConfigRef = clusterv1.ContractVersionedObjectReference{
+					Name: oacName,
 				}
 				Expect(k8sClient.Create(ctx, machine)).To(Succeed())
 
@@ -380,9 +336,8 @@ var _ = Describe("Agent Controller", func() {
 				Expect(k8sClient.Create(ctx, oac)).To(Succeed())
 
 				machine := testutils.NewMachine(namespace, machineName, clusterName)
-				machine.Spec.Bootstrap.ConfigRef = &corev1.ObjectReference{
-					Name:      oacName,
-					Namespace: namespace,
+				machine.Spec.Bootstrap.ConfigRef = clusterv1.ContractVersionedObjectReference{
+					Name: oacName,
 				}
 				Expect(k8sClient.Create(ctx, machine)).To(Succeed())
 
@@ -405,7 +360,7 @@ var _ = Describe("Agent Controller", func() {
 	})
 })
 
-func assertAgentIsReadyWithRole(agent *v1beta1.Agent, role models.HostRole) {
+func assertAgentIsReadyWithRole(agent *aiv1beta1.Agent, role models.HostRole) {
 	Expect(agent.Spec.Role).To(Equal(role))
 	Expect(agent.Spec.IgnitionConfigOverrides).NotTo(BeEmpty())
 	Expect(agent.Spec.Approved).To(BeTrue())

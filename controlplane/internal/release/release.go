@@ -49,7 +49,7 @@ func IsGA(version string) bool {
 	return IsOKDGA(version)
 }
 
-// Get release image based on desired version and potentiall override (can be empty)
+// GetReleaseImage returns the release image based on the desired version, optional repository override, and architecture.
 func GetReleaseImage(desiredVersion, repositoryOverride string, architecture string) string {
 	if repositoryOverride != "" {
 		return fmt.Sprintf("%s:%s-%s", repositoryOverride, desiredVersion, architecture)

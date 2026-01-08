@@ -17,11 +17,11 @@ limitations under the License.
 package v1alpha2
 
 import (
-	bootstrapv1beta1 "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/bootstrap/api/v1alpha1"
+	bootstrapv1alpha1 "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/bootstrap/api/v1alpha1"
 	hiveext "github.com/openshift/assisted-service/api/hiveextension/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	clusterv1beta1 "sigs.k8s.io/cluster-api/api/core/v1beta1"
 )
 
 const InstallConfigOverrideAnnotation = "controlplane.cluster.x-k8s.io/install-config-override"
@@ -30,7 +30,7 @@ type OpenshiftAssistedControlPlaneMachineTemplate struct {
 	// Standard object's metadata.
 	// More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#metadata
 	// +optional
-	ObjectMeta clusterv1.ObjectMeta `json:"metadata,omitempty"`
+	ObjectMeta clusterv1beta1.ObjectMeta `json:"metadata,omitempty"`
 
 	// InfrastructureRef is a required reference to a custom resource
 	// offered by an infrastructure provider.
@@ -56,14 +56,11 @@ type OpenshiftAssistedControlPlaneMachineTemplate struct {
 
 // OpenshiftAssistedControlPlaneSpec defines the desired state of OpenshiftAssistedControlPlane
 type OpenshiftAssistedControlPlaneSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-
-	// Config specs for the OpenshiftAssistedControlPlane
-	Config                      OpenshiftAssistedControlPlaneConfigSpec      `json:"config,omitempty"`
-	MachineTemplate             OpenshiftAssistedControlPlaneMachineTemplate `json:"machineTemplate"`
-	OpenshiftAssistedConfigSpec bootstrapv1beta1.OpenshiftAssistedConfigSpec `json:"openshiftAssistedConfigSpec,omitempty"`
-	Replicas                    int32                                        `json:"replicas,omitempty"`
+	// Config contains configuration specs for the OpenshiftAssistedControlPlane
+	Config                      OpenshiftAssistedControlPlaneConfigSpec       `json:"config,omitempty"`
+	MachineTemplate             OpenshiftAssistedControlPlaneMachineTemplate  `json:"machineTemplate"`
+	OpenshiftAssistedConfigSpec bootstrapv1alpha1.OpenshiftAssistedConfigSpec `json:"openshiftAssistedConfigSpec,omitempty"`
+	Replicas                    int32                                         `json:"replicas,omitempty"`
 	// DistributionVersion describes the targeted OpenShift version
 	DistributionVersion string `json:"distributionVersion"`
 }
@@ -216,11 +213,12 @@ type OpenshiftAssistedControlPlaneStatus struct {
 
 	// Conditions defines current service state of the KubeadmControlPlane.
 	// +optional
-	Conditions clusterv1.Conditions `json:"conditions,omitempty"`
+	Conditions clusterv1beta1.Conditions `json:"conditions,omitempty"`
 }
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:deprecatedversion:warning="v1alpha2 is deprecated, use v1alpha3"
 // +kubebuilder:resource:shortName=oacp;oacps
 // +kubebuilder:subresource:scale:specpath=.spec.replicas,statuspath=.status.replicas,selectorpath=.status.selector
 // +kubebuilder:printcolumn:name="Cluster",type="string",JSONPath=".metadata.labels['cluster\\.x-k8s\\.io/cluster-name']",description="Cluster"
@@ -229,7 +227,7 @@ type OpenshiftAssistedControlPlaneStatus struct {
 // +kubebuilder:printcolumn:name="Desired",type=integer,JSONPath=".spec.replicas",description="Total number of machines desired by this control plane",priority=10
 // +kubebuilder:printcolumn:name="Replicas",type=integer,JSONPath=".status.replicas",description="Total number of non-terminated machines targeted by this control plane"
 // +kubebuilder:printcolumn:name="Ready",type=integer,JSONPath=".status.readyReplicas",description="Total number of fully running and ready control plane machines"
-// +kubebuilder:printcolumn:name="Updated",type=integer,JSONPath=".status.updatedReplicas",description="Total number of non-terminated machines targeted by this control plane that have the desired template spec"
+// +kubebuilder:printcolumn:name="Up-To-Date",type=integer,JSONPath=".status.updatedReplicas",description="Total number of non-terminated machines targeted by this control plane that have the desired template spec"
 // +kubebuilder:printcolumn:name="Unavailable",type=integer,JSONPath=".status.unavailableReplicas",description="Total number of unavailable machines targeted by this control plane"
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp",description="Time duration since creation of KubeadmControlPlane"
 // +kubebuilder:printcolumn:name="Distribution Version",type=string,JSONPath=".spec.distributionVersion",description="OpenShift version associated with this control plane"
@@ -257,11 +255,11 @@ func init() {
 }
 
 // GetConditions returns the set of conditions for this object.
-func (in *OpenshiftAssistedControlPlane) GetConditions() clusterv1.Conditions {
+func (in *OpenshiftAssistedControlPlane) GetConditions() clusterv1beta1.Conditions {
 	return in.Status.Conditions
 }
 
 // SetConditions sets the conditions on this object.
-func (in *OpenshiftAssistedControlPlane) SetConditions(conditions clusterv1.Conditions) {
+func (in *OpenshiftAssistedControlPlane) SetConditions(conditions clusterv1beta1.Conditions) {
 	in.Status.Conditions = conditions
 }

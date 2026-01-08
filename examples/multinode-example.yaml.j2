@@ -7,7 +7,7 @@ metadata:
   namespace: test-capi
 type: kubernetes.io/dockerconfigjson
 ---
-apiVersion: cluster.x-k8s.io/v1beta1
+apiVersion: cluster.x-k8s.io/v1beta2
 kind: Cluster
 metadata:
   name: test-multinode
@@ -21,15 +21,13 @@ spec:
       cidrBlocks:
         - 10.96.0.0/12
   controlPlaneRef:
-    apiVersion: controlplane.cluster.x-k8s.io/v1alpha2
+    apiGroup: controlplane.cluster.x-k8s.io
     kind: OpenshiftAssistedControlPlane
     name: test-multinode
-    namespace: test-capi
   infrastructureRef:
-    apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+    apiGroup: infrastructure.cluster.x-k8s.io
     kind: Metal3Cluster
     name: test-multinode
-    namespace: test-capi
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
 kind: Metal3Cluster
@@ -42,7 +40,7 @@ spec:
     port: 6443
   noCloudProvider: true
 ---
-apiVersion: controlplane.cluster.x-k8s.io/v1alpha2
+apiVersion: controlplane.cluster.x-k8s.io/v1alpha3
 kind: OpenshiftAssistedControlPlane
 metadata:
   name: test-multinode
@@ -57,7 +55,7 @@ spec:
     nodeRegistration:
       kubeletExtraLabels:
       - 'metal3.io/uuid="${METADATA_UUID}"'
-  distributionVersion: 4.19.0
+  distributionVersion: {{ openshift_version }}
   config:
     apiVIPs:
     - 192.168.222.40
@@ -69,10 +67,9 @@ spec:
     sshAuthorizedKey: "{{ ssh_authorized_key }}"
   machineTemplate:
     infrastructureRef:
-      apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+      apiGroup: infrastructure.cluster.x-k8s.io
       kind: Metal3MachineTemplate
       name: test-multinode-controlplane
-      namespace: test-capi
   replicas: 3
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
@@ -88,10 +85,10 @@ spec:
       dataTemplate:
         name: test-multinode-controlplane-template
       image:
-        checksum: https://mirror.openshift.com/pub/openshift-v4/dependencies/rhcos/4.19/4.19.10/sha256sum.txt
+        checksum: {{ rhcos_checksum_url }}
         checksumType: sha256
         format: qcow2
-        url: https://mirror.openshift.com/pub/openshift-v4/dependencies/rhcos/4.19/4.19.10/rhcos-4.19.10-x86_64-nutanix.x86_64.qcow2
+        url: {{ rhcos_image_url }}
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
 kind: Metal3MachineTemplate
@@ -106,10 +103,10 @@ spec:
       dataTemplate:
         name: test-multinode-workers-template
       image:
-        checksum: https://mirror.openshift.com/pub/openshift-v4/dependencies/rhcos/4.19/4.19.10/sha256sum.txt
+        checksum: {{ rhcos_checksum_url }}
         checksumType: sha256
         format: qcow2
-        url: https://mirror.openshift.com/pub/openshift-v4/dependencies/rhcos/4.19/4.19.10/rhcos-4.19.10-x86_64-nutanix.x86_64.qcow2
+        url: {{ rhcos_image_url }}
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
 kind: Metal3DataTemplate
@@ -127,7 +124,7 @@ metadata:
 spec:
   clusterName: test-multinode
 ---
-apiVersion: cluster.x-k8s.io/v1beta1
+apiVersion: cluster.x-k8s.io/v1beta2
 kind: MachineDeployment
 metadata:
   name: test-multinode-worker
@@ -148,15 +145,15 @@ spec:
       clusterName: test-multinode
       bootstrap:
         configRef:
+          apiGroup: bootstrap.cluster.x-k8s.io
           name: test-multinode-worker
-          apiVersion: bootstrap.cluster.x-k8s.io/v1alpha1
           kind: OpenshiftAssistedConfigTemplate
       infrastructureRef:
+        apiGroup: infrastructure.cluster.x-k8s.io
         name: test-multinode-workers-2
-        apiVersion: infrastructure.cluster.x-k8s.io/v1alpha3
         kind: Metal3MachineTemplate
 ---
-apiVersion: bootstrap.cluster.x-k8s.io/v1alpha1
+apiVersion: bootstrap.cluster.x-k8s.io/v1alpha2
 kind: OpenshiftAssistedConfigTemplate
 metadata:
   name: test-multinode-worker

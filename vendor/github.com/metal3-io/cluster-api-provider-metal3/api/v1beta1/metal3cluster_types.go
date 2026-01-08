@@ -19,7 +19,7 @@ package v1beta1
 import (
 	"github.com/pkg/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	clusterv1beta1 "sigs.k8s.io/cluster-api/api/core/v1beta1"
 	capierrors "sigs.k8s.io/cluster-api/errors"
 )
 
@@ -37,8 +37,19 @@ type Metal3ClusterSpec struct {
 	// Determines if the cluster is not to be deployed with an external cloud provider.
 	// If set to true, CAPM3 will use node labels to set providerID on the kubernetes nodes.
 	// If set to false, providerID is set on nodes by other entities and CAPM3 uses the value of the providerID on the m3m resource.
+	// TODO: Remove this field in release 1.11. Ref: https://github.com/metal3-io/cluster-api-provider-metal3/issues/2255
+	//
+	// Deprecated: This field is deprecated, use cloudProviderEnabled instead
+	//
 	// +optional
-	NoCloudProvider bool `json:"noCloudProvider,omitempty"`
+	NoCloudProvider *bool `json:"noCloudProvider,omitempty"`
+	// Determines if the cluster is to be deployed with an external cloud provider.
+	// If set to false, CAPM3 will use node labels to set providerID on the kubernetes nodes.
+	// If set to true, providerID is set on nodes by other entities and CAPM3 uses the value of the providerID on the m3m resource.
+	// TODO: Change the default value to false in release 1.12. Ref: https://github.com/metal3-io/cluster-api-provider-metal3/issues/2255
+	// Default value is true, it is set in the webhook.
+	// +optional
+	CloudProviderEnabled *bool `json:"cloudProviderEnabled,omitempty"`
 }
 
 // IsValid returns an error if the object is not valid, otherwise nil. The
@@ -50,7 +61,7 @@ func (s *Metal3ClusterSpec) IsValid() error {
 	}
 
 	if s.ControlPlaneEndpoint.Port == 0 {
-		missing = append(missing, "ControlPlaneEndpoint.Host")
+		missing = append(missing, "ControlPlaneEndpoint.Port")
 	}
 
 	if len(missing) > 0 {
@@ -84,7 +95,7 @@ type Metal3ClusterStatus struct {
 	Ready bool `json:"ready"`
 	// Conditions defines current service state of the Metal3Cluster.
 	// +optional
-	Conditions clusterv1.Conditions `json:"conditions,omitempty"`
+	Conditions clusterv1beta1.Conditions `json:"conditions,omitempty"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
@@ -120,12 +131,12 @@ type Metal3ClusterList struct {
 }
 
 // GetConditions returns the list of conditions for an Metal3Cluster API object.
-func (c *Metal3Cluster) GetConditions() clusterv1.Conditions {
+func (c *Metal3Cluster) GetConditions() clusterv1beta1.Conditions {
 	return c.Status.Conditions
 }
 
 // SetConditions will set the given conditions on an Metal3Cluster object.
-func (c *Metal3Cluster) SetConditions(conditions clusterv1.Conditions) {
+func (c *Metal3Cluster) SetConditions(conditions clusterv1beta1.Conditions) {
 	c.Status.Conditions = conditions
 }
 

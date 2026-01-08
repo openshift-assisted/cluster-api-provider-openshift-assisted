@@ -1,0 +1,24 @@
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: capoa-controlplane-selfsigned-issuer
+  namespace: capoa-controlplane-system
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: capoa-controlplane-cert
+  namespace: capoa-controlplane-system
+spec:
+  secretName: capoa-controlplane-webhook-cert-secret
+  duration: 8760h # 1 year
+  renewBefore: 360h # 15 days
+  commonName: capoa-controlplane-webhook-service.capoa-controlplane-system.svc
+  dnsNames:
+    - capoa-controlplane-webhook-service.capoa-controlplane-system.svc
+  issuerRef:
+    name: capoa-controlplane-selfsigned-issuer
+    kind: Issuer
+

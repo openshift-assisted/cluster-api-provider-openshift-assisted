@@ -1,0 +1,56 @@
+package v1alpha3
+
+import clusterv1beta2 "sigs.k8s.io/cluster-api/api/core/v1beta2"
+
+const (
+	// ControlPlaneReadyCondition documents that the OpenshiftAssistedControlplane is ready.
+	ControlPlaneReadyCondition clusterv1beta2.ConditionType = "ControlPlaneReady"
+
+	// KubeconfigAvailableCondition documents that the kubeconfig for the workload cluster is available.
+	KubeconfigAvailableCondition clusterv1beta2.ConditionType = "KubeconfigAvailable"
+
+	// UpgradeCompletedCondition documents wether an upgrade run successfully
+	UpgradeCompletedCondition clusterv1beta2.ConditionType = "UpgradeCompleted"
+
+	// UpgradeAvailableCondition documents wether an upgrade is available
+	UpgradeAvailableCondition clusterv1beta2.ConditionType = "UpgradeAvailable"
+
+	// MachinesCreatedCondition documents that the machines controlled by the OpenshiftAssistedControlplane are created.
+	// When this condition is false, it indicates that there was an error when cloning the infrastructure/bootstrap template or
+	// when generating the machine object.
+	MachinesCreatedCondition clusterv1beta2.ConditionType = "MachinesCreated"
+
+	// KubernetesVersionAvailableCondition documents that the Kubernetes version could be extracted from the OpenShift version.
+	KubernetesVersionAvailableCondition clusterv1beta2.ConditionType = "KubernetesVersionAvailableCondition"
+
+	// ControlPlaneInstallingCOndition (Severity=Info) documents that the OpenshiftAssistedControlplane is installing.
+	ControlPlaneInstallingReason = "ControlPlaneInstalling"
+
+	// KubernetesVersionUnavailable (Severity=Warning) documents that the Kubernetes version could not be extracted
+	// from the OpenShift version.
+	KubernetesVersionUnavailableFailedReason = "KubernetesVersionUnavailable"
+
+	// ControlPlaneInstallingCOndition (Severity=Info) documents that the workload cluster kubeconfig is not yet available.
+	KubeconfigUnavailableFailedReason = "KubeconfigUnavailable"
+
+	// UpgradeInProgressReason (Severity=Info) documents that an upgrade is in progress.
+	UpgradeInProgressReason = "UpgradeInProgress"
+
+	// UpgradeFailedReason (Severity=Error) documents that an upgrade has failed.
+	UpgradeFailedReason = "UpgradeFailed"
+
+	// UpgradeImageUnavailableReason (Severity=Error) documents whether an upgrade image is available
+	UpgradeImageUnavailableReason = "UpgradeImageUnavailable"
+
+	// InfrastructureTemplateCloningFailedReason (Severity=Error) documents a OpenshiftAssistedControlplane failing to
+	// clone the infrastructure template.
+	InfrastructureTemplateCloningFailedReason = "InfrastructureTemplateCloningFailed"
+
+	// BootstrapTemplateCloningFailedReason (Severity=Error) documents a OpenshiftAssistedControlplane failing to
+	// clone the bootstrap template.
+	BootstrapTemplateCloningFailedReason = "BootstrapTemplateCloningFailed"
+
+	// MachineGenerationFailedReason (Severity=Error) documents a OpenshiftAssistedControlplane failing to
+	// generate a machine object.
+	MachineGenerationFailedReason = "MachineGenerationFailed"
+)

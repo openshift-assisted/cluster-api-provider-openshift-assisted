@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"time"
 
 	"k8s.io/apimachinery/pkg/types"
 
@@ -36,12 +37,12 @@ import (
 	v1 "github.com/openshift/hive/apis/hive/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"sigs.k8s.io/cluster-api/util/conditions"
+	v1beta1conditions "sigs.k8s.io/cluster-api/util/conditions/deprecated/v1beta1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	fakeclient "sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	bootstrapv1alpha1 "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/bootstrap/api/v1alpha1"
+	bootstrapv1alpha2 "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/bootstrap/api/v1alpha2"
 )
 
 const (
@@ -113,7 +114,7 @@ var _ = Describe("OpenshiftAssistedConfig Controller", func() {
 		BeforeEach(func() {
 			By("Resetting fakeclient state")
 			k8sClient = fakeclient.NewClientBuilder().WithScheme(testScheme).
-				WithStatusSubresource(&bootstrapv1alpha1.OpenshiftAssistedConfig{}, &v1beta1.InfraEnv{}).
+				WithStatusSubresource(&bootstrapv1alpha2.OpenshiftAssistedConfig{}, &v1beta1.InfraEnv{}).
 				Build()
 			Expect(k8sClient).NotTo(BeNil())
 
@@ -146,8 +147,8 @@ var _ = Describe("OpenshiftAssistedConfig Controller", func() {
 
 				// This config has no owner, should exit before setting conditions
 				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(oac), oac)).To(Succeed())
-				condition := conditions.Get(oac,
-					bootstrapv1alpha1.DataSecretAvailableCondition,
+				condition := v1beta1conditions.Get(oac,
+					bootstrapv1alpha2.DataSecretAvailableCondition,
 				)
 				Expect(condition).To(BeNil())
 			})
@@ -172,8 +173,8 @@ var _ = Describe("OpenshiftAssistedConfig Controller", func() {
 
 				// This config has no relevant owner, should exit before setting conditions
 				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(oac), oac)).To(Succeed())
-				condition := conditions.Get(oac,
-					bootstrapv1alpha1.DataSecretAvailableCondition,
+				condition := v1beta1conditions.Get(oac,
+					bootstrapv1alpha2.DataSecretAvailableCondition,
 				)
 				Expect(condition).To(BeNil())
 			})
@@ -189,17 +190,17 @@ var _ = Describe("OpenshiftAssistedConfig Controller", func() {
 				})
 				Expect(err).NotTo(HaveOccurred())
 				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(oac), oac)).To(Succeed())
-				dataSecretReadyCondition := conditions.Get(oac,
-					bootstrapv1alpha1.DataSecretAvailableCondition,
+				dataSecretReadyCondition := v1beta1conditions.Get(oac,
+					bootstrapv1alpha2.DataSecretAvailableCondition,
 				)
 				Expect(dataSecretReadyCondition).NotTo(BeNil())
-				Expect(dataSecretReadyCondition.Reason).To(Equal(bootstrapv1alpha1.WaitingForAssistedInstallerReason))
+				Expect(dataSecretReadyCondition.Reason).To(Equal(bootstrapv1alpha2.WaitingForAssistedInstallerReason))
 			})
 		})
 		When("ClusterDeployment is created but AgentClusterInstall is not", func() {
 			It("should requeue the request without errors", func() {
 				oac := setupControlPlaneOpenshiftAssistedConfigWithPullSecretRef(ctx, k8sClient)
-				cd := testutils.NewClusterDeploymentWithOwnerCluster(namespace, clusterName, clusterName)
+				cd := testutils.NewClusterDeploymentWithOwnerCluster(namespace, clusterName, clusterName, nil)
 				Expect(k8sClient.Create(ctx, cd)).To(Succeed())
 				// but not ACI
 
@@ -207,13 +208,13 @@ var _ = Describe("OpenshiftAssistedConfig Controller", func() {
 					NamespacedName: client.ObjectKeyFromObject(oac),
 				})
 				Expect(err).NotTo(HaveOccurred())
-				Expect(result.Requeue).To(BeTrue())
+				Expect(result.RequeueAfter).To(Equal(time.Duration(0)))
 				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(oac), oac)).To(Succeed())
-				dataSecretReadyCondition := conditions.Get(oac,
-					bootstrapv1alpha1.DataSecretAvailableCondition,
+				dataSecretReadyCondition := v1beta1conditions.Get(oac,
+					bootstrapv1alpha2.DataSecretAvailableCondition,
 				)
 				Expect(dataSecretReadyCondition).NotTo(BeNil())
-				Expect(dataSecretReadyCondition.Reason).To(Equal(bootstrapv1alpha1.WaitingForAssistedInstallerReason))
+				Expect(dataSecretReadyCondition.Reason).To(Equal(bootstrapv1alpha2.WaitingForAssistedInstallerReason))
 			})
 		})
 		When(
@@ -304,10 +305,11 @@ var _ = Describe("OpenshiftAssistedConfig Controller", func() {
 				// Verify that the pull secret is referenced in the infraEnv, but not in the config
 				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(oac), oac)).To(Succeed())
 				Expect(oac.Spec.PullSecretRef).To(BeNil())
-				Expect(oac.Status.InfraEnvRef).NotTo(BeNil())
 
-				infraEnv := &v1beta1.InfraEnv{}
-				Expect(k8sClient.Get(ctx, types.NamespacedName{Name: oac.Status.InfraEnvRef.Name, Namespace: namespace}, infraEnv)).To(Succeed())
+				infraEnvs := v1beta1.InfraEnvList{}
+				Expect(k8sClient.List(ctx, &infraEnvs, client.MatchingLabels{bootstrapv1alpha2.OpenshiftAssistedConfigLabel: oac.Name})).To(Succeed())
+				Expect(len(infraEnvs.Items)).To(Equal(1))
+				infraEnv := infraEnvs.Items[0]
 				Expect(infraEnv.Spec.PullSecretRef).NotTo(BeNil())
 				Expect(infraEnv.Spec.PullSecretRef.Name).To(Equal("placeholder-pull-secret"))
 			})
@@ -399,10 +401,10 @@ var _ = Describe("OpenshiftAssistedConfig Controller", func() {
 
 				// Verify the condition is set correctly
 				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(oac), oac)).To(Succeed())
-				condition := conditions.Get(oac, bootstrapv1alpha1.DataSecretAvailableCondition)
+				condition := v1beta1conditions.Get(oac, bootstrapv1alpha2.DataSecretAvailableCondition)
 				Expect(condition).NotTo(BeNil())
 				Expect(condition.Status).To(Equal(corev1.ConditionFalse))
-				Expect(condition.Reason).To(Equal(bootstrapv1alpha1.WaitingForAssistedInstallerReason))
+				Expect(condition.Reason).To(Equal(bootstrapv1alpha2.WaitingForAssistedInstallerReason))
 			})
 		})
 		When("HTTPClientFactory is nil", func() {
@@ -430,18 +432,19 @@ var _ = Describe("OpenshiftAssistedConfig Controller", func() {
 
 				// Verify the condition is set correctly
 				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(oac), oac)).To(Succeed())
-				condition := conditions.Get(oac, bootstrapv1alpha1.DataSecretAvailableCondition)
+				condition := v1beta1conditions.Get(oac, bootstrapv1alpha2.DataSecretAvailableCondition)
 				Expect(condition).NotTo(BeNil())
 				Expect(condition.Status).To(Equal(corev1.ConditionFalse))
-				Expect(condition.Reason).To(Equal(bootstrapv1alpha1.WaitingForAssistedInstallerReason))
+				Expect(condition.Reason).To(Equal(bootstrapv1alpha2.WaitingForAssistedInstallerReason))
 			})
 		})
+
 	})
 })
 
 // mock controlplane provider generating ACI and CD
 func mockControlPlaneInitialization(ctx context.Context, k8sClient client.Client) {
-	cd := testutils.NewClusterDeploymentWithOwnerCluster(namespace, clusterName, clusterName)
+	cd := testutils.NewClusterDeploymentWithOwnerCluster(namespace, clusterName, clusterName, nil)
 	Expect(k8sClient.Create(ctx, cd)).To(Succeed())
 
 	aci := testutils.NewAgentClusterInstall(clusterName, namespace, clusterName)
@@ -454,7 +457,7 @@ func setupControlPlaneOpenshiftAssistedConfig(
 	ctx context.Context,
 	k8sClient client.Client,
 	pullSecretRef *corev1.LocalObjectReference,
-) *bootstrapv1alpha1.OpenshiftAssistedConfig {
+) *bootstrapv1alpha2.OpenshiftAssistedConfig {
 	cluster := testutils.NewCluster(clusterName, namespace)
 	Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
 
@@ -492,7 +495,7 @@ func setupControlPlaneOpenshiftAssistedConfig(
 func setupControlPlaneOpenshiftAssistedConfigWithPullSecretRef(
 	ctx context.Context,
 	k8sClient client.Client,
-) *bootstrapv1alpha1.OpenshiftAssistedConfig {
+) *bootstrapv1alpha2.OpenshiftAssistedConfig {
 	pullSecretRef := &corev1.LocalObjectReference{Name: "my-pullsecret"}
 	return setupControlPlaneOpenshiftAssistedConfig(ctx, k8sClient, pullSecretRef)
 }
@@ -500,7 +503,7 @@ func setupControlPlaneOpenshiftAssistedConfigWithPullSecretRef(
 func NewOpenshiftAssistedConfigWithOwner(
 	namespace, name, clusterName string,
 	owner client.Object,
-) *bootstrapv1alpha1.OpenshiftAssistedConfig {
+) *bootstrapv1alpha2.OpenshiftAssistedConfig {
 	ownerGVK := owner.GetObjectKind().GroupVersionKind()
 	ownerRefs := []metav1.OwnerReference{
 		{

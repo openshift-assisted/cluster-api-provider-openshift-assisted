@@ -14,22 +14,23 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package controller
+package controller_test
 
 import (
 	"context"
 	"encoding/json"
+	"time"
 
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 
 	"k8s.io/apimachinery/pkg/types"
 
-	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/api/v1alpha2"
+	controlplanev1alpha3 "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/api/v1alpha3"
+	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/internal/controller"
 	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/test/utils"
 	hiveext "github.com/openshift/assisted-service/api/hiveextension/v1beta1"
 	"github.com/openshift/assisted-service/models"
 	hivev1 "github.com/openshift/hive/apis/hive/v1"
-	"k8s.io/client-go/tools/reference"
 	fakeclient "sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -40,6 +41,7 @@ import (
 	configv1 "github.com/openshift/api/config/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -49,19 +51,33 @@ const (
 	namespace                         = "test"
 	clusterName                       = "test-cluster"
 	openShiftVersion                  = "4.16.0"
+	managedByLabel                    = "openshiftassistedcontrolplane." + controlplanev1alpha3.Group + "/managed-by"
+	// managedByLabel is defined in openshiftassistedcontrolplane_controller.go
 )
+
+// setManagedByLabel sets a regular owner reference and managed-by label on the ClusterDeployment
+func setManagedByLabel(oacp *controlplanev1alpha3.OpenshiftAssistedControlPlane, cd *hivev1.ClusterDeployment, scheme *runtime.Scheme) error {
+	if err := controllerutil.SetOwnerReference(oacp, cd, scheme); err != nil {
+		return err
+	}
+	if cd.Labels == nil {
+		cd.Labels = make(map[string]string)
+	}
+	cd.Labels[managedByLabel] = string(oacp.UID)
+	return nil
+}
 
 var _ = Describe("ClusterDeployment Controller", func() {
 	ctx := context.Background()
-	var controllerReconciler *ClusterDeploymentReconciler
+	var controllerReconciler *controller.ClusterDeploymentReconciler
 	var k8sClient client.Client
 
 	BeforeEach(func() {
 		k8sClient = fakeclient.NewClientBuilder().WithScheme(testScheme).
-			WithStatusSubresource(&hivev1.ClusterDeployment{}, &v1alpha2.OpenshiftAssistedControlPlane{}).
+			WithStatusSubresource(&hivev1.ClusterDeployment{}, &controlplanev1alpha3.OpenshiftAssistedControlPlane{}).
 			Build()
 		Expect(k8sClient).NotTo(BeNil())
-		controllerReconciler = &ClusterDeploymentReconciler{
+		controllerReconciler = &controller.ClusterDeploymentReconciler{
 			Client: k8sClient,
 			Scheme: k8sClient.Scheme(),
 		}
@@ -76,7 +92,7 @@ var _ = Describe("ClusterDeployment Controller", func() {
 	})
 	When("A cluster deployment with no OpenshiftAssistedControlPlanes in the same namespace", func() {
 		It("should not return error", func() {
-			cd := utils.NewClusterDeployment(namespace, clusterDeploymentName)
+			cd := utils.NewClusterDeployment(namespace, clusterDeploymentName, nil)
 			Expect(k8sClient.Create(ctx, cd)).To(Succeed())
 			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
 				NamespacedName: client.ObjectKeyFromObject(cd),
@@ -87,7 +103,7 @@ var _ = Describe("ClusterDeployment Controller", func() {
 
 	When("A cluster deployment with OpenshiftAssistedControlPlanes in the same namespace, but none referencing it", func() {
 		It("should not return error", func() {
-			cd := utils.NewClusterDeployment(namespace, clusterDeploymentName)
+			cd := utils.NewClusterDeployment(namespace, clusterDeploymentName, nil)
 			Expect(k8sClient.Create(ctx, cd)).To(Succeed())
 
 			oacp := utils.NewOpenshiftAssistedControlPlane(namespace, openshiftAssistedControlPlaneName)
@@ -105,9 +121,6 @@ var _ = Describe("ClusterDeployment Controller", func() {
 		It("should not return error", func() {
 			cluster := utils.NewCluster(clusterName, namespace)
 			Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
-
-			cd := utils.NewClusterDeploymentWithOwnerCluster(namespace, clusterDeploymentName, clusterName)
-			Expect(k8sClient.Create(ctx, cd)).To(Succeed())
 
 			enableOn := models.DiskEncryptionEnableOnAll
 			mode := models.DiskEncryptionModeTang
@@ -127,6 +140,9 @@ var _ = Describe("ClusterDeployment Controller", func() {
 			}
 			oacp.Spec.Config.MastersSchedulable = true
 
+			cd := utils.NewClusterDeploymentWithOwnerCluster(namespace, clusterDeploymentName, clusterName, oacp)
+			Expect(k8sClient.Create(ctx, cd)).To(Succeed())
+
 			// create config associated with this cluster
 			config := utils.NewOpenshiftAssistedConfig(namespace, "myconfig", clusterName)
 			config.Spec.CpuArchitecture = "x86_64"
@@ -137,9 +153,8 @@ var _ = Describe("ClusterDeployment Controller", func() {
 			Expect(k8sClient.Create(ctx, config)).To(Succeed())
 
 			Expect(controllerutil.SetOwnerReference(cluster, oacp, testScheme)).To(Succeed())
-			Expect(controllerutil.SetOwnerReference(oacp, cd, testScheme)).To(Succeed())
-			ref, _ := reference.GetReference(testScheme, cd)
-			oacp.Status.ClusterDeploymentRef = ref
+			Expect(setManagedByLabel(oacp, cd, testScheme)).To(Succeed())
+
 			Expect(k8sClient.Create(ctx, oacp)).To(Succeed())
 			Expect(k8sClient.Update(ctx, cd)).To(Succeed())
 
@@ -166,7 +181,7 @@ var _ = Describe("ClusterDeployment Controller", func() {
 			Expect(aci.Labels).To(HaveKey(clusterv1.MachineControlPlaneNameLabel))
 			Expect(aci.Labels[clusterv1.MachineControlPlaneNameLabel]).To(Equal(oacp.Name))
 			Expect(aci.Labels).To(HaveKey(hiveext.ClusterConsumerLabel))
-			Expect(aci.Labels[hiveext.ClusterConsumerLabel]).To(Equal(openshiftAssistedControlPlaneKind))
+			Expect(aci.Labels[hiveext.ClusterConsumerLabel]).To(Equal("OpenshiftAssistedControlPlane"))
 
 			clusterImageSet := &hivev1.ClusterImageSet{}
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: cd.Name}, clusterImageSet)).To(Succeed())
@@ -177,20 +192,19 @@ var _ = Describe("ClusterDeployment Controller", func() {
 				cluster := utils.NewCluster(clusterName, namespace)
 				Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
 
-				cd := utils.NewClusterDeployment(namespace, clusterDeploymentName)
-
-				acp := utils.NewOpenshiftAssistedControlPlane(namespace, openshiftAssistedControlPlaneName)
-				acp.Spec.DistributionVersion = openShiftVersion
+				oacp := utils.NewOpenshiftAssistedControlPlane(namespace, openshiftAssistedControlPlaneName)
+				oacp.Spec.DistributionVersion = openShiftVersion
 				apiVIPs := []string{"1.2.3.4", "2.3.4.5"}
 				ingressVIPs := []string{"9.9.9.9", "10.10.10.10"}
-				acp.Spec.Config.APIVIPs = apiVIPs
-				acp.Spec.Config.IngressVIPs = ingressVIPs
+				oacp.Spec.Config.APIVIPs = apiVIPs
+				oacp.Spec.Config.IngressVIPs = ingressVIPs
 
-				Expect(controllerutil.SetOwnerReference(cluster, acp, testScheme)).To(Succeed())
-				Expect(controllerutil.SetOwnerReference(acp, cd, testScheme)).To(Succeed())
-				ref, _ := reference.GetReference(testScheme, cd)
-				acp.Status.ClusterDeploymentRef = ref
-				Expect(k8sClient.Create(ctx, acp)).To(Succeed())
+				cd := utils.NewClusterDeployment(namespace, clusterDeploymentName, oacp)
+
+				Expect(controllerutil.SetOwnerReference(cluster, oacp, testScheme)).To(Succeed())
+				Expect(controllerutil.SetOwnerReference(oacp, cd, testScheme)).To(Succeed())
+
+				Expect(k8sClient.Create(ctx, oacp)).To(Succeed())
 				Expect(k8sClient.Create(ctx, cd)).To(Succeed())
 
 				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
@@ -205,10 +219,10 @@ var _ = Describe("ClusterDeployment Controller", func() {
 				Expect(aci.Spec.PlatformType).To(Equal(hiveext.BareMetalPlatformType))
 				Expect(aci.Spec.IngressVIPs).To(Equal(ingressVIPs))
 				Expect(aci.Spec.APIVIPs).To(Equal(apiVIPs))
-				Expect(aci.Annotations).To(HaveKey(InstallConfigOverrides))
+				Expect(aci.Annotations).To(HaveKey(controller.InstallConfigOverrides))
 
-				cfgOverride := InstallConfigOverride{}
-				Expect(json.Unmarshal([]byte(aci.Annotations[InstallConfigOverrides]), &cfgOverride)).NotTo(HaveOccurred())
+				cfgOverride := controller.InstallConfigOverride{}
+				Expect(json.Unmarshal([]byte(aci.Annotations[controller.InstallConfigOverrides]), &cfgOverride)).NotTo(HaveOccurred())
 				Expect(cfgOverride.Capability.AdditionalEnabledCapabilities).To(Equal([]configv1.ClusterVersionCapability{"baremetal", "Console", "Insights", "OperatorLifecycleManager", "Ingress", "marketplace", "NodeTuning", "DeploymentConfig"}))
 				Expect(cfgOverride.Capability.BaselineCapabilitySet).To(Equal(configv1.ClusterVersionCapabilitySet("None")))
 
@@ -219,13 +233,11 @@ var _ = Describe("ClusterDeployment Controller", func() {
 		Context("Baremetal workload cluster", func() {
 			var (
 				cd   *hivev1.ClusterDeployment
-				oacp *v1alpha2.OpenshiftAssistedControlPlane
+				oacp *controlplanev1alpha3.OpenshiftAssistedControlPlane
 			)
 			BeforeEach(func() {
 				cluster := utils.NewCluster(clusterName, namespace)
 				Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
-
-				cd = utils.NewClusterDeployment(namespace, clusterDeploymentName)
 
 				oacp = utils.NewOpenshiftAssistedControlPlane(namespace, openshiftAssistedControlPlaneName)
 				oacp.Spec.DistributionVersion = openShiftVersion
@@ -234,10 +246,10 @@ var _ = Describe("ClusterDeployment Controller", func() {
 				oacp.Spec.Config.APIVIPs = apiVIPs
 				oacp.Spec.Config.IngressVIPs = ingressVIPs
 
+				cd = utils.NewClusterDeployment(namespace, clusterDeploymentName, oacp)
 				Expect(controllerutil.SetOwnerReference(cluster, oacp, testScheme)).To(Succeed())
 				Expect(controllerutil.SetOwnerReference(oacp, cd, testScheme)).To(Succeed())
-				ref, _ := reference.GetReference(testScheme, cd)
-				oacp.Status.ClusterDeploymentRef = ref
+
 				Expect(k8sClient.Create(ctx, oacp)).To(Succeed())
 				Expect(k8sClient.Create(ctx, cd)).To(Succeed())
 			})
@@ -251,13 +263,13 @@ var _ = Describe("ClusterDeployment Controller", func() {
 					aci := &hiveext.AgentClusterInstall{}
 					Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cd), aci)).To(Succeed())
 					By("Verifying the ACI has the default install config overrides for baremetal set in its annotations")
-					Expect(aci.Annotations).To(HaveKey(InstallConfigOverrides))
-					Expect(aci.Annotations[InstallConfigOverrides]).To(Equal(`{"capabilities":{"baselineCapabilitySet":"None","additionalEnabledCapabilities":["baremetal","Console","Insights","OperatorLifecycleManager","Ingress","marketplace","NodeTuning","DeploymentConfig"]}}`))
+					Expect(aci.Annotations).To(HaveKey(controller.InstallConfigOverrides))
+					Expect(aci.Annotations[controller.InstallConfigOverrides]).To(Equal(`{"capabilities":{"baselineCapabilitySet":"None","additionalEnabledCapabilities":["baremetal","Console","Insights","OperatorLifecycleManager","Ingress","marketplace","NodeTuning","DeploymentConfig"]}}`))
 				})
 			})
 			When("additional capabilities are specified", func() {
 				It("ACI should have default baremetal install config override annotation along with the additional capabilities", func() {
-					oacp.Spec.Config.Capabilities = v1alpha2.Capabilities{AdditionalEnabledCapabilities: []string{"CloudControllerManager"}}
+					oacp.Spec.Config.Capabilities = controlplanev1alpha3.Capabilities{AdditionalEnabledCapabilities: []string{"CloudControllerManager"}}
 					Expect(k8sClient.Update(ctx, oacp)).To(Succeed())
 					_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
 						NamespacedName: client.ObjectKeyFromObject(cd),
@@ -268,13 +280,13 @@ var _ = Describe("ClusterDeployment Controller", func() {
 					Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cd), aci)).To(Succeed())
 
 					By("Verifying the ACI has the default install config overrides for baremetal and the additional capability set in its annotations")
-					Expect(aci.Annotations).To(HaveKey(InstallConfigOverrides))
-					Expect(aci.Annotations[InstallConfigOverrides]).To(Equal(`{"capabilities":{"baselineCapabilitySet":"None","additionalEnabledCapabilities":["baremetal","Console","Insights","OperatorLifecycleManager","Ingress","marketplace","NodeTuning","DeploymentConfig","CloudControllerManager"]}}`))
+					Expect(aci.Annotations).To(HaveKey(controller.InstallConfigOverrides))
+					Expect(aci.Annotations[controller.InstallConfigOverrides]).To(Equal(`{"capabilities":{"baselineCapabilitySet":"None","additionalEnabledCapabilities":["baremetal","Console","Insights","OperatorLifecycleManager","Ingress","marketplace","NodeTuning","DeploymentConfig","CloudControllerManager"]}}`))
 				})
 			})
 			When("additional capabilities are the same as the default baremetal capabilities", func() {
 				It("ACI should have default baremetal install config override annotation with no duplicates", func() {
-					oacp.Spec.Config.Capabilities = v1alpha2.Capabilities{AdditionalEnabledCapabilities: []string{"baremetal"}}
+					oacp.Spec.Config.Capabilities = controlplanev1alpha3.Capabilities{AdditionalEnabledCapabilities: []string{"baremetal"}}
 					Expect(k8sClient.Update(ctx, oacp)).To(Succeed())
 
 					_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
@@ -286,13 +298,13 @@ var _ = Describe("ClusterDeployment Controller", func() {
 					Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cd), aci)).To(Succeed())
 
 					By("Verifying the ACI has the default install config overrides for baremetal without duplicates")
-					Expect(aci.Annotations).To(HaveKey(InstallConfigOverrides))
-					Expect(aci.Annotations[InstallConfigOverrides]).To(Equal(`{"capabilities":{"baselineCapabilitySet":"None","additionalEnabledCapabilities":["baremetal","Console","Insights","OperatorLifecycleManager","Ingress","marketplace","NodeTuning","DeploymentConfig"]}}`))
+					Expect(aci.Annotations).To(HaveKey(controller.InstallConfigOverrides))
+					Expect(aci.Annotations[controller.InstallConfigOverrides]).To(Equal(`{"capabilities":{"baselineCapabilitySet":"None","additionalEnabledCapabilities":["baremetal","Console","Insights","OperatorLifecycleManager","Ingress","marketplace","NodeTuning","DeploymentConfig"]}}`))
 				})
 			})
 			When("additional capabilities include MAPI", func() {
 				It("ACI should have default baremetal install config override annotation without MAPI", func() {
-					oacp.Spec.Config.Capabilities = v1alpha2.Capabilities{AdditionalEnabledCapabilities: []string{"MachineAPI", "CloudControllerManager"}}
+					oacp.Spec.Config.Capabilities = controlplanev1alpha3.Capabilities{AdditionalEnabledCapabilities: []string{"MachineAPI", "CloudControllerManager"}}
 					Expect(k8sClient.Update(ctx, oacp)).To(Succeed())
 
 					_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
@@ -304,13 +316,13 @@ var _ = Describe("ClusterDeployment Controller", func() {
 					Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cd), aci)).To(Succeed())
 
 					By("Verifying the ACI has the default install config overrides for baremetal without MAPI")
-					Expect(aci.Annotations).To(HaveKey(InstallConfigOverrides))
-					Expect(aci.Annotations[InstallConfigOverrides]).To(Equal(`{"capabilities":{"baselineCapabilitySet":"None","additionalEnabledCapabilities":["baremetal","Console","Insights","OperatorLifecycleManager","Ingress","marketplace","NodeTuning","DeploymentConfig","CloudControllerManager"]}}`))
+					Expect(aci.Annotations).To(HaveKey(controller.InstallConfigOverrides))
+					Expect(aci.Annotations[controller.InstallConfigOverrides]).To(Equal(`{"capabilities":{"baselineCapabilitySet":"None","additionalEnabledCapabilities":["baremetal","Console","Insights","OperatorLifecycleManager","Ingress","marketplace","NodeTuning","DeploymentConfig","CloudControllerManager"]}}`))
 				})
 			})
 			When("only baseline capability is specified", func() {
 				It("ACI should have default baremetal install config override annotation with specified baseline capability", func() {
-					oacp.Spec.Config.Capabilities = v1alpha2.Capabilities{BaselineCapability: "vCurrent"}
+					oacp.Spec.Config.Capabilities = controlplanev1alpha3.Capabilities{BaselineCapability: "vCurrent"}
 					Expect(k8sClient.Update(ctx, oacp)).To(Succeed())
 
 					_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
@@ -322,8 +334,8 @@ var _ = Describe("ClusterDeployment Controller", func() {
 					Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cd), aci)).To(Succeed())
 
 					By("Verifying the ACI has the correct install config overrides for baremetal and the specified baseline capability")
-					Expect(aci.Annotations).To(HaveKey(InstallConfigOverrides))
-					Expect(aci.Annotations[InstallConfigOverrides]).To(Equal(`{"capabilities":{"baselineCapabilitySet":"vCurrent","additionalEnabledCapabilities":["baremetal","Console","Insights","OperatorLifecycleManager","Ingress","marketplace","NodeTuning","DeploymentConfig"]}}`))
+					Expect(aci.Annotations).To(HaveKey(controller.InstallConfigOverrides))
+					Expect(aci.Annotations[controller.InstallConfigOverrides]).To(Equal(`{"capabilities":{"baselineCapabilitySet":"vCurrent","additionalEnabledCapabilities":["baremetal","Console","Insights","OperatorLifecycleManager","Ingress","marketplace","NodeTuning","DeploymentConfig"]}}`))
 				})
 			})
 			When("install config override annotation is set with MAPI capability", func() {
@@ -333,10 +345,10 @@ var _ = Describe("ClusterDeployment Controller", func() {
 					if oacp.Annotations == nil {
 						oacp.Annotations = make(map[string]string)
 					}
-					oacp.Annotations[v1alpha2.InstallConfigOverrideAnnotation] = installConfigOverride
+					oacp.Annotations[controlplanev1alpha3.InstallConfigOverrideAnnotation] = installConfigOverride
 
 					// Set MAPI in additional capabilities
-					oacp.Spec.Config.Capabilities = v1alpha2.Capabilities{AdditionalEnabledCapabilities: []string{"MachineAPI", "CloudControllerManager"}}
+					oacp.Spec.Config.Capabilities = controlplanev1alpha3.Capabilities{AdditionalEnabledCapabilities: []string{"MachineAPI", "CloudControllerManager"}}
 					Expect(k8sClient.Update(ctx, oacp)).To(Succeed())
 
 					_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
@@ -348,41 +360,40 @@ var _ = Describe("ClusterDeployment Controller", func() {
 					Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cd), aci)).To(Succeed())
 
 					By("Verifying the ACI has the install config override annotation")
-					Expect(aci.Annotations).To(HaveKey(InstallConfigOverrides))
+					Expect(aci.Annotations).To(HaveKey(controller.InstallConfigOverrides))
 
 					By("Verifying the ACI excludes MAPI from capabilities even with install config override")
 
 					// The annotation should contain both the install config override and the capabilities
 					// but MAPI should still be excluded for baremetal platforms
-					cfgOverride := InstallConfigOverride{}
-					Expect(json.Unmarshal([]byte(aci.Annotations[InstallConfigOverrides]), &cfgOverride)).NotTo(HaveOccurred())
+					cfgOverride := controller.InstallConfigOverride{}
+					Expect(json.Unmarshal([]byte(aci.Annotations[controller.InstallConfigOverrides]), &cfgOverride)).NotTo(HaveOccurred())
 
 					Expect(cfgOverride.Capability.AdditionalEnabledCapabilities).To(Equal([]configv1.ClusterVersionCapability{"baremetal", "Console", "Insights", "OperatorLifecycleManager", "Ingress", "marketplace", "NodeTuning", "DeploymentConfig", "CloudControllerManager"}))
 					Expect(cfgOverride.Capability.BaselineCapabilitySet).To(Equal(configv1.ClusterVersionCapabilitySet("None")))
 
 					// Verify MAPI is not in the capabilities
-					Expect(aci.Annotations[InstallConfigOverrides]).NotTo(ContainSubstring("MachineAPI"))
+					Expect(aci.Annotations[controller.InstallConfigOverrides]).NotTo(ContainSubstring("MachineAPI"))
 				})
 			})
 		})
 		Context("Non-baremetal workload cluster", func() {
 			var (
 				cd   *hivev1.ClusterDeployment
-				oacp *v1alpha2.OpenshiftAssistedControlPlane
+				oacp *controlplanev1alpha3.OpenshiftAssistedControlPlane
 			)
 			BeforeEach(func() {
 				cluster := utils.NewCluster(clusterName, namespace)
 				Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
 
-				cd = utils.NewClusterDeployment(namespace, clusterDeploymentName)
-
 				oacp = utils.NewOpenshiftAssistedControlPlane(namespace, openshiftAssistedControlPlaneName)
 				oacp.Spec.DistributionVersion = openShiftVersion
 
+				cd = utils.NewClusterDeployment(namespace, clusterDeploymentName, oacp)
+
 				Expect(controllerutil.SetOwnerReference(cluster, oacp, testScheme)).To(Succeed())
-				Expect(controllerutil.SetOwnerReference(oacp, cd, testScheme)).To(Succeed())
-				ref, _ := reference.GetReference(testScheme, cd)
-				oacp.Status.ClusterDeploymentRef = ref
+				Expect(controllerutil.SetControllerReference(oacp, cd, testScheme)).To(Succeed())
+
 				Expect(k8sClient.Create(ctx, oacp)).To(Succeed())
 				Expect(k8sClient.Create(ctx, cd)).To(Succeed())
 			})
@@ -396,12 +407,12 @@ var _ = Describe("ClusterDeployment Controller", func() {
 					aci := &hiveext.AgentClusterInstall{}
 					Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cd), aci)).To(Succeed())
 					By("Verifying the ACI does not have the install config overrides set in its annotations")
-					Expect(aci.Annotations).ToNot(HaveKey(InstallConfigOverrides))
+					Expect(aci.Annotations).ToNot(HaveKey(controller.InstallConfigOverrides))
 				})
 			})
 			When("additional capabilities are specified", func() {
 				It("ACI should have only the specified capabilities in the install config override annotation and the baseline should be set to the default", func() {
-					oacp.Spec.Config.Capabilities = v1alpha2.Capabilities{AdditionalEnabledCapabilities: []string{"NodeTuning"}}
+					oacp.Spec.Config.Capabilities = controlplanev1alpha3.Capabilities{AdditionalEnabledCapabilities: []string{"NodeTuning"}}
 
 					Expect(k8sClient.Update(ctx, oacp)).To(Succeed())
 					_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
@@ -413,13 +424,13 @@ var _ = Describe("ClusterDeployment Controller", func() {
 					Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cd), aci)).To(Succeed())
 
 					By("Verifying the ACI has the correct install config overrides annotation")
-					Expect(aci.Annotations).To(HaveKey(InstallConfigOverrides))
-					Expect(aci.Annotations[InstallConfigOverrides]).To(Equal(`{"capabilities":{"baselineCapabilitySet":"vCurrent","additionalEnabledCapabilities":["NodeTuning"]}}`))
+					Expect(aci.Annotations).To(HaveKey(controller.InstallConfigOverrides))
+					Expect(aci.Annotations[controller.InstallConfigOverrides]).To(Equal(`{"capabilities":{"baselineCapabilitySet":"vCurrent","additionalEnabledCapabilities":["NodeTuning"]}}`))
 				})
 			})
 			When("additional capabilities include MAPI", func() {
 				It("ACI should include MAPI in its install config override annotation", func() {
-					oacp.Spec.Config.Capabilities = v1alpha2.Capabilities{AdditionalEnabledCapabilities: []string{"MachineAPI", "NodeTuning"}}
+					oacp.Spec.Config.Capabilities = controlplanev1alpha3.Capabilities{AdditionalEnabledCapabilities: []string{"MachineAPI", "NodeTuning"}}
 					Expect(k8sClient.Update(ctx, oacp)).To(Succeed())
 
 					_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
@@ -431,13 +442,13 @@ var _ = Describe("ClusterDeployment Controller", func() {
 					Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cd), aci)).To(Succeed())
 
 					By("Verifying the ACI has the install config overrides annotation and it includes MAPI")
-					Expect(aci.Annotations).To(HaveKey(InstallConfigOverrides))
-					Expect(aci.Annotations[InstallConfigOverrides]).To(Equal(`{"capabilities":{"baselineCapabilitySet":"vCurrent","additionalEnabledCapabilities":["MachineAPI","NodeTuning"]}}`))
+					Expect(aci.Annotations).To(HaveKey(controller.InstallConfigOverrides))
+					Expect(aci.Annotations[controller.InstallConfigOverrides]).To(Equal(`{"capabilities":{"baselineCapabilitySet":"vCurrent","additionalEnabledCapabilities":["MachineAPI","NodeTuning"]}}`))
 				})
 			})
 			When("only baseline capability is specified", func() {
 				It("ACI should have only have the specified baseline capability", func() {
-					oacp.Spec.Config.Capabilities = v1alpha2.Capabilities{BaselineCapability: "v4.17"}
+					oacp.Spec.Config.Capabilities = controlplanev1alpha3.Capabilities{BaselineCapability: "v4.17"}
 					Expect(k8sClient.Update(ctx, oacp)).To(Succeed())
 
 					_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
@@ -449,13 +460,13 @@ var _ = Describe("ClusterDeployment Controller", func() {
 					Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cd), aci)).To(Succeed())
 
 					By("Verifying the ACI has only the baseline capability in its annotation for install config override set")
-					Expect(aci.Annotations).To(HaveKey(InstallConfigOverrides))
-					Expect(aci.Annotations[InstallConfigOverrides]).To(Equal(`{"capabilities":{"baselineCapabilitySet":"v4.17"}}`))
+					Expect(aci.Annotations).To(HaveKey(controller.InstallConfigOverrides))
+					Expect(aci.Annotations[controller.InstallConfigOverrides]).To(Equal(`{"capabilities":{"baselineCapabilitySet":"v4.17"}}`))
 				})
 			})
 			When("both baseline capability and additional capabilities are specified", func() {
 				It("ACI should have the install config override annotation with both specified baseline capability and additional capabilities set", func() {
-					oacp.Spec.Config.Capabilities = v1alpha2.Capabilities{BaselineCapability: "v4.8", AdditionalEnabledCapabilities: []string{"NodeTuning"}}
+					oacp.Spec.Config.Capabilities = controlplanev1alpha3.Capabilities{BaselineCapability: "v4.8", AdditionalEnabledCapabilities: []string{"NodeTuning"}}
 					Expect(k8sClient.Update(ctx, oacp)).To(Succeed())
 
 					_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
@@ -467,13 +478,13 @@ var _ = Describe("ClusterDeployment Controller", func() {
 					Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cd), aci)).To(Succeed())
 
 					By("Verifying the ACI has the install config overrides with specified baseline and additional capabilities set")
-					Expect(aci.Annotations).To(HaveKey(InstallConfigOverrides))
-					Expect(aci.Annotations[InstallConfigOverrides]).To(Equal(`{"capabilities":{"baselineCapabilitySet":"v4.8","additionalEnabledCapabilities":["NodeTuning"]}}`))
+					Expect(aci.Annotations).To(HaveKey(controller.InstallConfigOverrides))
+					Expect(aci.Annotations[controller.InstallConfigOverrides]).To(Equal(`{"capabilities":{"baselineCapabilitySet":"v4.8","additionalEnabledCapabilities":["NodeTuning"]}}`))
 				})
 			})
 			When("baseline capability is not valid", func() {
 				It("should error out", func() {
-					oacp.Spec.Config.Capabilities = v1alpha2.Capabilities{BaselineCapability: "abcd"}
+					oacp.Spec.Config.Capabilities = controlplanev1alpha3.Capabilities{BaselineCapability: "abcd"}
 					Expect(k8sClient.Update(ctx, oacp)).To(Succeed())
 
 					_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
@@ -496,8 +507,6 @@ var _ = Describe("ClusterDeployment Controller", func() {
 				cluster := utils.NewCluster(clusterName, namespace)
 				Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
 
-				cd := utils.NewClusterDeployment(namespace, clusterDeploymentName)
-
 				oacp := utils.NewOpenshiftAssistedControlPlane(namespace, openshiftAssistedControlPlaneName)
 				oacp.Spec.DistributionVersion = openShiftVersion
 
@@ -506,12 +515,12 @@ var _ = Describe("ClusterDeployment Controller", func() {
 				if oacp.Annotations == nil {
 					oacp.Annotations = make(map[string]string)
 				}
-				oacp.Annotations[v1alpha2.InstallConfigOverrideAnnotation] = installConfigOverride
+				oacp.Annotations[controlplanev1alpha3.InstallConfigOverrideAnnotation] = installConfigOverride
 
+				cd := utils.NewClusterDeployment(namespace, clusterDeploymentName, oacp)
 				Expect(controllerutil.SetOwnerReference(cluster, oacp, testScheme)).To(Succeed())
 				Expect(controllerutil.SetOwnerReference(oacp, cd, testScheme)).To(Succeed())
-				ref, _ := reference.GetReference(testScheme, cd)
-				oacp.Status.ClusterDeploymentRef = ref
+
 				Expect(k8sClient.Create(ctx, oacp)).To(Succeed())
 				Expect(k8sClient.Create(ctx, cd)).To(Succeed())
 
@@ -524,8 +533,8 @@ var _ = Describe("ClusterDeployment Controller", func() {
 				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cd), aci)).To(Succeed())
 
 				By("Verifying the ACI has the install config override annotation propagated from the control plane")
-				Expect(aci.Annotations).To(HaveKey(InstallConfigOverrides))
-				Expect(aci.Annotations[InstallConfigOverrides]).To(Equal(installConfigOverride))
+				Expect(aci.Annotations).To(HaveKey(controller.InstallConfigOverrides))
+				Expect(aci.Annotations[controller.InstallConfigOverrides]).To(Equal(installConfigOverride))
 			})
 		})
 		When("OpenshiftAssistedControlPlane does not have install config override annotation", func() {
@@ -533,15 +542,14 @@ var _ = Describe("ClusterDeployment Controller", func() {
 				cluster := utils.NewCluster(clusterName, namespace)
 				Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
 
-				cd := utils.NewClusterDeployment(namespace, clusterDeploymentName)
-
 				oacp := utils.NewOpenshiftAssistedControlPlane(namespace, openshiftAssistedControlPlaneName)
 				oacp.Spec.DistributionVersion = openShiftVersion
 
+				cd := utils.NewClusterDeployment(namespace, clusterDeploymentName, oacp)
+
 				Expect(controllerutil.SetOwnerReference(cluster, oacp, testScheme)).To(Succeed())
-				Expect(controllerutil.SetOwnerReference(oacp, cd, testScheme)).To(Succeed())
-				ref, _ := reference.GetReference(testScheme, cd)
-				oacp.Status.ClusterDeploymentRef = ref
+				Expect(controllerutil.SetControllerReference(oacp, cd, testScheme)).To(Succeed())
+
 				Expect(k8sClient.Create(ctx, oacp)).To(Succeed())
 				Expect(k8sClient.Create(ctx, cd)).To(Succeed())
 
@@ -554,8 +562,65 @@ var _ = Describe("ClusterDeployment Controller", func() {
 				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cd), aci)).To(Succeed())
 
 				By("Verifying the ACI does not have the install config override annotation when not set on the control plane")
-				Expect(aci.Annotations).NotTo(HaveKey(InstallConfigOverrides))
+				Expect(aci.Annotations).NotTo(HaveKey(controller.InstallConfigOverrides))
 			})
+		})
+	})
+
+	Context("Owner Reference Migration", func() {
+		It("should requeue when owner references are migrated", func() {
+			cluster := utils.NewCluster(clusterName, namespace)
+			Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
+
+			oacp := utils.NewOpenshiftAssistedControlPlane(namespace, openshiftAssistedControlPlaneName)
+			oacp.Spec.DistributionVersion = openShiftVersion
+			Expect(controllerutil.SetOwnerReference(cluster, oacp, testScheme)).To(Succeed())
+			Expect(k8sClient.Create(ctx, oacp)).To(Succeed())
+
+			cd := utils.NewClusterDeploymentWithOwnerCluster(namespace, clusterDeploymentName, clusterName, oacp)
+			Expect(setManagedByLabel(oacp, cd, testScheme)).To(Succeed())
+			// Manually set outdated owner reference to trigger migration
+			for i, ref := range cd.OwnerReferences {
+				if ref.Kind == "OpenshiftAssistedControlPlane" {
+					cd.OwnerReferences[i].APIVersion = "controlplane.cluster.x-k8s.io/v1alpha2"
+				}
+			}
+			Expect(k8sClient.Create(ctx, cd)).To(Succeed())
+
+			result, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: client.ObjectKeyFromObject(cd),
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).To(Equal(time.Duration(0)), "should requeue immediately after migration")
+
+			// Verify the owner reference was updated
+			updatedCD := &hivev1.ClusterDeployment{}
+			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cd), updatedCD)).To(Succeed())
+			for _, ref := range updatedCD.OwnerReferences {
+				if ref.Kind == "OpenshiftAssistedControlPlane" {
+					Expect(ref.APIVersion).To(Equal(controlplanev1alpha3.GroupVersion.String()))
+				}
+			}
+		})
+
+		It("should not requeue when owner references are already current", func() {
+			cluster := utils.NewCluster(clusterName, namespace)
+			Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
+
+			oacp := utils.NewOpenshiftAssistedControlPlane(namespace, openshiftAssistedControlPlaneName)
+			oacp.Spec.DistributionVersion = openShiftVersion
+			Expect(controllerutil.SetOwnerReference(cluster, oacp, testScheme)).To(Succeed())
+			Expect(k8sClient.Create(ctx, oacp)).To(Succeed())
+
+			cd := utils.NewClusterDeploymentWithOwnerCluster(namespace, clusterDeploymentName, clusterName, oacp)
+			Expect(setManagedByLabel(oacp, cd, testScheme)).To(Succeed())
+			Expect(k8sClient.Create(ctx, cd)).To(Succeed())
+
+			result, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: client.ObjectKeyFromObject(cd),
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(reconcile.Result{}), "should not requeue when no migration needed")
 		})
 	})
 

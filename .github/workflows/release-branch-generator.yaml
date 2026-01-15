@@ -1,0 +1,67 @@
+name: Release Branch Generator
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version number (e.g., 2.11)"
+        required: true
+        type: string
+
+jobs:
+  create-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Generate GitHub App Token
+        id: generate_token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.GH_APP_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ steps.generate_token.outputs.token }}
+
+      - name: Configure Git
+        run: |
+          git config --global user.email "automation@example.com"
+          git config --global user.name "Automation Bot"
+
+      - name: Create new branch
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          TARGET_BRANCH="backplane-${VERSION}"
+          git checkout master
+          git pull
+          git checkout -B "${TARGET_BRANCH}"
+          git push origin "${TARGET_BRANCH}" --force
+        env:
+          GITHUB_TOKEN: ${{ steps.generate_token.outputs.token }}
+
+      - name: Update Tekton YAML files, sync-branch.yaml and renovate.json
+        run: ./hack/branch "${{ github.event.inputs.version }}"
+        env:
+          CI: "true"
+          GITHUB_TOKEN: ${{ steps.generate_token.outputs.token }}
+
+      - name: Create Pull Request
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          TARGET_BRANCH="backplane-${VERSION}"
+
+          PR_NUMBER=$(gh pr list --head "${TARGET_BRANCH}" --json number -q '.[0].number')
+          if [ -z "$PR_NUMBER" ]; then
+            gh pr create \
+              --head "${TARGET_BRANCH}" \
+              --base master \
+              --title "Release ${TARGET_BRANCH}" \
+              --body "Automated PR for release branch ${TARGET_BRANCH}"
+          else
+            echo "PR #${PR_NUMBER} already exists"
+          fi
+        env:
+          GH_TOKEN: ${{ steps.generate_token.outputs.token }}

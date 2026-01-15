@@ -6,9 +6,11 @@ target_branch="backplane-${target_version}"
 previous_branch=$(echo $target_branch | cut -d. -f1).$(($(echo $target_branch | cut -d. -f2)-1))
 pr_branch="ffwd_${target_branch}"
 
-git fetch --all
-git checkout master
-git checkout -b "${pr_branch}"
+if [[ "${CI:-}" != "true" ]]; then
+    git fetch --all
+    git checkout master
+    git checkout -b "${pr_branch}"
+fi
 
 short_version=${target_version//.}
 for f in $(ls -1 .tekton); do
@@ -32,16 +34,24 @@ sed -i "s/TARGET_BRANCH: .*$/TARGET_BRANCH: ${target_branch}/g" .github/workflow
 git add .github/workflows/sync-branch.yaml
 # commit the changes
 
-git commit -s -m "create ffwd branch ${target_branch}, freeze ${previous_branch}"
+if [[ "${CI:-}" == "true" ]]; then
+    if git commit -m "Prepare release branch ${target_branch} with updated Tekton YAML, sync-branch.yaml and renovate.json"; then
+        git push origin "${target_branch}"
+    else
+        echo "No changes to commit on release branch"
+    fi
+else
+    git commit -s -m "create ffwd branch ${target_branch}, freeze ${previous_branch}"
 
-read -p "Push changes to ${pr_branch} (y/n)? " -n 1 -r
-if [[ $REPLY =~ ^[Yy]$ ]]; then
-    git push origin "${pr_branch}"
-fi
+    read -p "Push changes to ${pr_branch} (y/n)? " -n 1 -r
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        git push origin "${pr_branch}"
+    fi
 
-# branch out the new branch
-git checkout -b "upstream/${target_branch}"
-read -p "Create (push) branch ${target_branch}? (y/n)? " -n 1 -r
-if [[ $REPLY =~ ^[Yy]$ ]]; then
-    git push upstream "${target_branch}"
+    # branch out the new branch
+    git checkout -b "upstream/${target_branch}"
+    read -p "Create (push) branch ${target_branch}? (y/n)? " -n 1 -r
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        git push upstream "${target_branch}"
+    fi
 fi

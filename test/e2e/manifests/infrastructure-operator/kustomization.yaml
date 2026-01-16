@@ -1,0 +1,48 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - https://raw.githubusercontent.com/openshift/assisted-service/refs/tags/v2.40.0/hack/crds/hive/hive.openshift.io_clusterdeployments.yaml
+  - https://raw.githubusercontent.com/openshift/assisted-service/refs/tags/v2.40.0/hack/crds/hive/hive.openshift.io_clusterimagesets.yaml
+  - https://raw.githubusercontent.com/openshift/assisted-service/refs/tags/v2.40.0/hack/crds/mce/managedclusters.cluster.open-cluster-management.io.yaml
+  - https://github.com/openshift/assisted-service/config/default
+
+images:
+  - name: quay.io/edge-infrastructure/assisted-service
+    newName: quay.io/edge-infrastructure/assisted-service
+    digest: "sha256:c82660f92842d99fdd12507c0c61a39bfc25f04e71b5ab69c265fb749be3518c"
+
+patches:
+  - target:
+      group: apps
+      version: v1
+      kind: Deployment
+      name: infrastructure-operator
+      namespace: assisted-installer
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/env/0/value
+        value: quay.io/edge-infrastructure/assisted-service@sha256:c82660f92842d99fdd12507c0c61a39bfc25f04e71b5ab69c265fb749be3518c
+      - op: replace
+        path: /spec/template/spec/containers/0/env/2/value
+        value: quay.io/sclorg/postgresql-12-c8s@sha256:663089471e999a4175341ac4d97dcff9cd15ec5f2e96b2309dc8de806106198b
+      - op: replace
+        path: /spec/template/spec/containers/0/env/3/value
+        value: quay.io/edge-infrastructure/assisted-installer-agent@sha256:58732e1b4c26d5d4c8c0a662c82e388c02684800925f4b4db4447dce8010bf14
+      - op: replace
+        path: /spec/template/spec/containers/0/env/4/value
+        value: quay.io/edge-infrastructure/assisted-installer-controller@sha256:d4755a824f92c211df890ff8e65523d085dcbd393aeeb314ff5a024eb5418257
+      - op: replace
+        path: /spec/template/spec/containers/0/env/5/value
+        value: quay.io/edge-infrastructure/assisted-installer@sha256:c31f3f58d0776edd6726f44858f93a95dcb8e179706297d263e32291a854df54
+
+  - target:
+      version: v1
+      kind: Namespace
+    patch: |-
+      - op: replace
+        path: /metadata/labels/pod-security.kubernetes.io~1enforce
+        value: baseline
+
+labels:
+  - pairs:
+      clusterctl.cluster.x-k8s.io: ""

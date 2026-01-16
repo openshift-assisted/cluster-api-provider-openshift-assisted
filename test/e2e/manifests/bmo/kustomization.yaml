@@ -6,6 +6,9 @@ namespace: baremetal-operator-system
 # Note that the ref=v0.6.0 specifies the version to use.
 resources:
 - https://github.com/metal3-io/baremetal-operator/config/overlays/basic-auth_tls?ref=v0.9.1
+- https://raw.githubusercontent.com/metal3-io/ip-address-manager/refs/tags/v1.11.2/config/crd/bases/ipam.metal3.io_ipaddresses.yaml
+- https://raw.githubusercontent.com/metal3-io/ip-address-manager/refs/tags/v1.11.2/config/crd/bases/ipam.metal3.io_ipclaims.yaml
+- https://raw.githubusercontent.com/metal3-io/ip-address-manager/refs/tags/v1.11.2/config/crd/bases/ipam.metal3.io_ippools.yaml
 images:
 - name: quay.io/metal3-io/baremetal-operator 
   newTag: release-0.9

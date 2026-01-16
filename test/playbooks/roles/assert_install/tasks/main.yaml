@@ -30,20 +30,33 @@
 
 
 - name: Wait for controlplane to be ready
-  kubernetes.core.k8s_info:
-    api_version: controlplane.cluster.x-k8s.io/v1alpha2
-    kind: OpenshiftAssistedControlPlane
-    name: "{{ cluster_name }}"
-    namespace: "{{ test_namespace }}"
-  register: controlplane_status
-  until: >-
-    controlplane_status.resources[0].status.conditions |
-    selectattr('type', 'equalto', 'Ready') |
-    selectattr('status', 'equalto', 'True') |
-    list |
-    length > 0
-  retries: "{{ medium_retries | int }}"
-  delay: "{{ high_delay | int }}"
+  block:
+    - name: Poll controlplane status
+      kubernetes.core.k8s_info:
+        api_version: controlplane.cluster.x-k8s.io/v1alpha3
+        kind: OpenshiftAssistedControlPlane
+        name: "{{ cluster_name }}"
+        namespace: "{{ test_namespace }}"
+      register: controlplane_status
+      until: >-
+        controlplane_status.resources is defined and
+        controlplane_status.resources | length > 0 and
+        controlplane_status.resources[0].status.conditions is defined and
+        controlplane_status.resources[0].status.conditions |
+        selectattr('type', 'equalto', 'ControlPlaneReady') |
+        selectattr('status', 'equalto', 'True') |
+        list |
+        length > 0
+      retries: "{{ medium_retries | int }}"
+      delay: "{{ high_delay | int }}"
+  rescue:
+    - name: Debug controlplane_status on failure
+      ansible.builtin.debug:
+        var: controlplane_status
+
+    - name: Fail after showing debug info
+      ansible.builtin.fail:
+        msg: "Controlplane did not become ready in time"
 
 - name: Wait for ACI to be adding hosts
   kubernetes.core.k8s_info:
@@ -53,6 +66,8 @@
     namespace: "{{ test_namespace }}"
   register: aci_hosts_status
   until: >-
+    aci_hosts_status.resources is defined and
+    aci_hosts_status.resources | length > 0 and
     aci_hosts_status.resources[0].status.debugInfo.state is defined and
     aci_hosts_status.resources[0].status.debugInfo.state == "adding-hosts"
   retries: "{{ medium_retries | int }}"

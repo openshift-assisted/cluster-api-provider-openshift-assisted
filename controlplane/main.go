@@ -29,10 +29,10 @@ import (
 
 	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/internal/version"
 
-	bootstrapv1alpha1 "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/bootstrap/api/v1alpha1"
+	bootstrapv1alpha2 "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/bootstrap/api/v1alpha2"
 	hiveext "github.com/openshift/assisted-service/api/hiveextension/v1beta1"
 	hivev1 "github.com/openshift/hive/apis/hive/v1"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -50,7 +50,8 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	controlplanev1alpha1 "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/api/v1alpha2"
+	controlplanev1alpha2 "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/api/v1alpha2"
+	controlplanev1alpha3 "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/api/v1alpha3"
 	controlplanecontroller "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/internal/controller"
 	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/util/log"
 )
@@ -69,11 +70,12 @@ var (
 
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
-	utilruntime.Must(controlplanev1alpha1.AddToScheme(scheme))
+	utilruntime.Must(controlplanev1alpha2.AddToScheme(scheme))
+	utilruntime.Must(controlplanev1alpha3.AddToScheme(scheme))
 	utilruntime.Must(clusterv1.AddToScheme(scheme))
 	utilruntime.Must(hivev1.AddToScheme(scheme))
 	utilruntime.Must(hiveext.AddToScheme(scheme))
-	utilruntime.Must(bootstrapv1alpha1.AddToScheme(scheme))
+	utilruntime.Must(bootstrapv1alpha2.AddToScheme(scheme))
 
 	//+kubebuilder:scaffold:scheme
 }
@@ -131,6 +133,9 @@ func main() {
 
 	webhookServer := webhook.NewServer(webhook.Options{
 		TLSOpts: tlsOpts,
+		Port:    9443,
+		Host:    "0.0.0.0",
+		CertDir: "/tmp/k8s-webhook-server/serving-certs",
 	})
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
@@ -183,6 +188,10 @@ func main() {
 		Scheme: mgr.GetScheme(),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "AgentClusterInstall")
+		os.Exit(1)
+	}
+	if err = (&controlplanev1alpha3.OpenshiftAssistedControlPlane{}).SetupWebhookWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create webhook", "webhook", "OpenshiftAssistedControlPlane")
 		os.Exit(1)
 	}
 	//+kubebuilder:scaffold:builder

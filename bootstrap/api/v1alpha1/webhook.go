@@ -12,7 +12,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
-// +kubebuilder:webhook:path=/validate-bootstrap-cluster-x-k8s-io-v1alpha1-openshiftassistedconfig,mutating=false,failurePolicy=fail,sideEffects=None,groups=bootstrap.cluster.x-k8s.io,resources=openshiftassistedconfigs,verbs=create;update;delete,name=validation.openshiftassistedconfig.bootstrap.cluster.x-k8s.io,versions=v1alpha1,admissionReviewVersions=v1,serviceName=webhook-service,serviceNamespace=capoa-bootstrap-system
+// +kubebuilder:webhook:path=/validate-bootstrap-cluster-x-k8s-io-v1alpha1-openshiftassistedconfig,mutating=false,failurePolicy=fail,sideEffects=None,groups=bootstrap.cluster.x-k8s.io,resources=openshiftassistedconfigs,verbs=create;update;delete,name=v1alpha1.validation.openshiftassistedconfig.bootstrap.cluster.x-k8s.io,versions=v1alpha1,admissionReviewVersions=v1,serviceName=webhook-service,serviceNamespace=capoa-bootstrap-system
 
 var _ webhook.CustomValidator = &OpenshiftAssistedConfig{}
 

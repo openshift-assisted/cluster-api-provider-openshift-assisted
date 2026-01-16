@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
-	controlplanev1alpha1 "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/api/v1alpha2"
+	controlplanev1alpha3 "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/api/v1alpha3"
 	logutil "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/util/log"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/util/labels/format"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -18,8 +20,17 @@ import (
 func GetTypedOwner(ctx context.Context, k8sClient client.Client, obj client.Object, owner client.Object) error {
 	log := ctrl.LoggerFrom(ctx)
 
-	// TODO: can we guess Kind and APIVersion before retrieving it?
+	gvks, _, err := k8sClient.Scheme().ObjectKinds(owner)
+	if err != nil || len(gvks) == 0 {
+		return fmt.Errorf("no GVK registered for %T", owner)
+	}
+	gvk := gvks[0]
+
 	for _, ownerRef := range obj.GetOwnerReferences() {
+		ownerGV, _ := schema.ParseGroupVersion(ownerRef.APIVersion)
+		if ownerGV.Group != gvk.Group || ownerRef.Kind != gvk.Kind {
+			continue
+		}
 		err := k8sClient.Get(ctx, types.NamespacedName{
 			Namespace: obj.GetNamespace(),
 			Name:      ownerRef.Name,
@@ -29,18 +40,75 @@ func GetTypedOwner(ctx context.Context, k8sClient client.Client, obj client.Obje
 				Info(fmt.Sprintf("could not find %T", owner), "name", ownerRef.Name, "namespace", obj.GetNamespace())
 			continue
 		}
-		gvk := owner.GetObjectKind().GroupVersionKind()
-		if ownerRef.APIVersion == gvk.GroupVersion().String() && ownerRef.Kind == gvk.Kind {
-			return nil
-		}
+		return nil
 	}
 	return fmt.Errorf("couldn't find %T owner for %T", owner, obj)
+}
+
+// ownerRefMigration defines the expected group prefix and current API version for a Kind
+type ownerRefMigration struct {
+	groupPrefix       string
+	currentAPIVersion string
+}
+
+// ownerRefMigrations maps Kind to its migration info.
+// Only Kinds we set owner references to are included.
+var ownerRefMigrations = map[string]ownerRefMigration{
+	"Machine":                         {groupPrefix: "cluster.x-k8s.io/", currentAPIVersion: clusterv1.GroupVersion.String()},
+	"Cluster":                         {groupPrefix: "cluster.x-k8s.io/", currentAPIVersion: clusterv1.GroupVersion.String()},
+	"OpenshiftAssistedConfig":         {groupPrefix: "bootstrap.cluster.x-k8s.io/", currentAPIVersion: "bootstrap.cluster.x-k8s.io/v1alpha2"},
+	"OpenshiftAssistedConfigTemplate": {groupPrefix: "bootstrap.cluster.x-k8s.io/", currentAPIVersion: "bootstrap.cluster.x-k8s.io/v1alpha2"},
+	"OpenshiftAssistedControlPlane":   {groupPrefix: "controlplane.cluster.x-k8s.io/", currentAPIVersion: "controlplane.cluster.x-k8s.io/v1alpha3"},
+}
+
+// MigrateOwnerReferences updates owner references on an object to use current API versions.
+// Returns true if any references were updated.
+func MigrateOwnerReferences(ctx context.Context, k8sClient client.Client, obj client.Object) (bool, error) {
+	log := ctrl.LoggerFrom(ctx)
+	ownerRefs := obj.GetOwnerReferences()
+	updated := false
+
+	for i, ref := range ownerRefs {
+		migration, ok := ownerRefMigrations[ref.Kind]
+		if !ok {
+			// Kind not in our migration map, skip
+			continue
+		}
+
+		// Verify it belongs to the expected CAPI group
+		if !strings.HasPrefix(ref.APIVersion, migration.groupPrefix) {
+			continue
+		}
+
+		// Check if migration is needed
+		if ref.APIVersion != migration.currentAPIVersion {
+			log.V(logutil.DebugLevel).Info("Migrating owner reference API version",
+				"object", obj.GetName(),
+				"ownerKind", ref.Kind,
+				"ownerName", ref.Name,
+				"oldAPIVersion", ref.APIVersion,
+				"newAPIVersion", migration.currentAPIVersion)
+
+			ownerRefs[i].APIVersion = migration.currentAPIVersion
+			updated = true
+		}
+	}
+
+	if updated {
+		obj.SetOwnerReferences(ownerRefs)
+		if err := k8sClient.Update(ctx, obj); err != nil {
+			return false, fmt.Errorf("failed to update owner references on %s/%s: %w", obj.GetNamespace(), obj.GetName(), err)
+		}
+		log.V(logutil.DebugLevel).Info("Updated owner references", "object", obj.GetName())
+	}
+
+	return updated, nil
 }
 
 // ControlPlaneMachineLabelsForCluster returns a set of labels to add
 // to a control plane machine for this specific cluster.
 func ControlPlaneMachineLabelsForCluster(
-	acp *controlplanev1alpha1.OpenshiftAssistedControlPlane,
+	acp *controlplanev1alpha3.OpenshiftAssistedControlPlane,
 	clusterName string,
 ) map[string]string {
 	labels := map[string]string{}

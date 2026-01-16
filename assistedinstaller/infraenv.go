@@ -5,17 +5,17 @@ import (
 	"fmt"
 	"net/url"
 
-	bootstrapv1alpha1 "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/bootstrap/api/v1alpha1"
+	bootstrapv1alpha2 "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/bootstrap/api/v1alpha2"
 	aiv1beta1 "github.com/openshift/assisted-service/api/v1beta1"
 	hivev1 "github.com/openshift/hive/apis/hive/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 )
 
 func GetInfraEnvFromConfig(
 	infraEnvName string,
-	config *bootstrapv1alpha1.OpenshiftAssistedConfig,
+	config *bootstrapv1alpha2.OpenshiftAssistedConfig,
 	clusterDeployment *hivev1.ClusterDeployment,
 ) *aiv1beta1.InfraEnv {
 	infraEnv := &aiv1beta1.InfraEnv{
@@ -23,7 +23,7 @@ func GetInfraEnvFromConfig(
 			Name:      infraEnvName,
 			Namespace: config.Namespace,
 			Labels: map[string]string{
-				bootstrapv1alpha1.OpenshiftAssistedConfigLabel: config.Name,
+				bootstrapv1alpha2.OpenshiftAssistedConfigLabel: config.Name,
 			},
 		},
 	}
@@ -54,7 +54,7 @@ func GetInfraEnvFromConfig(
 		ImageType: "full-iso",
 	}
 	annotations := config.GetAnnotations()
-	if ignitionOverride, ok := annotations[bootstrapv1alpha1.DiscoveryIgnitionOverrideAnnotation]; ok &&
+	if ignitionOverride, ok := annotations[bootstrapv1alpha2.DiscoveryIgnitionOverrideAnnotation]; ok &&
 		json.Valid([]byte(ignitionOverride)) {
 		infraEnv.Spec.IgnitionConfigOverride = ignitionOverride
 	}

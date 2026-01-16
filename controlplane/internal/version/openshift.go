@@ -6,7 +6,7 @@ import (
 	"slices"
 	"strings"
 
-	controlplanev1alpha2 "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/api/v1alpha2"
+	controlplanev1alpha3 "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/api/v1alpha3"
 	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/internal/release"
 	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/pkg/containers"
 	v1 "github.com/openshift/api/config/v1"
@@ -87,7 +87,7 @@ func (o *OpenShiftKubernetesVersionDetectorType) getK8sVersionFromImageStream(is
 	return "", fmt.Errorf("unable to find kubernetes version")
 }
 
-func UpdateClusterVersionDesiredUpdate(c client.Client, ctx context.Context, oacp *controlplanev1alpha2.OpenshiftAssistedControlPlane, clusterVersion *v1.ClusterVersion, releaseImageWithDigest string) error {
+func UpdateClusterVersionDesiredUpdate(c client.Client, ctx context.Context, oacp *controlplanev1alpha3.OpenshiftAssistedControlPlane, clusterVersion *v1.ClusterVersion, releaseImageWithDigest string) error {
 
 	if isGARelease(oacp) {
 		if clusterVersion.Spec.DesiredUpdate == nil || clusterVersion.Spec.DesiredUpdate.Version != oacp.Spec.DistributionVersion {
@@ -113,7 +113,7 @@ func doUpdate(c client.Client, ctx context.Context, clusterVersion *v1.ClusterVe
 }
 
 // checks whether the current proposed version is a GA release
-func isGARelease(oacp *controlplanev1alpha2.OpenshiftAssistedControlPlane) bool {
+func isGARelease(oacp *controlplanev1alpha3.OpenshiftAssistedControlPlane) bool {
 	if releaseImageOverride, ok := oacp.Annotations[release.ReleaseImageRepositoryOverrideAnnotation]; ok {
 		// if override is not the default repos
 		if !slices.Contains([]string{release.OCPRepository, release.OKDRepository}, releaseImageOverride) {

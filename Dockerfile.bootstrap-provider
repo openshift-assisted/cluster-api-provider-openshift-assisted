@@ -37,7 +37,8 @@ USER 65532:65532
 ENV SUMMARY="Cluster API Bootstrap Provider OpenShift Assisted is a CAPI bootstrap provider for provisioning OpenShift clusters" \
     DESCRIPTION="Cluster API Bootstrap Provider OpenShift Assisted orchestrates cluster provisioning leveraging Assisted Installer"
 
-LABEL name="cluster-api-bootstrap-provider-openshift-assisted" \
+LABEL name="multicluster-engine/capoa-bootstrap-rhel9" \
+      cpe="cpe:/a:redhat:multicluster_engine:2.11::el9" \
       summary="${SUMMARY}" \
       description="${DESCRIPTION}" \
       com.redhat.component="cluster-api-bootstrap-provider-openshift-assisted" \

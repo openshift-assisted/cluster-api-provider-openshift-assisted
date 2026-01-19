@@ -37,7 +37,8 @@ USER 65532:65532
 ENV SUMMARY="Cluster API Controlplane Provider OpenShift Assisted is a CAPI controlplane provider for provisioning OpenShift clusters" \
     DESCRIPTION="Cluster API Controlplane Provider OpenShift Assisted orchestrates cluster provisioning leveraging Assisted Installer"
 
-LABEL name="cluster-api-controlplane-provider-openshift-assisted" \
+LABEL name="multicluster-engine/capoa-controlplane-rhel9" \
+      cpe="cpe:/a:redhat:multicluster_engine:2.10::el9" \
       summary="${SUMMARY}" \
       description="${DESCRIPTION}" \
       com.redhat.component="cluster-api-controlplane-provider-openshift-assisted" \

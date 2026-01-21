@@ -1,8 +1,9 @@
 version: "2"
+
 run:
-  allow-parallel-runners: true
+  timeout: 5m
+
 linters:
-  default: none
   enable:
     - dupl
     - errcheck
@@ -17,38 +18,40 @@ linters:
     - unconvert
     - unparam
     - unused
+
+  settings:
+    staticcheck:
+      checks:
+        - "all"
+        - "-ST1001"
+        - "-ST1003"
+        - "-ST1005"
+        - "-ST1008"
+        - "-ST1016"
+        - "-ST1019"
+        - "-ST1023"
+        - "-QF1001"
+        - "-QF1003"
+        - "-QF1008"
+        - "-QF1011"
+
   exclusions:
-    rules:
-    - linters:
-        - staticcheck
-      text: 'SA1019: "sigs.k8s.io/cluster-api/api/core/v1beta1" is deprecated: .*'
-    - linters:
-        - staticcheck
-      text: "QF1001: could apply De Morgan's law"
     generated: lax
     presets:
       - comments
       - common-false-positives
       - legacy
       - std-error-handling
-    paths:
-      - third_party$
-      - builtin$
-      - examples$
-  imports:
-    alias:
-      - pkg: github.com/openshift/assisted-service/api/v1beta1
-        alias: aiv1beta1
-      - pkg: sigs.k8s.io/cluster-api/api/core/v1beta2
-        alias: clusterv1
-      - pkg: github.com/openshift-assisted/cluster-api-provider-openshift-assisted/bootstrap/api/v1alpha2
-        alias: bootstrapv1alpha2
-      - pkg: github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/api/v1alpha3
-        alias: controlplanev1alpha3
+    rules:
+      - path: "api/*"
+        linters:
+          - lll
+      - path: "internal/*"
+        linters:
+          - dupl
+          - lll
+
 formatters:
-  exclusions:
-    generated: lax
-    paths:
-      - third_party$
-      - builtin$
-      - examples$
+  enable:
+    - gofmt
+    - goimports

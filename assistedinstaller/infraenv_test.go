@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"testing"
 
-	bootstrapv1alpha1 "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/bootstrap/api/v1alpha1"
+	bootstrapv1alpha2 "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/bootstrap/api/v1alpha2"
 	hivev1 "github.com/openshift/hive/apis/hive/v1"
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 
 	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/test/utils"
 
@@ -31,7 +31,7 @@ var _ = Describe("Assisted Installer InfraEnv generation", func() {
 					Namespace: "my-namespace",
 				},
 			}
-			config := &bootstrapv1alpha1.OpenshiftAssistedConfig{
+			config := &bootstrapv1alpha2.OpenshiftAssistedConfig{
 				ObjectMeta: v1.ObjectMeta{
 					Name:      "test-config",
 					Namespace: "my-namespace",
@@ -39,7 +39,7 @@ var _ = Describe("Assisted Installer InfraEnv generation", func() {
 						clusterv1.ClusterNameLabel: "test-cluster",
 					},
 				},
-				Spec: bootstrapv1alpha1.OpenshiftAssistedConfigSpec{
+				Spec: bootstrapv1alpha2.OpenshiftAssistedConfigSpec{
 					PullSecretRef: &corev1.LocalObjectReference{
 						Name: "pull-secret",
 					},
@@ -65,7 +65,7 @@ var _ = Describe("Assisted Installer InfraEnv generation", func() {
 					Namespace: "my-namespace",
 				},
 			}
-			config := &bootstrapv1alpha1.OpenshiftAssistedConfig{
+			config := &bootstrapv1alpha2.OpenshiftAssistedConfig{
 				ObjectMeta: v1.ObjectMeta{
 					Name:      "test-config",
 					Namespace: "my-namespace",
@@ -73,10 +73,10 @@ var _ = Describe("Assisted Installer InfraEnv generation", func() {
 						clusterv1.ClusterNameLabel: "test-cluster",
 					},
 					Annotations: map[string]string{
-						bootstrapv1alpha1.DiscoveryIgnitionOverrideAnnotation: `{"test-ignition-override":"this-is-json"}`,
+						bootstrapv1alpha2.DiscoveryIgnitionOverrideAnnotation: `{"test-ignition-override":"this-is-json"}`,
 					},
 				},
-				Spec: bootstrapv1alpha1.OpenshiftAssistedConfigSpec{
+				Spec: bootstrapv1alpha2.OpenshiftAssistedConfigSpec{
 					PullSecretRef: &corev1.LocalObjectReference{
 						Name: "pull-secret",
 					},
@@ -101,7 +101,7 @@ var _ = Describe("Assisted Installer InfraEnv generation", func() {
 					Namespace: "my-namespace",
 				},
 			}
-			config := &bootstrapv1alpha1.OpenshiftAssistedConfig{
+			config := &bootstrapv1alpha2.OpenshiftAssistedConfig{
 				ObjectMeta: v1.ObjectMeta{
 					Name:      "test-config",
 					Namespace: "my-namespace",
@@ -109,10 +109,10 @@ var _ = Describe("Assisted Installer InfraEnv generation", func() {
 						clusterv1.ClusterNameLabel: "test-cluster",
 					},
 					Annotations: map[string]string{
-						bootstrapv1alpha1.DiscoveryIgnitionOverrideAnnotation: `{"test-ignition-override":"this-is-not-json",}`,
+						bootstrapv1alpha2.DiscoveryIgnitionOverrideAnnotation: `{"test-ignition-override":"this-is-not-json",}`,
 					},
 				},
-				Spec: bootstrapv1alpha1.OpenshiftAssistedConfigSpec{
+				Spec: bootstrapv1alpha2.OpenshiftAssistedConfigSpec{
 					PullSecretRef: &corev1.LocalObjectReference{
 						Name: "pull-secret",
 					},

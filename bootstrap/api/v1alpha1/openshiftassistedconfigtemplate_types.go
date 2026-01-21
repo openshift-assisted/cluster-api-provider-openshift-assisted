@@ -18,18 +18,12 @@ package v1alpha1
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	clusterv1beta1 "sigs.k8s.io/cluster-api/api/core/v1beta1"
 )
-
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
 // OpenshiftAssistedConfigTemplateSpec defines the desired state of OpenshiftAssistedConfigTemplate
 type OpenshiftAssistedConfigTemplateSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-
-	// OpenshiftAssistedConfig template
+	// Template specifies the OpenshiftAssistedConfig template
 	Template OpenshiftAssistedConfigTemplateResource `json:"template"`
 }
 
@@ -38,19 +32,18 @@ type OpenshiftAssistedConfigTemplateResource struct {
 	// Standard object's metadata.
 	// More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#metadata
 	// +optional
-	ObjectMeta clusterv1.ObjectMeta `json:"metadata,omitempty"`
+	ObjectMeta clusterv1beta1.ObjectMeta `json:"metadata,omitempty"`
 
 	Spec OpenshiftAssistedConfigSpec `json:"spec,omitempty"`
 }
 
 // OpenshiftAssistedConfigTemplateStatus defines the observed state of OpenshiftAssistedConfigTemplate
 type OpenshiftAssistedConfigTemplateStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
 }
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
+//+kubebuilder:deprecatedversion:warning="v1alpha1 is deprecated, use v1alpha2"
 
 // OpenshiftAssistedConfigTemplate is the Schema for the openshiftassistedconfigtemplates API
 type OpenshiftAssistedConfigTemplate struct {

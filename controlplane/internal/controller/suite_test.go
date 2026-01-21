@@ -14,13 +14,13 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package controller
+package controller_test
 
 import (
 	"testing"
 
 	metal3v1beta1 "github.com/metal3-io/cluster-api-provider-metal3/api/v1beta1"
-	bootstrapv1alpha1 "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/bootstrap/api/v1alpha1"
+	bootstrapv1alpha2 "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/bootstrap/api/v1alpha2"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -28,15 +28,13 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	logf "sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/log/zap"
-
-	controlplanev1alpha1 "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/api/v1alpha2"
+	controlplanev1alpha3 "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/api/v1alpha3"
+	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/util/testutil"
 	configv1 "github.com/openshift/api/config/v1"
 	hiveext "github.com/openshift/assisted-service/api/hiveextension/v1beta1"
 	hivev1 "github.com/openshift/hive/apis/hive/v1"
 	corev1 "k8s.io/api/core/v1"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -52,16 +50,18 @@ func TestControllers(t *testing.T) {
 var testScheme = runtime.NewScheme()
 
 var _ = BeforeSuite(func() {
-	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
+	// TEST_LOGLEVEL=-9 for full debug logging
+	testutil.SetupTestLoggerWithDefault(GinkgoWriter, -9)
+
 	By("bootstrapping test environment")
 
-	utilruntime.Must(controlplanev1alpha1.AddToScheme(testScheme))
+	utilruntime.Must(controlplanev1alpha3.AddToScheme(testScheme))
 	utilruntime.Must(corev1.AddToScheme(testScheme))
 	utilruntime.Must(configv1.AddToScheme(testScheme))
 	utilruntime.Must(clusterv1.AddToScheme(testScheme))
 	utilruntime.Must(hivev1.AddToScheme(testScheme))
 	utilruntime.Must(hiveext.AddToScheme(testScheme))
 	utilruntime.Must(metal3v1beta1.AddToScheme(testScheme))
-	utilruntime.Must(bootstrapv1alpha1.AddToScheme(testScheme))
+	utilruntime.Must(bootstrapv1alpha2.AddToScheme(testScheme))
 
 })

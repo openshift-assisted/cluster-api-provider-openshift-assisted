@@ -6,9 +6,19 @@ resources:
 - bases/bootstrap.cluster.x-k8s.io_openshiftassistedconfigtemplates.yaml
 #+kubebuilder:scaffold:crdkustomizeresource
 
+patches:
+- path: patches/webhook_in_openshiftassistedconfigs.yaml
+- path: patches/webhook_in_openshiftassistedconfigtemplates.yaml
+#+kubebuilder:scaffold:crdkustomizewebhookpatch
+
+# the following config is for teaching kustomize how to do kustomization for CRDs.
+configurations:
+- kustomizeconfig.yaml
+
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 labels:
 - includeSelectors: true
   pairs:
     cluster.x-k8s.io/v1beta1: v1alpha1
+    cluster.x-k8s.io/v1beta2: v1alpha2

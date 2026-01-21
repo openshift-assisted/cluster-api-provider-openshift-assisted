@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package v1beta1 contains API Schema definitions for the bootstrap v1beta1 API group
+// Package v1alpha1 contains API Schema definitions for the bootstrap v1alpha1 API group
 // +kubebuilder:object:generate=true
 // +groupName=bootstrap.cluster.x-k8s.io
 package v1alpha1

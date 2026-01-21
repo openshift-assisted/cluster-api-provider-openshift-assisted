@@ -1,20 +1,36 @@
 package utils
 
 import (
+	"strings"
 	"time"
 
 	"github.com/metal3-io/baremetal-operator/apis/metal3.io/v1alpha1"
 	metal3 "github.com/metal3-io/cluster-api-provider-metal3/api/v1beta1"
-	v1alpha2 "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/bootstrap/api/v1alpha1"
-	controlplanev1alpha1 "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/api/v1alpha2"
+	bootstrapv1alpha2 "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/bootstrap/api/v1alpha2"
+	controlplanev1alpha3 "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/api/v1alpha3"
 	hiveext "github.com/openshift/assisted-service/api/hiveextension/v1beta1"
 	"github.com/openshift/assisted-service/api/v1beta1"
 	hivev1 "github.com/openshift/hive/apis/hive/v1"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	"k8s.io/apimachinery/pkg/util/uuid"
+	"k8s.io/utils/ptr"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
+
+// ExtractAPIGroupFromVersion extracts the API group from an apiVersion string.
+// For example, "infrastructure.cluster.x-k8s.io/v1beta1" returns "infrastructure.cluster.x-k8s.io".
+// Returns an empty string if the apiVersion doesn't contain a group (e.g., "v1" for core API).
+func ExtractAPIGroupFromVersion(apiVersion string) string {
+	if apiVersion == "" {
+		return ""
+	}
+	parts := strings.Split(apiVersion, "/")
+	if len(parts) == 2 {
+		return parts[0]
+	}
+	return ""
+}
 
 func NewAgentClusterInstall(name string, namespace string, ownerCluster string) *hiveext.AgentClusterInstall {
 	aci := &hiveext.AgentClusterInstall{
@@ -30,11 +46,12 @@ func NewAgentClusterInstall(name string, namespace string, ownerCluster string) 
 	return aci
 }
 
-func NewClusterDeployment(namespace, name string) *hivev1.ClusterDeployment {
+func NewClusterDeployment(namespace, name string, oacp *controlplanev1alpha3.OpenshiftAssistedControlPlane) *hivev1.ClusterDeployment {
 	cd := &hivev1.ClusterDeployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: namespace,
+			Labels:    map[string]string{},
 		},
 		Spec: hivev1.ClusterDeploymentSpec{
 			ClusterName: name,
@@ -47,30 +64,31 @@ func NewClusterDeployment(namespace, name string) *hivev1.ClusterDeployment {
 	return cd
 }
 
-func NewClusterDeploymentWithOwnerCluster(namespace, name, ownerCluster string) *hivev1.ClusterDeployment {
-	cd := NewClusterDeployment(namespace, name)
-	cd.Labels = map[string]string{
-		clusterv1.ClusterNameLabel: ownerCluster,
-	}
+func NewClusterDeploymentWithOwnerCluster(namespace, name, ownerCluster string, oacp *controlplanev1alpha3.OpenshiftAssistedControlPlane) *hivev1.ClusterDeployment {
+	cd := NewClusterDeployment(namespace, name, oacp)
+	cd.Labels[clusterv1.ClusterNameLabel] = ownerCluster
 	return cd
 }
 
 func NewCluster(clusterName, namespace string) *clusterv1.Cluster {
 	// Create cluster and have it own this agent control plane
+	notPaused := false
 	cluster := &clusterv1.Cluster{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      clusterName,
 			Namespace: namespace,
 		},
 		Spec: clusterv1.ClusterSpec{
-			Paused: false,
+			Paused: &notPaused,
 			ControlPlaneEndpoint: clusterv1.APIEndpoint{
 				Host: "example.com",
 				Port: 8080,
 			},
 		},
 		Status: clusterv1.ClusterStatus{
-			InfrastructureReady: true,
+			Initialization: clusterv1.ClusterInitializationStatus{
+				InfrastructureProvisioned: ptr.To(true),
+			},
 		},
 	}
 	return cluster
@@ -78,17 +96,15 @@ func NewCluster(clusterName, namespace string) *clusterv1.Cluster {
 
 func NewMachineWithInfraRef(
 	machineName, namespace, clusterName string,
-	acp *controlplanev1alpha1.OpenshiftAssistedControlPlane,
+	acp *controlplanev1alpha3.OpenshiftAssistedControlPlane,
 	infraRef client.Object,
 ) *clusterv1.Machine {
 	infraRefGVK := infraRef.GetObjectKind().GroupVersionKind()
 	machine := NewMachineWithOwner(namespace, machineName, clusterName, acp)
-	machine.Spec.InfrastructureRef = corev1.ObjectReference{
-		APIVersion: infraRefGVK.GroupVersion().String(),
-		Kind:       infraRefGVK.Kind,
-		Namespace:  infraRef.GetNamespace(),
-		Name:       infraRef.GetName(),
-		UID:        infraRef.GetUID(),
+	machine.Spec.InfrastructureRef = clusterv1.ContractVersionedObjectReference{
+		APIGroup: ExtractAPIGroupFromVersion(infraRefGVK.GroupVersion().String()),
+		Kind:     infraRefGVK.Kind,
+		Name:     infraRef.GetName(),
 	}
 	return machine
 }
@@ -135,17 +151,18 @@ func NewM3MachineTemplate(namespace, name string) *metal3.Metal3MachineTemplate 
 	}
 }
 
-func NewOpenshiftAssistedControlPlane(namespace, name string) *controlplanev1alpha1.OpenshiftAssistedControlPlane {
-	return &controlplanev1alpha1.OpenshiftAssistedControlPlane{
+func NewOpenshiftAssistedControlPlane(namespace, name string) *controlplanev1alpha3.OpenshiftAssistedControlPlane {
+	return &controlplanev1alpha3.OpenshiftAssistedControlPlane{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "OpenshiftAssistedControlPlane",
-			APIVersion: controlplanev1alpha1.GroupVersion.String(),
+			APIVersion: controlplanev1alpha3.GroupVersion.String(),
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: namespace,
+			UID:       uuid.NewUUID(),
 		},
-		Spec: controlplanev1alpha1.OpenshiftAssistedControlPlaneSpec{
+		Spec: controlplanev1alpha3.OpenshiftAssistedControlPlaneSpec{
 			DistributionVersion: "4.18.0",
 		},
 	}
@@ -156,7 +173,7 @@ func NewOpenshiftAssistedControlPlaneWithCapabilities(
 	replicas int32,
 	baselineCapability string,
 	additionalCapabilities []string,
-) *controlplanev1alpha1.OpenshiftAssistedControlPlane {
+) *controlplanev1alpha3.OpenshiftAssistedControlPlane {
 	oacp := NewOpenshiftAssistedControlPlane(namespace, name)
 	oacp.Spec.Config.Capabilities.BaselineCapability = baselineCapability
 	oacp.Spec.Config.Capabilities.AdditionalEnabledCapabilities = additionalCapabilities
@@ -167,14 +184,12 @@ func NewOpenshiftAssistedControlPlaneWithCapabilities(
 func NewOpenshiftAssistedControlPlaneWithMachineTemplate(
 	namespace, name string,
 	m3Template *metal3.Metal3MachineTemplate,
-) *controlplanev1alpha1.OpenshiftAssistedControlPlane {
+) *controlplanev1alpha3.OpenshiftAssistedControlPlane {
 	acp := NewOpenshiftAssistedControlPlane(namespace, name)
-	acp.Spec.MachineTemplate.InfrastructureRef = corev1.ObjectReference{
-		Kind:       m3Template.Kind,
-		Namespace:  m3Template.Namespace,
-		Name:       m3Template.Name,
-		UID:        m3Template.UID,
-		APIVersion: m3Template.APIVersion,
+	acp.Spec.MachineTemplate.InfrastructureRef = clusterv1.ContractVersionedObjectReference{
+		Kind:     m3Template.Kind,
+		Name:     m3Template.Name,
+		APIGroup: ExtractAPIGroupFromVersion(m3Template.APIVersion),
 	}
 	return acp
 }
@@ -244,16 +259,15 @@ func NewBareMetalHost(namespace, name string) *v1alpha1.BareMetalHost {
 func NewOpenshiftAssistedConfigWithInfraEnv(
 	namespace, name, clusterName string,
 	infraEnv *v1beta1.InfraEnv,
-) *v1alpha2.OpenshiftAssistedConfig {
-	var ref *corev1.ObjectReference
-	if infraEnv != nil {
-		ref = &corev1.ObjectReference{
-			Namespace: infraEnv.GetNamespace(),
-			Name:      infraEnv.GetName(),
-		}
-	}
-	return &v1alpha2.OpenshiftAssistedConfig{
+) *bootstrapv1alpha2.OpenshiftAssistedConfig {
+	// This should really set the ref to infraenv
+	return &bootstrapv1alpha2.OpenshiftAssistedConfig{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "OpenshiftAssistedConfig",
+			APIVersion: bootstrapv1alpha2.GroupVersion.String(),
+		},
 		ObjectMeta: metav1.ObjectMeta{
+			UID: uuid.NewUUID(),
 			Labels: map[string]string{
 				clusterv1.ClusterNameLabel:         clusterName,
 				clusterv1.MachineControlPlaneLabel: "control-plane",
@@ -261,12 +275,9 @@ func NewOpenshiftAssistedConfigWithInfraEnv(
 			Name:      name,
 			Namespace: namespace,
 		},
-		Status: v1alpha2.OpenshiftAssistedConfigStatus{
-			InfraEnvRef: ref,
-		},
 	}
 }
 
-func NewOpenshiftAssistedConfig(namespace, name, clusterName string) *v1alpha2.OpenshiftAssistedConfig {
+func NewOpenshiftAssistedConfig(namespace, name, clusterName string) *bootstrapv1alpha2.OpenshiftAssistedConfig {
 	return NewOpenshiftAssistedConfigWithInfraEnv(namespace, name, clusterName, nil)
 }

@@ -3,7 +3,7 @@
   kubernetes.core.k8s:
     state: present
     namespace: "{{ test_namespace }}"
-    api_version: controlplane.cluster.x-k8s.io/v1alpha2
+    api_version: controlplane.cluster.x-k8s.io/v1alpha3
     kind: OpenshiftAssistedControlPlane
     name: "{{ cluster_name }}"
     merge_type: merge
@@ -13,7 +13,7 @@
 
 - name: Wait for controlplane upgrade to complete
   kubernetes.core.k8s_info:
-    api_version: controlplane.cluster.x-k8s.io/v1alpha2
+    api_version: controlplane.cluster.x-k8s.io/v1alpha3
     kind: OpenshiftAssistedControlPlane
     name: "{{ cluster_name }}"
     namespace: "{{ test_namespace }}"
@@ -21,26 +21,40 @@
   until: >-
     controlplane_upgrade.resources is defined and
     controlplane_upgrade.resources | length > 0 and
+    controlplane_upgrade.resources[0].status.conditions is defined and
     controlplane_upgrade.resources[0].status.conditions |
     selectattr('type', 'equalto', 'UpgradeCompleted') |
-    selectattr('status', 'equalto', True) |
+    selectattr('status', 'equalto', 'True') |
     list |
     length > 0
   retries: "{{ high_retries | int }}"
   delay: "{{ high_delay | int }}"
 
 - name: Wait for controlplane to be ready
-  kubernetes.core.k8s_info:
-    api_version: controlplane.cluster.x-k8s.io/v1alpha2
-    kind: OpenshiftAssistedControlPlane
-    name: "{{ cluster_name }}"
-    namespace: "{{ test_namespace }}"
-  register: controlplane_ready
-  until: >-
-    controlplane_ready.resources[0].status.conditions |
-    selectattr('type', 'equalto', 'Ready') |
-    selectattr('status', 'equalto', 'True') |
-    list |
-    length > 0
-  retries: "{{ low_retries | int }}"
-  delay: "{{ medium_delay | int }}"
+  block:
+    - name: Poll controlplane status
+      kubernetes.core.k8s_info:
+        api_version: controlplane.cluster.x-k8s.io/v1alpha3
+        kind: OpenshiftAssistedControlPlane
+        name: "{{ cluster_name }}"
+        namespace: "{{ test_namespace }}"
+      register: controlplane_ready
+      until: >-
+        controlplane_ready.resources is defined and
+        controlplane_ready.resources | length > 0 and
+        controlplane_ready.resources[0].status.conditions is defined and
+        controlplane_ready.resources[0].status.conditions |
+        selectattr('type', 'equalto', 'ControlPlaneReady') |
+        selectattr('status', 'equalto', 'True') |
+        list |
+        length > 0
+      retries: "{{ low_retries | int }}"
+      delay: "{{ medium_delay | int }}"
+  rescue:
+    - name: Debug controlplane_ready on failure
+      ansible.builtin.debug:
+        var: controlplane_ready
+
+    - name: Fail after showing debug info
+      ansible.builtin.fail:
+        msg: "Controlplane did not become ready in time"

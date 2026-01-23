@@ -46,6 +46,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	bootstrapv1alpha2 "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/bootstrap/api/v1alpha2"
+	ign "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/bootstrap/internal/ignition"
 	aiv1beta1 "github.com/openshift/assisted-service/api/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -243,6 +244,16 @@ func (r *OpenshiftAssistedConfigReconciler) Reconcile(ctx context.Context, req c
 		return ctrl.Result{Requeue: true, RequeueAfter: retryAfter}, err
 	}
 	log.V(logutil.TraceLevel).Info("ignition retrieved", "bytes", len(ignition))
+
+	// Merge additional ignition components (e.g., set-hostname unit) for the installed OS
+	opts := ign.IgnitionOptions{
+		NodeNameEnvVar: config.Spec.NodeRegistration.Name,
+	}
+	ignition, err = ign.MergeIgnitionConfig(log, ignition, opts)
+	if err != nil {
+		log.Error(err, "failed to merge ignition config")
+		return ctrl.Result{}, err
+	}
 
 	secret, err := r.createUserDataSecret(ctx, config, ignition)
 	if err != nil {

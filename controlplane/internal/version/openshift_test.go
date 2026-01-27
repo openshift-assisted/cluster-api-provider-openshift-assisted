@@ -93,7 +93,7 @@ var _ = Describe("UpdateClusterVersionDesiredUpdate", func() {
 		releaseImageWithDigest = "myrepo.com/mynamespace/release@sha256:573a86d57acab6dfb90799f568421e80a41f85aaef1e94a16e13af13339524c1"
 	)
 	var (
-		namespace string = "test-namespace"
+		namespace = "test-namespace"
 		k8sClient client.Client
 		ctx       context.Context
 	)

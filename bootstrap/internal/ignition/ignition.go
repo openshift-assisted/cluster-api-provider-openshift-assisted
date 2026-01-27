@@ -51,7 +51,7 @@ WantedBy=multi-user.target
 }
 
 func getSystemdUnits() []config_types.Unit {
-	var units []config_types.Unit
+	units := make([]config_types.Unit, 0, 2)
 	units = append(units, getConfigdriveMetadataSystemdUnit())
 	units = append(units, getKubeletCustomLabelsSystemdUnit())
 	return units

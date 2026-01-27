@@ -504,7 +504,7 @@ func (r *OpenshiftAssistedConfigReconciler) SetupWithManager(mgr ctrl.Manager) e
 // Filter infraEnv to be relevant  by this openshiftassistedconfig
 func (r *OpenshiftAssistedConfigReconciler) FilterInfraEnv(ctx context.Context, o client.Object) []ctrl.Request {
 	logger := log.FromContext(ctx)
-	result := []ctrl.Request{}
+	result := make([]ctrl.Request, 0, 1)
 	infraEnv, ok := o.(*aiv1beta1.InfraEnv)
 	if !ok {
 		logger.V(logutil.DebugLevel).Info("not an InfraEnv, skipping", "object", o.GetName())

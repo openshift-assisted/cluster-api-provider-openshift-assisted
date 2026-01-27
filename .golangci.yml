@@ -1,40 +1,60 @@
+version: "2"
 run:
-  deadline: 5m
   allow-parallel-runners: true
-
-issues:
-  # don't skip warning about doc comments
-  # don't exclude the default set of lint
-  exclude-use-default: false
-  # restore some of the defaults
-  # (fill in the rest as needed)
-  exclude-rules:
-    - path: "api/*"
-      linters:
-        - lll
-    - path: "internal/*"
-      linters:
-        - dupl
-        - lll
 linters:
-  disable-all: true
+  default: none
   enable:
     - dupl
     - errcheck
-    - exportloopref
     - goconst
     - gocyclo
-    - gofmt
-    - goimports
-    - gosimple
     - govet
     - ineffassign
-    - lll
     - misspell
     - nakedret
     - prealloc
     - staticcheck
-    - typecheck
     - unconvert
     - unparam
     - unused
+  exclusions:
+    rules:
+    - linters:
+        - staticcheck
+      text: 'SA1019: "sigs.k8s.io/cluster-api/api/core/v1beta1" is deprecated: .*'
+    - linters:
+        - staticcheck
+      text: "QF1001: could apply De Morgan's law"
+    - linters:
+        - staticcheck
+      text: "QF1008: could remove embedded field"
+    - linters:
+        - staticcheck
+      text: "ST1019"
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+  imports:
+    alias:
+      - pkg: github.com/openshift/assisted-service/api/v1beta1
+        alias: aiv1beta1
+      - pkg: sigs.k8s.io/cluster-api/api/core/v1beta2
+        alias: clusterv1
+      - pkg: github.com/openshift-assisted/cluster-api-provider-openshift-assisted/bootstrap/api/v1alpha2
+        alias: bootstrapv1alpha2
+      - pkg: github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/api/v1alpha3
+        alias: controlplanev1alpha3
+formatters:
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$

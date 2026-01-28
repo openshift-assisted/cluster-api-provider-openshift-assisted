@@ -1,19 +1,72 @@
 {
-  "schedule": [
-    "on Saturday"
-  ],
-  "groupName": "Konflux build pipeline",
-  "baseBranchPatterns": [
-    "master",
-    "backplane-2.9",
-    "backplane-2.10"
-  ],
-  "includePaths": [
-    ".tekton/*"
-  ],
-  "commitMessagePrefix": "NO-ISSUE: ",
-  "labels": [
-    "lgtm",
-    "approved"
-  ]
+    "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+    "commitMessagePrefix": "NO-ISSUE: ",
+    "labels": [
+        "lgtm",
+        "approved"
+    ],
+    "prHourlyLimit": 0,
+    "prConcurrentLimit": 0,
+    "enabledManagers": [
+        "custom.regex",
+        "tekton"
+    ],
+    "tekton": {
+        "managerFilePatterns": [
+            "/^.tekton/*/"
+        ]
+    },
+    "customManagers": [
+        {
+            "customType": "regex",
+            "managerFilePatterns": [
+                "/^Dockerfile\\.(bootstrap-provider|controlplane-provider|j2)$/"
+            ],
+            "matchStrings": [
+                "FROM registry.access.redhat.com/ubi9/ubi-minimal:(?<currentValue>[^@]+)@(?<currentDigest>sha256:[a-f0-9]+)\\n"
+            ],
+            "depNameTemplate": "registry.access.redhat.com/ubi9/ubi-minimal",
+            "datasourceTemplate": "docker"
+        }
+    ],
+    "packageRules": [
+        {
+            "groupName": "Konflux build pipeline",
+            "addLabels": [
+                "konflux"
+            ],
+            "schedule": [
+                "on Saturday"
+            ],
+            "matchManagers": [
+                "tekton"
+            ],
+            "baseBranchPatterns": [
+                "master",
+                "backplane-2.9",
+                "backplane-2.10"
+            ]
+        },
+        {
+            "matchPackageNames": [
+                "registry.access.redhat.com/ubi9/ubi-minimal"
+            ],
+            "groupName": "UBI Runtime Images",
+            "addLabels": [
+                "ubi"
+            ]
+        },
+        {
+            "matchUpdateTypes": [
+                "major"
+            ],
+            "matchDatasources": [
+                "docker"
+            ],
+            "matchPackageNames": [
+                "registry.access.redhat.com/ubi9/ubi-minimal"
+            ],
+            "enabled": false
+        }
+    ]
 }

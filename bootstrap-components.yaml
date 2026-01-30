@@ -166,7 +166,10 @@ spec:
                       type: string
                     type: array
                   name:
-                    description: Defaults to the hostname of the node if not provided.
+                    description: |-
+                      Name specifies an environment variable reference (e.g., "$METADATA_HOSTNAME") from which
+                      to read the node name. The environment variable must be available in /etc/metadata_env
+                      (populated by configdrive). The value will be resolved safely and used to set the hostname.
                     type: string
                 type: object
               osImageVersion:
@@ -481,7 +484,10 @@ spec:
                       type: string
                     type: array
                   name:
-                    description: Defaults to the hostname of the node if not provided.
+                    description: |-
+                      Name specifies an environment variable reference (e.g., "$METADATA_HOSTNAME") from which
+                      to read the node name. The environment variable must be available in /etc/metadata_env
+                      (populated by configdrive). The value will be resolved safely and used to set the hostname.
                     type: string
                 type: object
               osImageVersion:
@@ -870,8 +876,10 @@ spec:
                               type: string
                             type: array
                           name:
-                            description: Defaults to the hostname of the node if not
-                              provided.
+                            description: |-
+                              Name specifies an environment variable reference (e.g., "$METADATA_HOSTNAME") from which
+                              to read the node name. The environment variable must be available in /etc/metadata_env
+                              (populated by configdrive). The value will be resolved safely and used to set the hostname.
                             type: string
                         type: object
                       osImageVersion:
@@ -1094,8 +1102,10 @@ spec:
                               type: string
                             type: array
                           name:
-                            description: Defaults to the hostname of the node if not
-                              provided.
+                            description: |-
+                              Name specifies an environment variable reference (e.g., "$METADATA_HOSTNAME") from which
+                              to read the node name. The environment variable must be available in /etc/metadata_env
+                              (populated by configdrive). The value will be resolved safely and used to set the hostname.
                             type: string
                         type: object
                       osImageVersion:

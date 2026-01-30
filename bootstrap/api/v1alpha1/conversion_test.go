@@ -172,7 +172,7 @@ var _ = Describe("OpenshiftAssistedConfig Round-Trip", func() {
 					AdditionalTrustBundle: "-----BEGIN CERTIFICATE-----\nMIIC...\n-----END CERTIFICATE-----",
 					OSImageVersion:        "4.14.0",
 					NodeRegistration: NodeRegistrationOptions{
-						Name:               "worker-0",
+						Name:               "$METADATA_NAME",
 						KubeletExtraLabels: []string{"node-role.kubernetes.io/worker="},
 					},
 				},
@@ -209,6 +209,33 @@ var _ = Describe("OpenshiftAssistedConfig Round-Trip", func() {
 			Expect(result.Status.Ready).To(Equal(original.Status.Ready))
 			Expect(*result.Status.DataSecretName).To(Equal(*original.Status.DataSecretName))
 			Expect(result.Status.ObservedGeneration).To(Equal(original.Status.ObservedGeneration))
+		})
+
+		It("should preserve Name during round-trip", func() {
+			original := &OpenshiftAssistedConfig{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-config-envvar",
+					Namespace: "default",
+				},
+				Spec: OpenshiftAssistedConfigSpec{
+					NodeRegistration: NodeRegistrationOptions{
+						Name:               "$METADATA_NAME",
+						KubeletExtraLabels: []string{"zone=east"},
+					},
+				},
+			}
+
+			// Convert to v1alpha2
+			intermediate := &bootstrapv1alpha2.OpenshiftAssistedConfig{}
+			Expect(original.ConvertTo(intermediate)).To(Succeed())
+			Expect(intermediate.Spec.NodeRegistration.Name).To(Equal("$METADATA_NAME"))
+
+			// Convert back to v1alpha1
+			result := &OpenshiftAssistedConfig{}
+			Expect(result.ConvertFrom(intermediate)).To(Succeed())
+
+			Expect(result.Spec.NodeRegistration.Name).To(Equal("$METADATA_NAME"))
+			Expect(result.Spec.NodeRegistration.KubeletExtraLabels).To(Equal([]string{"zone=east"}))
 		})
 
 		It("should handle empty/minimal resource during round-trip", func() {

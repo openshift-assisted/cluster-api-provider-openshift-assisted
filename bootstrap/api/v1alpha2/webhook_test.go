@@ -36,6 +36,19 @@ var _ = Describe("OpenshiftAssistedConfig Webhook", func() {
 			Expect(apierrors.IsBadRequest(err)).To(BeTrue())
 			Expect(err.Error()).To(ContainSubstring("expected an OpenshiftAssistedConfig"))
 		})
+
+		It("should accept config with Name", func() {
+			obj := &OpenshiftAssistedConfig{
+				Spec: OpenshiftAssistedConfigSpec{
+					NodeRegistration: NodeRegistrationOptions{
+						Name: "METADATA_HOSTNAME",
+					},
+				},
+			}
+			warnings, err := webhook.ValidateCreate(ctx, obj)
+			Expect(warnings).To(BeNil())
+			Expect(err).To(BeNil())
+		})
 	})
 
 	Describe("ValidateUpdate", func() {

@@ -82,7 +82,9 @@ type OpenshiftAssistedConfigSpec struct {
 
 // NodeRegistrationOption holds fields related to registering nodes to the cluster
 type NodeRegistrationOptions struct {
-	// Defaults to the hostname of the node if not provided.
+	// Name specifies an environment variable reference (e.g., "$METADATA_HOSTNAME") from which
+	// to read the node name. The environment variable must be available in /etc/metadata_env
+	// (populated by configdrive). The value will be resolved safely and used to set the hostname.
 	// +optional
 	Name string `json:"name,omitempty"`
 

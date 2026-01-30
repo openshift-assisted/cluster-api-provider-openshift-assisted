@@ -27,12 +27,87 @@ var _ = Describe("Ignition utils", func() {
 		It("should be parsed with no errors", func() {
 			capiSuccessFile := CreateIgnitionFile("/run/cluster-api/bootstrap-success.complete",
 				"root", "data:text/plain;charset=utf-8;base64,c3VjY2Vzcw==", 420, true)
-			i, err := GetIgnitionConfigOverrides(capiSuccessFile)
+			i, err := GetIgnitionConfigOverrides(IgnitionOptions{}, capiSuccessFile)
 			Expect(err).NotTo(HaveOccurred())
 			cfg, rep, err := config_31.Parse([]byte(i))
 			Expect(rep.Entries).To(BeNil())
 			Expect(err).NotTo(HaveOccurred())
 			Expect(cfg).NotTo(BeNil())
+		})
+
+		It("should include hostname unit when NodeNameEnvVar is set", func() {
+			opts := IgnitionOptions{
+				NodeNameEnvVar: "$METADATA_NAME",
+			}
+			i, err := GetIgnitionConfigOverrides(opts)
+			Expect(err).NotTo(HaveOccurred())
+			cfg, rep, err := config_31.Parse([]byte(i))
+			Expect(rep.Entries).To(BeNil())
+			Expect(err).NotTo(HaveOccurred())
+			Expect(cfg).NotTo(BeNil())
+
+			// Check for set-hostname.service unit
+			var foundHostnameUnit bool
+			var foundHostnameScript bool
+			for _, unit := range cfg.Systemd.Units {
+				if unit.Name == "set-hostname.service" {
+					foundHostnameUnit = true
+					Expect(*unit.Contents).To(ContainSubstring("After=configdrive-metadata.service"))
+				}
+			}
+			for _, file := range cfg.Storage.Files {
+				if file.Path == "/usr/local/bin/set_hostname" {
+					foundHostnameScript = true
+				}
+			}
+			Expect(foundHostnameUnit).To(BeTrue(), "set-hostname.service unit should be present")
+			Expect(foundHostnameScript).To(BeTrue(), "set_hostname script should be present")
+		})
+
+		It("should not include hostname unit when NodeNameEnvVar is empty", func() {
+			opts := IgnitionOptions{}
+			i, err := GetIgnitionConfigOverrides(opts)
+			Expect(err).NotTo(HaveOccurred())
+			cfg, rep, err := config_31.Parse([]byte(i))
+			Expect(rep.Entries).To(BeNil())
+			Expect(err).NotTo(HaveOccurred())
+			Expect(cfg).NotTo(BeNil())
+
+			// Check that set-hostname.service unit is NOT present
+			for _, unit := range cfg.Systemd.Units {
+				Expect(unit.Name).NotTo(Equal("set-hostname.service"))
+			}
+			for _, file := range cfg.Storage.Files {
+				Expect(file.Path).NotTo(Equal("/usr/local/bin/set_hostname"))
+			}
+		})
+
+		It("should handle ${VAR} notation for NodeNameEnvVar", func() {
+			opts := IgnitionOptions{
+				NodeNameEnvVar: "${METADATA_NAME}",
+			}
+			i, err := GetIgnitionConfigOverrides(opts)
+			Expect(err).NotTo(HaveOccurred())
+			cfg, rep, err := config_31.Parse([]byte(i))
+			Expect(rep.Entries).To(BeNil())
+			Expect(err).NotTo(HaveOccurred())
+			Expect(cfg).NotTo(BeNil())
+
+			// Check for set-hostname.service unit with ${VAR} notation
+			var foundHostnameUnit bool
+			var foundHostnameScript bool
+			for _, unit := range cfg.Systemd.Units {
+				if unit.Name == "set-hostname.service" {
+					foundHostnameUnit = true
+				}
+			}
+			for _, file := range cfg.Storage.Files {
+				if file.Path == "/usr/local/bin/set_hostname" {
+					foundHostnameScript = true
+				}
+			}
+			Expect(foundHostnameUnit).To(BeTrue(), "set-hostname.service unit should be present with ${VAR} notation")
+			Expect(foundHostnameScript).To(BeTrue(), "set_hostname script should be present with ${VAR} notation")
 		})
 	})
 })

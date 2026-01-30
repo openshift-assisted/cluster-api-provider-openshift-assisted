@@ -178,7 +178,7 @@ spec:
     sshAuthorizedKey: "{{ ssh_authorized_key }}"
     nodeRegistration:
       kubeletExtraLabels:
-      - 'metal3.io/uuid="${METADATA_UUID}"'
+      - metal3.io/uuid=$METADATA_UUID
   distributionVersion: 4.19.0-okd-scos.ec.6
   config:
     apiVIPs:
@@ -343,9 +343,30 @@ spec:
     spec:
       nodeRegistration:
         kubeletExtraLabels:
-          - 'metal3.io/uuid="${METADATA_UUID}"'
+          - metal3.io/uuid=$METADATA_UUID
       sshAuthorizedKey: "{{ ssh_authorized_key }}"
 ```
+
+#### Dynamic Node Naming
+
+For environments where node names should be derived from infrastructure metadata, you can use the `name` field with shell variable syntax (e.g., `$METADATA_HOSTNAME`). When this field is set, a dedicated systemd unit is added to safely resolve the environment variable and set the hostname.
+
+The configdrive metadata script loads metadata into `/etc/metadata_env` as environment variables prefixed with `METADATA_`. The resolution is done safely using grep (no shell expansion of user values).
+
+```yaml
+spec:
+  template:
+    spec:
+      nodeRegistration:
+        name: "$METADATA_NAME"
+        kubeletExtraLabels:
+          - metal3.io/uuid=$METADATA_UUID
+```
+
+Common metadata variables include:
+- `$METADATA_NAME` - The instance name from configdrive
+- `$METADATA_UUID` - The instance UUID
+- `$METADATA_LOCAL_HOSTNAME` - The local hostname from configdrive
 
 
 The following YAML defines the infrastructure provider configuration for worker nodes. For more info check the [CAPM3 official documentation](https://book.metal3.io/capm3/introduction.html)

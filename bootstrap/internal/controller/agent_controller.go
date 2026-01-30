@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -21,6 +22,9 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
+
+// validVarNamePattern matches valid shell variable names to prevent injection attacks
+var validVarNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 const (
 	retryAfter = 20 * time.Second
@@ -135,15 +139,77 @@ func (r *AgentReconciler) canApproveAgent(ctx context.Context, agent *aiv1beta1.
 }
 
 func getIgnitionConfig(config *bootstrapv1alpha2.OpenshiftAssistedConfig) (string, error) {
-	// get labels and set them as KUBELET_EXTRA_LABELS in ignition
-	extraLabels := strings.Join(config.Spec.NodeRegistration.KubeletExtraLabels, ",")
-	content := `#!/bin/bash
-echo "CUSTOM_KUBELET_LABELS=` + extraLabels + `" | tee -a /etc/kubernetes/kubelet-env >/dev/null
-`
-	b64Content := base64.StdEncoding.EncodeToString([]byte(content))
+	dynamic, static, err := parseLabels(config.Spec.NodeRegistration.KubeletExtraLabels)
+	if err != nil {
+		return "", fmt.Errorf("invalid kubelet extra labels: %w", err)
+	}
+
+	var sb strings.Builder
+	sb.WriteString("#!/bin/bash\n")
+
+	// Resolve each dynamic variable from metadata_env
+	for _, varName := range dynamic {
+		sb.WriteString(fmt.Sprintf(`%s=""
+if [ -f /etc/metadata_env ]; then
+    %s=$(/usr/bin/grep "^%s=" /etc/metadata_env | /usr/bin/cut -d'=' -f2-)
+fi
+`, varName, varName, varName))
+	}
+
+	// Build labels string: static labels as-is, dynamic labels use ${VAR}
+	labelParts := make([]string, 0, len(static)+len(dynamic))
+	for key, value := range static {
+		labelParts = append(labelParts, key+"="+value)
+	}
+	for key, varName := range dynamic {
+		labelParts = append(labelParts, key+"=${"+varName+"}")
+	}
+
+	sb.WriteString(fmt.Sprintf(`echo "CUSTOM_KUBELET_LABELS=%s" | tee -a /etc/kubernetes/kubelet-env >/dev/null
+`, strings.Join(labelParts, ",")))
+
+	b64Content := base64.StdEncoding.EncodeToString([]byte(sb.String()))
 	kubeletCustomLabels := ignition.CreateIgnitionFile("/usr/local/bin/kubelet_custom_labels",
 		"root", "data:text/plain;charset=utf-8;base64,"+b64Content, 493, true)
-	return ignition.GetIgnitionConfigOverrides(kubeletCustomLabels)
+
+	opts := ignition.IgnitionOptions{
+		NodeNameEnvVar: config.Spec.NodeRegistration.Name,
+	}
+	return ignition.GetIgnitionConfigOverrides(opts, kubeletCustomLabels)
+}
+
+// parseLabels splits labels into dynamic (variable) and static maps.
+// If value starts with $, strip $, {, } to get the variable name.
+// Returns an error if a variable name is invalid (must match ^[A-Za-z_][A-Za-z0-9_]*$).
+func parseLabels(labels []string) (dynamic, static map[string]string, err error) {
+	dynamic = make(map[string]string)
+	static = make(map[string]string)
+
+	for _, label := range labels {
+		parts := strings.SplitN(label, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		key, value := parts[0], parts[1]
+
+		if !strings.HasPrefix(value, "$") {
+			static[key] = value
+			continue
+		}
+
+		// Strip $, {, } to get the variable name
+		varName := strings.TrimPrefix(value, "$")
+		varName = strings.TrimPrefix(varName, "{")
+		varName = strings.TrimSuffix(varName, "}")
+
+		// Validate variable name to prevent shell injection
+		if !validVarNamePattern.MatchString(varName) {
+			return nil, nil, fmt.Errorf("invalid variable name %q in label %q: must contain only letters, digits, and underscores, and start with a letter or underscore", varName, label)
+		}
+
+		dynamic[key] = varName
+	}
+	return dynamic, static, nil
 }
 
 func (r *AgentReconciler) getMachineFromAgent(ctx context.Context, agent *aiv1beta1.Agent) (*clusterv1.Machine, error) {

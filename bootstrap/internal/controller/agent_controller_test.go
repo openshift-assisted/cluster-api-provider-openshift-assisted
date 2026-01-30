@@ -18,6 +18,9 @@ package controller
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
+	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -365,3 +368,109 @@ func assertAgentIsReadyWithRole(agent *aiv1beta1.Agent, role models.HostRole) {
 	Expect(agent.Spec.IgnitionConfigOverrides).NotTo(BeEmpty())
 	Expect(agent.Spec.Approved).To(BeTrue())
 }
+
+var _ = Describe("getIgnitionConfig", func() {
+	Context("Discovery phase ignition", func() {
+		It("should include set-hostname unit when Name is set", func() {
+			config := &bootstrapv1alpha2.OpenshiftAssistedConfig{
+				Spec: bootstrapv1alpha2.OpenshiftAssistedConfigSpec{
+					NodeRegistration: bootstrapv1alpha2.NodeRegistrationOptions{
+						Name:               "$METADATA_NAME",
+						KubeletExtraLabels: []string{"zone=east"},
+					},
+				},
+			}
+
+			ignitionJSON, err := getIgnitionConfig(config)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(ignitionJSON).NotTo(BeEmpty())
+
+			// Verify valid ignition JSON
+			Expect(ignitionJSON).To(ContainSubstring(`"version":"3.1.0"`))
+			// Verify set-hostname.service unit is included in discovery phase
+			Expect(ignitionJSON).To(ContainSubstring(`set-hostname.service`))
+			Expect(ignitionJSON).To(ContainSubstring(`/usr/local/bin/set_hostname`))
+		})
+
+		It("should not include set-hostname unit when Name is empty", func() {
+			config := &bootstrapv1alpha2.OpenshiftAssistedConfig{
+				Spec: bootstrapv1alpha2.OpenshiftAssistedConfigSpec{
+					NodeRegistration: bootstrapv1alpha2.NodeRegistrationOptions{
+						KubeletExtraLabels: []string{"zone=east", "env=prod"},
+					},
+				},
+			}
+
+			ignitionJSON, err := getIgnitionConfig(config)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(ignitionJSON).NotTo(BeEmpty())
+			// Verify set-hostname.service unit is NOT included when Name is empty
+			Expect(ignitionJSON).NotTo(ContainSubstring(`set-hostname.service`))
+			// Verify kubelet custom labels script is included
+			Expect(ignitionJSON).To(ContainSubstring(`kubelet_custom_labels`))
+		})
+
+		DescribeTable("should handle variable notation in KubeletExtraLabels",
+			func(labelValue string) {
+				config := &bootstrapv1alpha2.OpenshiftAssistedConfig{
+					Spec: bootstrapv1alpha2.OpenshiftAssistedConfigSpec{
+						NodeRegistration: bootstrapv1alpha2.NodeRegistrationOptions{
+							KubeletExtraLabels: []string{"node-id=" + labelValue},
+						},
+					},
+				}
+
+				ignitionJSON, err := getIgnitionConfig(config)
+				Expect(err).NotTo(HaveOccurred())
+
+				var ignConfig map[string]interface{}
+				Expect(json.Unmarshal([]byte(ignitionJSON), &ignConfig)).To(Succeed())
+
+				storage := ignConfig["storage"].(map[string]interface{})
+				files := storage["files"].([]interface{})
+
+				var scriptContent string
+				for _, f := range files {
+					file := f.(map[string]interface{})
+					if file["path"] == "/usr/local/bin/kubelet_custom_labels" {
+						contents := file["contents"].(map[string]interface{})
+						source := contents["source"].(string)
+						b64Data := strings.TrimPrefix(source, "data:text/plain;charset=utf-8;base64,")
+						decoded, err := base64.StdEncoding.DecodeString(b64Data)
+						Expect(err).NotTo(HaveOccurred())
+						scriptContent = string(decoded)
+						break
+					}
+				}
+
+				// Both $VAR and ${VAR} are normalized to ${VAR} and resolved via grep
+				Expect(scriptContent).To(ContainSubstring(`METADATA_UUID=$(/usr/bin/grep "^METADATA_UUID=" /etc/metadata_env`))
+				Expect(scriptContent).To(ContainSubstring("node-id=${METADATA_UUID}"))
+			},
+			Entry("$VAR notation", "$METADATA_UUID"),
+			Entry("${VAR} notation", "${METADATA_UUID}"),
+		)
+
+		DescribeTable("should reject invalid variable names in KubeletExtraLabels",
+			func(labelValue string) {
+				config := &bootstrapv1alpha2.OpenshiftAssistedConfig{
+					Spec: bootstrapv1alpha2.OpenshiftAssistedConfigSpec{
+						NodeRegistration: bootstrapv1alpha2.NodeRegistrationOptions{
+							KubeletExtraLabels: []string{"node-id=" + labelValue},
+						},
+					},
+				}
+
+				_, err := getIgnitionConfig(config)
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("invalid"))
+			},
+			Entry("command substitution", "$VAR$(whoami)"),
+			Entry("backticks", "$VAR`id`"),
+			Entry("starts with digit", "$1VAR"),
+			Entry("contains hyphen", "$VAR-NAME"),
+			Entry("contains semicolon", "$VAR;echo"),
+			Entry("contains space", "$VAR NAME"),
+		)
+	})
+})

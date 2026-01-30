@@ -53,8 +53,9 @@ spec:
       name: "pull-secret"
     sshAuthorizedKey: "{{ ssh_authorized_key }}"
     nodeRegistration:
+      name: "$METADATA_NAME"
       kubeletExtraLabels:
-      - 'metal3.io/uuid="${METADATA_UUID}"'
+      - metal3.io/uuid=$METADATA_UUID
   distributionVersion: {{ openshift_version }}
   config:
     apiVIPs:
@@ -164,9 +165,9 @@ spec:
   template:
     spec:
       nodeRegistration:
-        # name: '${METADATA_NAME}'
+        name: $METADATA_NAME
         kubeletExtraLabels:
-          - 'metal3.io/uuid="${METADATA_UUID}"'
+          - metal3.io/uuid=$METADATA_UUID
       pullSecretRef:
         name: "pull-secret"
       sshAuthorizedKey: "{{ ssh_authorized_key }}"

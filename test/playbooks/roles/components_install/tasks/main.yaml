@@ -50,6 +50,14 @@
 - name: Show PATH
   ansible.builtin.debug:
     msg: "PATH: {{ ansible_env.PATH }}"
+
+- name: Generate ironic_bmo.env from template with local IPA URL
+  delegate_to: localhost
+  ansible.builtin.template:
+    src: "{{ playbook_dir }}/../../test/e2e/manifests/ironic/ironic_bmo.env.j2"
+    dest: "{{ playbook_dir }}/../../test/e2e/manifests/ironic/ironic_bmo.env"
+    mode: '0644'
+
 - name: Deploy ironic
   kubernetes.core.k8s:
     definition: "{{ lookup('kubernetes.core.kustomize', dir=playbook_dir + '/../../test/e2e/manifests/ironic') }}"

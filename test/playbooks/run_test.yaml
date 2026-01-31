@@ -24,6 +24,7 @@
     - role: kind_setup
       become: true
     - build_images
+    - ipa_cache
     - components_install
     - role: bmh_setup
       become: true

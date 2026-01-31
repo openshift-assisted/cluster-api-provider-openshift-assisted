@@ -1,0 +1,72 @@
+---
+# Role to pre-cache IPA (Ironic Python Agent) images locally
+# This avoids slow downloads from tarballs.opendev.org during ironic pod startup
+
+- name: Set IPA cache variables
+  ansible.builtin.set_fact:
+    ipa_cache_dir: "/home/{{ ansible_user }}/ipa-cache"
+    ipa_filename: "ipa-centos9-master.tar.gz"
+    ipa_remote_url: "https://tarballs.opendev.org/openstack/ironic-python-agent/dib/ipa-centos9-master.tar.gz"
+    ipa_http_port: 8089
+
+- name: Create IPA cache directory
+  ansible.builtin.file:
+    path: "{{ ipa_cache_dir }}"
+    state: directory
+    mode: '0755'
+
+- name: Check if IPA tarball already exists
+  ansible.builtin.stat:
+    path: "{{ ipa_cache_dir }}/{{ ipa_filename }}"
+  register: ipa_file
+
+- name: Download IPA tarball (this may take a while on first run)
+  ansible.builtin.get_url:
+    url: "{{ ipa_remote_url }}"
+    dest: "{{ ipa_cache_dir }}/{{ ipa_filename }}"
+    mode: '0644'
+    timeout: 3600
+  when: not ipa_file.stat.exists
+  register: ipa_download
+
+- name: Display IPA download status
+  ansible.builtin.debug:
+    msg: "{{ 'Downloaded IPA tarball' if ipa_download.changed | default(false) else 'Using cached IPA tarball' }}"
+
+- name: Check if IPA HTTP server is already running
+  ansible.builtin.shell: |
+    pgrep -f "python.*http.server.*{{ ipa_http_port }}" || true
+  register: ipa_server_check
+  changed_when: false
+
+- name: Stop existing IPA HTTP server if running
+  ansible.builtin.shell: |
+    pkill -f "python.*http.server.*{{ ipa_http_port }}" || true
+  when: ipa_server_check.stdout != ""
+  changed_when: true
+
+- name: Start IPA HTTP server
+  ansible.builtin.shell: |
+    cd {{ ipa_cache_dir }} && nohup python3 -m http.server {{ ipa_http_port }} > /dev/null 2>&1 &
+    sleep 1
+    pgrep -f "python.*http.server.*{{ ipa_http_port }}"
+  register: ipa_server_start
+  changed_when: true
+
+- name: Verify IPA HTTP server is accessible
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ ipa_http_port }}/{{ ipa_filename }}"
+    method: HEAD
+    status_code: 200
+  register: ipa_server_verify
+  retries: 3
+  delay: 2
+  until: ipa_server_verify.status == 200
+
+- name: Display IPA server status
+  ansible.builtin.debug:
+    msg: "IPA HTTP server running on port {{ ipa_http_port }}, serving {{ ipa_cache_dir }}"
+
+- name: Set IPA base URI fact for ironic configuration
+  ansible.builtin.set_fact:
+    ipa_base_uri: "http://{{ internal_ip }}:{{ ipa_http_port }}"

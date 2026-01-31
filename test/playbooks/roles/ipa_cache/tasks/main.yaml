@@ -34,22 +34,20 @@
     msg: "{{ 'Downloaded IPA tarball' if ipa_download.changed | default(false) else 'Using cached IPA tarball' }}"
 
 - name: Check if IPA HTTP server is already running
-  ansible.builtin.shell: |
-    pgrep -f "python.*http.server.*{{ ipa_http_port }}" || true
+  ansible.builtin.shell:
+    cmd: "pgrep -f 'http\\.server.*{{ ipa_http_port }}' || true"
   register: ipa_server_check
   changed_when: false
 
 - name: Stop existing IPA HTTP server if running
-  ansible.builtin.shell: |
-    pkill -f "python.*http.server.*{{ ipa_http_port }}" || true
+  ansible.builtin.shell:
+    cmd: "pgrep -f 'http\\.server.*{{ ipa_http_port }}' | xargs -r kill 2>/dev/null || true"
   when: ipa_server_check.stdout != ""
   changed_when: true
 
 - name: Start IPA HTTP server
-  ansible.builtin.shell: |
-    cd {{ ipa_cache_dir }} && nohup python3 -m http.server {{ ipa_http_port }} > /dev/null 2>&1 &
-    sleep 1
-    pgrep -f "python.*http.server.*{{ ipa_http_port }}"
+  ansible.builtin.shell:
+    cmd: "cd {{ ipa_cache_dir }} && nohup python3 -m http.server --bind 0.0.0.0 {{ ipa_http_port }} > /dev/null 2>&1 & sleep 1 && pgrep -f 'http\\.server.*{{ ipa_http_port }}'"
   register: ipa_server_start
   changed_when: true
 
@@ -69,4 +67,5 @@
 
 - name: Set IPA base URI fact for ironic configuration
   ansible.builtin.set_fact:
-    ipa_base_uri: "http://{{ internal_ip }}:{{ ipa_http_port }}"
+    # Use BMH network IP (192.168.222.1) which is accessible from Kind containers
+    ipa_base_uri: "http://192.168.222.1:{{ ipa_http_port }}"

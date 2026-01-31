@@ -68,7 +68,9 @@
     selectattr('type', 'equalto', 'Available') |
     selectattr('status', 'equalto', 'True') |
     list | length > 0
-  retries: "{{ medium_retries | int }}"
+  # Ironic needs longer timeout due to IPA image download (~458MB)
+  # 3x medium_retries * medium_delay = 180 * 10s = 30 minutes
+  retries: "{{ (medium_retries | int) * 3 }}"
   delay: "{{ medium_delay | int }}"
 
 - name: Deploy BMO

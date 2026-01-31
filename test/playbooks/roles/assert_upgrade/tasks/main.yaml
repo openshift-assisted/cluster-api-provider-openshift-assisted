@@ -132,3 +132,85 @@
     - name: Fail after showing debug info
       ansible.builtin.fail:
         msg: "Controlplane did not become ready in time"
+
+- name: Wait for spoke cluster to reach target version
+  block:
+    - name: Display clusterversion verification message
+      ansible.builtin.debug:
+        msg:
+          - "================================================================================"
+          - "Verifying Spoke Cluster Version"
+          - "================================================================================"
+          - "Waiting for clusterversion to show:"
+          - "  - Version: {{ upgrade_to_version }}"
+          - "  - Progressing: False"
+          - "  - Available: True"
+          - "================================================================================"
+
+    - name: Wait for clusterversion to reach target and stop progressing
+      ansible.builtin.shell: |
+        export KUBECONFIG=/tmp/{{ cluster_name }}-kubeconfig
+        kubectl get clusterversion version -o json | jq -r '
+          {
+            "version": (.status.desired.version // "unknown"),
+            "progressing": (.status.conditions[] | select(.type=="Progressing") | .status),
+            "available": (.status.conditions[] | select(.type=="Available") | .status),
+            "progressing_message": (.status.conditions[] | select(.type=="Progressing") | .message)
+          }
+        '
+      register: clusterversion_status
+      until: >-
+        clusterversion_status.rc == 0 and
+        (clusterversion_status.stdout | from_json).version == upgrade_to_version and
+        (clusterversion_status.stdout | from_json).progressing == "False" and
+        (clusterversion_status.stdout | from_json).available == "True"
+      retries: "{{ high_retries | int }}"
+      delay: "{{ high_delay | int }}"
+      changed_when: false
+      environment:
+        PATH: "{{ ansible_env.PATH }}:/usr/local/bin"
+
+    - name: Display final clusterversion status
+      ansible.builtin.shell: |
+        export KUBECONFIG=/tmp/{{ cluster_name }}-kubeconfig
+        kubectl get clusterversion
+      register: final_clusterversion
+      changed_when: false
+      environment:
+        PATH: "{{ ansible_env.PATH }}:/usr/local/bin"
+
+    - name: Show clusterversion result
+      ansible.builtin.debug:
+        msg:
+          - "================================================================================"
+          - "Spoke Cluster Upgrade Verified"
+          - "================================================================================"
+          - "{{ final_clusterversion.stdout_lines }}"
+          - "================================================================================"
+  rescue:
+    - name: Debug clusterversion_status on failure
+      ansible.builtin.debug:
+        msg:
+          - "Clusterversion verification failed"
+          - "Last status: {{ clusterversion_status.stdout | default('No output') }}"
+          - "Return code: {{ clusterversion_status.rc | default('N/A') }}"
+          - "Stderr: {{ clusterversion_status.stderr | default('No stderr') }}"
+
+    - name: Get current clusterversion for debugging
+      ansible.builtin.shell: |
+        export KUBECONFIG=/tmp/{{ cluster_name }}-kubeconfig
+        kubectl get clusterversion -o yaml
+      register: debug_clusterversion
+      changed_when: false
+      failed_when: false
+      environment:
+        PATH: "{{ ansible_env.PATH }}:/usr/local/bin"
+
+    - name: Show debug clusterversion
+      ansible.builtin.debug:
+        var: debug_clusterversion.stdout_lines
+      when: debug_clusterversion.stdout is defined
+
+    - name: Fail after showing debug info
+      ansible.builtin.fail:
+        msg: "Spoke cluster did not reach target version {{ upgrade_to_version }} or is still progressing"

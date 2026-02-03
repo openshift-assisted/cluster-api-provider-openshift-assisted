@@ -472,5 +472,130 @@ var _ = Describe("getIgnitionConfig", func() {
 			Entry("contains semicolon", "$VAR;echo"),
 			Entry("contains space", "$VAR NAME"),
 		)
+
+		Context("ProviderID", func() {
+			It("should write KUBELET_PROVIDERID with static value", func() {
+				config := &bootstrapv1alpha2.OpenshiftAssistedConfig{
+					Spec: bootstrapv1alpha2.OpenshiftAssistedConfigSpec{
+						NodeRegistration: bootstrapv1alpha2.NodeRegistrationOptions{
+							ProviderID: "metal3://my-node-uuid",
+						},
+					},
+				}
+
+				ignitionJSON, err := getIgnitionConfig(config)
+				Expect(err).NotTo(HaveOccurred())
+
+				scriptContent := extractKubeletCustomLabelsScript(ignitionJSON)
+				Expect(scriptContent).To(ContainSubstring(`KUBELET_PROVIDERID=metal3://my-node-uuid`))
+			})
+
+			It("should write KUBELET_PROVIDERID with dynamic value from env var", func() {
+				config := &bootstrapv1alpha2.OpenshiftAssistedConfig{
+					Spec: bootstrapv1alpha2.OpenshiftAssistedConfigSpec{
+						NodeRegistration: bootstrapv1alpha2.NodeRegistrationOptions{
+							ProviderID: "$METADATA_UUID",
+						},
+					},
+				}
+
+				ignitionJSON, err := getIgnitionConfig(config)
+				Expect(err).NotTo(HaveOccurred())
+
+				scriptContent := extractKubeletCustomLabelsScript(ignitionJSON)
+				Expect(scriptContent).To(ContainSubstring(`METADATA_UUID=$(/usr/bin/grep "^METADATA_UUID=" /etc/metadata_env`))
+				Expect(scriptContent).To(ContainSubstring(`KUBELET_PROVIDERID=${METADATA_UUID}`))
+			})
+
+			It("should write KUBELET_PROVIDERID with ${VAR} notation", func() {
+				config := &bootstrapv1alpha2.OpenshiftAssistedConfig{
+					Spec: bootstrapv1alpha2.OpenshiftAssistedConfigSpec{
+						NodeRegistration: bootstrapv1alpha2.NodeRegistrationOptions{
+							ProviderID: "${METADATA_UUID}",
+						},
+					},
+				}
+
+				ignitionJSON, err := getIgnitionConfig(config)
+				Expect(err).NotTo(HaveOccurred())
+
+				scriptContent := extractKubeletCustomLabelsScript(ignitionJSON)
+				Expect(scriptContent).To(ContainSubstring(`METADATA_UUID=$(/usr/bin/grep "^METADATA_UUID=" /etc/metadata_env`))
+				Expect(scriptContent).To(ContainSubstring(`KUBELET_PROVIDERID=${METADATA_UUID}`))
+			})
+
+			It("should not write KUBELET_PROVIDERID when ProviderID is empty", func() {
+				config := &bootstrapv1alpha2.OpenshiftAssistedConfig{
+					Spec: bootstrapv1alpha2.OpenshiftAssistedConfigSpec{
+						NodeRegistration: bootstrapv1alpha2.NodeRegistrationOptions{
+							KubeletExtraLabels: []string{"zone=east"},
+						},
+					},
+				}
+
+				ignitionJSON, err := getIgnitionConfig(config)
+				Expect(err).NotTo(HaveOccurred())
+
+				scriptContent := extractKubeletCustomLabelsScript(ignitionJSON)
+				Expect(scriptContent).NotTo(ContainSubstring(`KUBELET_PROVIDERID`))
+			})
+
+			It("should reject invalid variable names in ProviderID", func() {
+				config := &bootstrapv1alpha2.OpenshiftAssistedConfig{
+					Spec: bootstrapv1alpha2.OpenshiftAssistedConfigSpec{
+						NodeRegistration: bootstrapv1alpha2.NodeRegistrationOptions{
+							ProviderID: "$INVALID;echo",
+						},
+					},
+				}
+
+				_, err := getIgnitionConfig(config)
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("invalid"))
+			})
+
+			It("should handle ProviderID and KubeletExtraLabels together with shared dynamic var", func() {
+				config := &bootstrapv1alpha2.OpenshiftAssistedConfig{
+					Spec: bootstrapv1alpha2.OpenshiftAssistedConfigSpec{
+						NodeRegistration: bootstrapv1alpha2.NodeRegistrationOptions{
+							ProviderID:         "$METADATA_UUID",
+							KubeletExtraLabels: []string{"node-id=$METADATA_UUID", "zone=east"},
+						},
+					},
+				}
+
+				ignitionJSON, err := getIgnitionConfig(config)
+				Expect(err).NotTo(HaveOccurred())
+
+				scriptContent := extractKubeletCustomLabelsScript(ignitionJSON)
+				// Variable should only be resolved once
+				count := strings.Count(scriptContent, `METADATA_UUID=$(/usr/bin/grep "^METADATA_UUID=" /etc/metadata_env`)
+				Expect(count).To(Equal(1))
+				// Both should use the same variable
+				Expect(scriptContent).To(ContainSubstring(`node-id=${METADATA_UUID}`))
+				Expect(scriptContent).To(ContainSubstring(`KUBELET_PROVIDERID=${METADATA_UUID}`))
+			})
+		})
 	})
 })
+
+func extractKubeletCustomLabelsScript(ignitionJSON string) string {
+	var ignConfig map[string]interface{}
+	Expect(json.Unmarshal([]byte(ignitionJSON), &ignConfig)).To(Succeed())
+
+	storage := ignConfig["storage"].(map[string]interface{})
+	files := storage["files"].([]interface{})
+
+	for _, f := range files {
+		file := f.(map[string]interface{})
+		if file["path"] == "/usr/local/bin/kubelet_custom_labels" {
+			contents := file["contents"].(map[string]interface{})
+			source := contents["source"].(string)
+			b64Data := strings.TrimPrefix(source, "data:text/plain;charset=utf-8;base64,")
+			decoded, err := base64.StdEncoding.DecodeString(b64Data)
+			Expect(err).NotTo(HaveOccurred())
+			return string(decoded)
+		}
+	}
+	return ""
+}

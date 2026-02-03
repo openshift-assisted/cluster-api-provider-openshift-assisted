@@ -63,6 +63,43 @@ spec:
       - my-label=${METADATA_NAME}
 ```
 
+#### spec.nodeRegistration.providerID
+
+**Type:** `string`
+
+**Optional:** Yes
+
+Specifies the provider ID to pass to kubelet via the `KUBELET_PROVIDERID` environment variable in `/etc/kubernetes/kubelet-env`. This can be a static value or an environment variable reference (e.g., `$METADATA_UUID`) that will be resolved from `/etc/metadata_env`.
+
+The provider ID is used by Kubernetes to identify nodes in cloud provider integrations and is essential for proper node lifecycle management with infrastructure providers like Metal³.
+
+**Example with static value:**
+
+```yaml
+spec:
+  nodeRegistration:
+    providerID: "metal3://my-node-uuid-1234"
+```
+
+**Example with dynamic value from metadata:**
+
+```yaml
+spec:
+  nodeRegistration:
+    providerID: "$METADATA_UUID"
+```
+
+**Example combining providerID with other nodeRegistration fields:**
+
+```yaml
+spec:
+  nodeRegistration:
+    name: "$METADATA_NAME"
+    providerID: "metal3://$METADATA_UUID"
+    kubeletExtraLabels:
+      - topology.kubernetes.io/zone=us-east-1a
+```
+
 ### Other Spec Fields
 
 | Field | Type | Description |
@@ -92,6 +129,7 @@ spec:
     name: pull-secret
   nodeRegistration:
     name: "$METADATA_NAME"
+    providerID: "$METADATA_UUID"
     kubeletExtraLabels:
       - "topology.kubernetes.io/zone=us-east-1a"
   additionalNTPSources:

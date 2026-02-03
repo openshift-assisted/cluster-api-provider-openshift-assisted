@@ -91,6 +91,12 @@ type NodeRegistrationOptions struct {
 	// KubeletExtraLabels passes extra labels to kubelet.
 	// +optional
 	KubeletExtraLabels []string `json:"kubeletExtraLabels,omitempty"`
+
+	// ProviderID specifies the provider ID to pass to kubelet via KUBELET_PROVIDERID environment
+	// variable in /etc/kubernetes/kubelet-env. This can be a static value or an environment
+	// variable reference (e.g., "$METADATA_UUID") that will be resolved from /etc/metadata_env.
+	// +optional
+	ProviderID string `json:"providerID,omitempty"`
 }
 
 type OpenshiftAssistedConfigInitializationStatus struct {

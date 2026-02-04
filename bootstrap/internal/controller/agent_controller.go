@@ -144,11 +144,25 @@ func getIgnitionConfig(config *bootstrapv1alpha2.OpenshiftAssistedConfig) (strin
 		return "", fmt.Errorf("invalid kubelet extra labels: %w", err)
 	}
 
+	providerIDVarName, providerIDStatic, err := parseEnvVarRef(config.Spec.NodeRegistration.ProviderID)
+	if err != nil {
+		return "", fmt.Errorf("invalid providerID: %w", err)
+	}
+
 	var sb strings.Builder
 	sb.WriteString("#!/bin/bash\n")
 
-	// Resolve each dynamic variable from metadata_env
+	// Collect all dynamic variables that need to be resolved
+	dynamicVars := make(map[string]struct{})
 	for _, varName := range dynamic {
+		dynamicVars[varName] = struct{}{}
+	}
+	if providerIDVarName != "" {
+		dynamicVars[providerIDVarName] = struct{}{}
+	}
+
+	// Resolve each dynamic variable from metadata_env
+	for varName := range dynamicVars {
 		sb.WriteString(fmt.Sprintf(`%s=""
 if [ -f /etc/metadata_env ]; then
     %s=$(/usr/bin/grep "^%s=" /etc/metadata_env | /usr/bin/cut -d'=' -f2-)
@@ -168,6 +182,15 @@ fi
 	sb.WriteString(fmt.Sprintf(`echo "CUSTOM_KUBELET_LABELS=%s" | tee -a /etc/kubernetes/kubelet-env >/dev/null
 `, strings.Join(labelParts, ",")))
 
+	// Write KUBELET_PROVIDERID if specified
+	if providerIDVarName != "" {
+		sb.WriteString(fmt.Sprintf(`echo "KUBELET_PROVIDERID=${%s}" | tee -a /etc/kubernetes/kubelet-env >/dev/null
+`, providerIDVarName))
+	} else if providerIDStatic != "" {
+		sb.WriteString(fmt.Sprintf(`echo "KUBELET_PROVIDERID=%s" | tee -a /etc/kubernetes/kubelet-env >/dev/null
+`, providerIDStatic))
+	}
+
 	b64Content := base64.StdEncoding.EncodeToString([]byte(sb.String()))
 	kubeletCustomLabels := ignition.CreateIgnitionFile("/usr/local/bin/kubelet_custom_labels",
 		"root", "data:text/plain;charset=utf-8;base64,"+b64Content, 493, true)
@@ -176,6 +199,32 @@ fi
 		NodeNameEnvVar: config.Spec.NodeRegistration.Name,
 	}
 	return ignition.GetIgnitionConfigOverrides(opts, kubeletCustomLabels)
+}
+
+// parseEnvVarRef parses a value that may be an environment variable reference.
+// If the value starts with $, it's treated as a variable reference and the variable name is returned.
+// Otherwise, the static value is returned.
+// Returns (varName, staticValue, error) where only one of varName or staticValue is non-empty.
+func parseEnvVarRef(value string) (varName, staticValue string, err error) {
+	if value == "" {
+		return "", "", nil
+	}
+
+	if !strings.HasPrefix(value, "$") {
+		return "", value, nil
+	}
+
+	// Strip $, {, } to get the variable name
+	varName = strings.TrimPrefix(value, "$")
+	varName = strings.TrimPrefix(varName, "{")
+	varName = strings.TrimSuffix(varName, "}")
+
+	// Validate variable name to prevent shell injection
+	if !validVarNamePattern.MatchString(varName) {
+		return "", "", fmt.Errorf("invalid variable name %q: must contain only letters, digits, and underscores, and start with a letter or underscore", varName)
+	}
+
+	return varName, "", nil
 }
 
 // parseLabels splits labels into dynamic (variable) and static maps.
@@ -192,22 +241,16 @@ func parseLabels(labels []string) (dynamic, static map[string]string, err error)
 		}
 		key, value := parts[0], parts[1]
 
-		if !strings.HasPrefix(value, "$") {
-			static[key] = value
+		varName, staticValue, err := parseEnvVarRef(value)
+		if err != nil {
+			return nil, nil, fmt.Errorf("in label %q: %w", label, err)
+		}
+
+		if varName != "" {
+			dynamic[key] = varName
 			continue
 		}
-
-		// Strip $, {, } to get the variable name
-		varName := strings.TrimPrefix(value, "$")
-		varName = strings.TrimPrefix(varName, "{")
-		varName = strings.TrimSuffix(varName, "}")
-
-		// Validate variable name to prevent shell injection
-		if !validVarNamePattern.MatchString(varName) {
-			return nil, nil, fmt.Errorf("invalid variable name %q in label %q: must contain only letters, digits, and underscores, and start with a letter or underscore", varName, label)
-		}
-
-		dynamic[key] = varName
+		static[key] = staticValue
 	}
 	return dynamic, static, nil
 }

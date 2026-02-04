@@ -45,6 +45,7 @@ func (src *OpenshiftAssistedConfig) ConvertTo(dstRaw conversion.Hub) error {
 		NodeRegistration: bootstrapv1alpha2.NodeRegistrationOptions{
 			Name:               src.Spec.NodeRegistration.Name,
 			KubeletExtraLabels: src.Spec.NodeRegistration.KubeletExtraLabels,
+			ProviderID:         src.Spec.NodeRegistration.ProviderID,
 		},
 	}
 
@@ -90,6 +91,7 @@ func (dst *OpenshiftAssistedConfig) ConvertFrom(srcRaw conversion.Hub) error {
 		NodeRegistration: NodeRegistrationOptions{
 			Name:               src.Spec.NodeRegistration.Name,
 			KubeletExtraLabels: src.Spec.NodeRegistration.KubeletExtraLabels,
+			ProviderID:         src.Spec.NodeRegistration.ProviderID,
 		},
 	}
 
@@ -132,6 +134,7 @@ func (src *OpenshiftAssistedConfigTemplate) ConvertTo(dstRaw conversion.Hub) err
 		NodeRegistration: bootstrapv1alpha2.NodeRegistrationOptions{
 			Name:               src.Spec.Template.Spec.NodeRegistration.Name,
 			KubeletExtraLabels: src.Spec.Template.Spec.NodeRegistration.KubeletExtraLabels,
+			ProviderID:         src.Spec.Template.Spec.NodeRegistration.ProviderID,
 		},
 	}
 
@@ -157,6 +160,7 @@ func (dst *OpenshiftAssistedConfigTemplate) ConvertFrom(srcRaw conversion.Hub) e
 		NodeRegistration: NodeRegistrationOptions{
 			Name:               src.Spec.Template.Spec.NodeRegistration.Name,
 			KubeletExtraLabels: src.Spec.Template.Spec.NodeRegistration.KubeletExtraLabels,
+			ProviderID:         src.Spec.Template.Spec.NodeRegistration.ProviderID,
 		},
 	}
 

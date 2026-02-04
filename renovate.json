@@ -20,7 +20,7 @@
         {
             "customType": "regex",
             "managerFilePatterns": [
-                "/^Dockerfile\\.(bootstrap-provider|controlplane-provider|j2)$/"
+                "/^Dockerfile\\./"
             ],
             "matchStrings": [
                 "FROM registry.access.redhat.com/ubi9/ubi-minimal:(?<currentValue>[^@]+)@(?<currentDigest>sha256:[a-f0-9]+)\\n"

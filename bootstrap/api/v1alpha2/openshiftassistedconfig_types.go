@@ -94,7 +94,7 @@ type NodeRegistrationOptions struct {
 
 	// ProviderID specifies the provider ID to pass to kubelet via KUBELET_PROVIDERID environment
 	// variable in /etc/kubernetes/kubelet-env. This can be a static value or an environment
-	// variable reference (e.g., "$METADATA_UUID") that will be resolved from /etc/metadata_env.
+	// variable reference (e.g., 'openstack://"$METADATA_UUID"') that will be resolved from /etc/metadata_env.
 	// +optional
 	ProviderID string `json:"providerID,omitempty"`
 }

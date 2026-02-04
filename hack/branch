@@ -1,18 +1,78 @@
 #!/bin/bash
 set -euo pipefail
 
-target_version=$1
-target_branch="backplane-${target_version}"
-previous_branch=$(echo $target_branch | cut -d. -f1).$(($(echo $target_branch | cut -d. -f2)-1))
-pr_branch="ffwd_${target_branch}"
+next_version=${1:-}
+freeze_version=${2:-}
 
+# Fetch branches if needed
 if [[ "${CI:-}" != "true" ]]; then
     git fetch --all
+fi
+
+# Find the latest backplane branch (freeze version) if not provided
+if [[ -z "${freeze_version}" ]]; then
+    # Use version-aware sort to correctly order versions
+    freeze_version=$(git branch -r | grep -E 'origin/backplane-[0-9]+\.[0-9]+$' | sed 's|.*origin/backplane-||' | sort -V | tail -1)
+    
+    if [[ -z "${freeze_version}" ]]; then
+        echo "Error: No existing backplane branches found. Cannot determine freeze version."
+        exit 1
+    fi
+else
+    # Validate provided freeze_version format
+    if ! [[ "${freeze_version}" =~ ^[0-9]+\.[0-9]+$ ]]; then
+        echo "Error: Invalid freeze version format '${freeze_version}'. Expected format: major.minor"
+        exit 1
+    fi
+    
+    # Validate that the freeze branch exists
+    if ! git branch -r | grep -qE "origin/backplane-${freeze_version}$"; then
+        echo "Error: Branch 'origin/backplane-${freeze_version}' does not exist."
+        exit 1
+    fi
+fi
+
+freeze_branch="backplane-${freeze_version}"
+echo "Freeze version: ${freeze_version}"
+
+# Parse freeze version components
+freeze_major=$(echo "${freeze_version}" | cut -d. -f1)
+freeze_minor=$(echo "${freeze_version}" | cut -d. -f2)
+
+# Calculate or use explicit next version
+if [[ -n "${next_version}" ]]; then
+    # Validate format
+    if ! [[ "${next_version}" =~ ^[0-9]+\.[0-9]+$ ]]; then
+        echo "Error: Invalid next version format '${next_version}'. Expected format: major.minor"
+        exit 1
+    fi
+    
+    # Validate that next_version > freeze_version
+    next_major=$(echo "${next_version}" | cut -d. -f1)
+    next_minor=$(echo "${next_version}" | cut -d. -f2)
+    
+    if [[ "${next_major}" -lt "${freeze_major}" ]] || \
+       ([[ "${next_major}" -eq "${freeze_major}" ]] && [[ "${next_minor}" -le "${freeze_minor}" ]]); then
+        echo "Error: Next version '${next_version}' must be greater than freeze version '${freeze_version}'"
+        exit 1
+    fi
+    
+    echo "Using explicit next version: ${next_version}"
+else
+    # Calculate next version (freeze + 1)
+    next_version="${freeze_major}.$((freeze_minor + 1))"
+    echo "Calculated next version: ${next_version}"
+fi
+
+next_branch="backplane-${next_version}"
+pr_branch="ffwd_${next_branch}"
+
+if [[ "${CI:-}" != "true" ]]; then
     git checkout master
     git checkout -b "${pr_branch}"
 fi
 
-short_version=${target_version//.}
+short_version=${next_version//.}
 
 # Handle .tekton directory safely
 if [ -d ".tekton" ]; then
@@ -28,7 +88,7 @@ if [ -d ".tekton" ]; then
         if [ -f "${in}" ]; then
             [ "${in}" != "${out}" ] && git mv "${in}" "${out}"
             sed -i "s/mce-[0-9]\+/mce-${short_version}/g" "${out}"
-            sed -i "s/${previous_branch}/${target_branch}/g" "${out}"
+            sed -i "s/${freeze_branch}/${next_branch}/g" "${out}"
             git add "${out}"
         fi
     done
@@ -49,7 +109,7 @@ if ! jq . renovate.json > /dev/null 2>&1; then
     exit 1
 fi
 
-if ! jq '.baseBranchPatterns += ["'"${previous_branch}"'"]' renovate.json > renovate.updated.json; then
+if ! jq '.baseBranchPatterns += ["'"${freeze_branch}"'"]' renovate.json > renovate.updated.json; then
     echo "Error: Failed to update renovate.json"
     rm -f renovate.updated.json
     exit 1
@@ -66,9 +126,9 @@ if [ ! -f "${SYNC_BRANCH_FILE}" ]; then
     exit 1
 fi
 
-sed -i "s/TARGET_BRANCH: .*$/TARGET_BRANCH: ${target_branch}/g" "${SYNC_BRANCH_FILE}"
+sed -i "s/TARGET_BRANCH: .*$/TARGET_BRANCH: ${next_branch}/g" "${SYNC_BRANCH_FILE}"
 
-if ! grep -q "TARGET_BRANCH: ${target_branch}" "${SYNC_BRANCH_FILE}"; then
+if ! grep -q "TARGET_BRANCH: ${next_branch}" "${SYNC_BRANCH_FILE}"; then
     echo "Error: Failed to update TARGET_BRANCH in ${SYNC_BRANCH_FILE}"
     exit 1
 fi
@@ -77,13 +137,13 @@ git add "${SYNC_BRANCH_FILE}"
 # commit the changes
 
 if [[ "${CI:-}" == "true" ]]; then
-    if git commit -m "Prepare release branch ${target_branch} with updated Tekton YAML, sync-branch.yaml and renovate.json"; then
-        git push origin "${target_branch}"
+    if git commit -m "Prepare release branch ${next_branch} with updated Tekton YAML, sync-branch.yaml and renovate.json"; then
+        git push origin "${next_branch}"
     else
         echo "No changes to commit on release branch"
     fi
 else
-    git commit -s -m "create ffwd branch ${target_branch}, freeze ${previous_branch}"
+    git commit -s -m "create ffwd branch ${next_branch}, freeze ${freeze_branch}"
 
     read -p "Push changes to ${pr_branch} (y/n)? " -n 1 -r
     if [[ $REPLY =~ ^[Yy]$ ]]; then
@@ -91,9 +151,9 @@ else
     fi
 
     # branch out the new branch
-    git checkout -b "upstream/${target_branch}"
-    read -p "Create (push) branch ${target_branch}? (y/n)? " -n 1 -r
+    git checkout -b "${next_branch}"
+    read -p "Create (push) branch ${next_branch}? (y/n)? " -n 1 -r
     if [[ $REPLY =~ ^[Yy]$ ]]; then
-        git push upstream "${target_branch}"
+        git push upstream "${next_branch}"
     fi
 fi

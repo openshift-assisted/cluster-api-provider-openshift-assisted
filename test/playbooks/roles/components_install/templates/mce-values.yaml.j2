@@ -1,0 +1,55 @@
+# Generated MCE values file from {{ installation_mode }} manifest
+# Version: {{ mce_version }}
+{% if mce_registry_override %}
+# Registry override: {{ mce_registry_original }} -> {{ mce_registry_override }}
+{% endif %}
+{% if mce_image_overrides | dict2items | selectattr('value', 'ne', '') | list | length > 0 %}
+# Image overrides applied:
+{% for key, value in mce_image_overrides.items() %}
+{% if value %}
+#   {{ key }}: {{ value }}
+{% endif %}
+{% endfor %}
+{% endif %}
+
+components:
+  assisted_service: true
+  cluster_api: true
+  cluster_api_provider_metal3_preview: true
+  cluster_api_provider_openshift_assisted_preview: true
+  cluster_lifecycle: false
+  cluster_manager: true
+  cluster_proxy_addon: false
+  console_mce: false
+  discovery: false
+  hive: false
+  hypershift: false
+  hypershift_local_hosting: false
+  image_based_install_operator_preview: false
+  local_cluster: false
+  managedserviceaccount: false
+  server_foundation: false
+
+{% set backplane_op = mce_images | selectattr('image-key', 'equalto', 'backplane_operator') | first %}
+{% if mce_image_overrides.backplane_operator %}
+operator_image: "{{ mce_image_overrides.backplane_operator }}"
+{% else %}
+{% set bp_registry = backplane_op['image-remote'] | replace(mce_registry_original, mce_registry_override) if mce_registry_override else backplane_op['image-remote'] %}
+operator_image: "{{ bp_registry }}/{{ backplane_op['image-name'] }}@{{ backplane_op['image-digest'] }}"
+{% endif %}
+
+operand_images:
+{% for image in mce_images %}
+{% if image['image-key'] in mce_required_images %}
+{% set img_key = image['image-key'] %}
+{% if mce_image_overrides[img_key] is defined and mce_image_overrides[img_key] %}
+  {{ img_key }}: "{{ mce_image_overrides[img_key] }}"
+{% else %}
+{% set img_registry = image['image-remote'] | replace(mce_registry_original, mce_registry_override) if mce_registry_override else image['image-remote'] %}
+  {{ img_key }}: "{{ img_registry }}/{{ image['image-name'] }}@{{ image['image-digest'] }}"
+{% endif %}
+{% endif %}
+{% endfor %}
+
+# PULLSECRET is already base64 encoded - pass it directly
+pull_secret: "{{ pullsecret }}"

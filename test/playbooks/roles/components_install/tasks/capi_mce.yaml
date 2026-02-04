@@ -1,0 +1,271 @@
+---
+# MCE-based CAPI installation
+# Installs: InfrastructureOperator, CAPI, CAPOA, CAPM3 via MCE Helm chart
+
+- name: Check if Helm is installed
+  ansible.builtin.command: which helm
+  register: helm_check
+  failed_when: false
+  changed_when: false
+
+- name: Download Helm
+  ansible.builtin.get_url:
+    url: "https://get.helm.sh/helm-{{ helm_version }}-linux-amd64.tar.gz"
+    dest: /tmp/helm.tar.gz
+    mode: '0644'
+  when: helm_check.rc != 0
+
+- name: Extract Helm
+  ansible.builtin.unarchive:
+    src: /tmp/helm.tar.gz
+    dest: /tmp
+    remote_src: true
+  when: helm_check.rc != 0
+
+- name: Install Helm
+  ansible.builtin.copy:
+    src: /tmp/linux-amd64/helm
+    dest: /usr/local/bin/helm
+    mode: '0755'
+    remote_src: true
+  when: helm_check.rc != 0
+
+- name: Install kube-prometheus (required by MCE)
+  ansible.builtin.command: >
+    helm install kube-prometheus oci://ghcr.io/prometheus-community/charts/kube-prometheus-stack
+    --set prometheus.prometheusSpec.maximumStartupDurationSeconds=300
+    --namespace monitoring
+    --create-namespace
+    --wait
+    --timeout 10m
+  changed_when: true
+  register: prometheus_install
+  failed_when: prometheus_install.rc != 0 and 'already exists' not in prometheus_install.stderr
+
+- name: Try to get GitHub token from gh CLI on localhost
+  ansible.builtin.command: gh auth token
+  delegate_to: localhost
+  register: gh_token_result
+  failed_when: false
+  changed_when: false
+  when: github_token == '' and installation_mode == 'upstream'
+
+- name: Set effective GitHub token
+  ansible.builtin.set_fact:
+    effective_github_token: "{{ github_token if github_token != '' else (gh_token_result.stdout | default('')) | trim }}"
+  when: installation_mode == 'upstream'
+
+- name: Debug GitHub token status
+  ansible.builtin.debug:
+    msg: "GitHub token available: {{ 'yes' if effective_github_token != '' else 'no' }}"
+  when: installation_mode == 'upstream'
+
+- name: Select manifest URL based on mode
+  ansible.builtin.set_fact:
+    mce_image_manifest_url: "{{ mce_manifest_url_upstream if installation_mode == 'upstream' else mce_manifest_url_downstream }}"
+
+- name: Fetch MCE image manifest (upstream with token)
+  ansible.builtin.uri:
+    url: "{{ mce_image_manifest_url }}"
+    headers:
+      Authorization: "token {{ effective_github_token }}"
+    return_content: true
+  register: mce_manifest_upstream
+  when: installation_mode == 'upstream' and effective_github_token | default('') != ''
+
+- name: Fetch MCE image manifest (downstream or upstream public)
+  ansible.builtin.uri:
+    url: "{{ mce_image_manifest_url }}"
+    return_content: true
+  register: mce_manifest_downstream
+  when: installation_mode == 'downstream' or (installation_mode == 'upstream' and effective_github_token | default('') == '')
+
+- name: Parse image manifest
+  ansible.builtin.set_fact:
+    mce_images: "{{ (mce_manifest_upstream.content if mce_manifest_upstream.content is defined else mce_manifest_downstream.content) | from_json }}"
+
+- name: Clone MCE Helm chart repository
+  ansible.builtin.git:
+    repo: "{{ mce_chart_repo }}"
+    dest: /tmp/mce-operator-helm-xks
+    version: "{{ mce_chart_branch }}"
+    force: true
+
+- name: Generate MCE values file
+  ansible.builtin.template:
+    src: mce-values.yaml.j2
+    dest: /tmp/mce-values.yaml
+    mode: '0644'
+
+- name: Show generated values file
+  ansible.builtin.command: cat /tmp/mce-values.yaml
+  register: values_content
+  changed_when: false
+
+- name: Debug values file content
+  ansible.builtin.debug:
+    msg: "{{ values_content.stdout_lines }}"
+
+- name: Create MCE namespace
+  kubernetes.core.k8s:
+    api_version: v1
+    kind: Namespace
+    name: "{{ mce_namespace }}"
+    state: present
+
+- name: Install MCE CRDs
+  ansible.builtin.shell: |
+    helm show crds {{ mce_chart_path }} | kubectl apply -f -
+  changed_when: true
+
+- name: Install MCE chart via helm template
+  ansible.builtin.shell: |
+    helm template mce --namespace {{ mce_namespace }} \
+      --values /tmp/mce-values.yaml \
+      {{ mce_chart_path }} | kubectl -n {{ mce_namespace }} apply -f -
+  changed_when: true
+
+- name: Deploy MultiClusterEngine CR
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: multicluster.openshift.io/v1
+      kind: MultiClusterEngine
+      metadata:
+        name: multiclusterengine
+        namespace: "{{ mce_namespace }}"
+      spec:
+        imagePullSecret: open-cluster-management-image-pull-credentials
+        overrides:
+          components:
+            - name: assisted-service
+              enabled: true
+              configOverrides: {}
+            - name: cluster-api
+              enabled: true
+              configOverrides: {}
+            - name: cluster-api-provider-metal3-preview
+              enabled: true
+              configOverrides: {}
+            - name: cluster-api-provider-openshift-assisted-preview
+              enabled: true
+              configOverrides: {}
+            - name: cluster-manager
+              enabled: true
+              configOverrides: {}
+            - name: cluster-lifecycle
+              enabled: false
+              configOverrides: {}
+            - name: server-foundation
+              enabled: false
+              configOverrides: {}
+            - name: local-cluster
+              enabled: false
+              configOverrides: {}
+            - name: console-mce
+              enabled: false
+              configOverrides: {}
+            - name: hypershift
+              enabled: false
+              configOverrides: {}
+            - name: hypershift-local-hosting
+              enabled: false
+              configOverrides: {}
+            - name: discovery
+              enabled: false
+              configOverrides: {}
+            - name: hive
+              enabled: false
+              configOverrides: {}
+            - name: cluster-proxy-addon
+              enabled: false
+              configOverrides: {}
+            - name: managedserviceaccount
+              enabled: false
+              configOverrides: {}
+            - name: cluster-api-provider-aws
+              enabled: false
+              configOverrides: {}
+            - name: image-based-install-operator
+              enabled: false
+              configOverrides: {}
+        targetNamespace: "{{ mce_namespace }}"
+
+- name: Wait for MCE operator
+  kubernetes.core.k8s_info:
+    api_version: apps/v1
+    kind: Deployment
+    name: multicluster-engine-operator
+    namespace: "{{ mce_namespace }}"
+  register: mce_operator_status
+  until: >-
+    mce_operator_status.resources is defined and
+    mce_operator_status.resources | length > 0 and
+    mce_operator_status.resources[0].status.conditions |
+    selectattr('type', 'equalto', 'Available') |
+    selectattr('status', 'equalto', 'True') |
+    list |
+    length > 0
+  retries: "{{ medium_retries | int }}"
+  delay: "{{ medium_delay | int }}"
+
+- name: Wait for AgentServiceConfig CRD to be available
+  kubernetes.core.k8s_info:
+    api_version: apiextensions.k8s.io/v1
+    kind: CustomResourceDefinition
+    name: agentserviceconfigs.agent-install.openshift.io
+  register: asc_crd_status
+  until: >-
+    asc_crd_status.resources is defined and
+    asc_crd_status.resources | length > 0
+  retries: "{{ high_retries | int }}"
+  delay: "{{ medium_delay | int }}"
+
+- name: Generate MCE agent service config
+  ansible.builtin.template:
+    src: mce-agentconfig.yaml.j2
+    dest: /tmp/mce-agentconfig.yaml
+    mode: '0644'
+
+- name: Deploy agent service config for MCE
+  kubernetes.core.k8s:
+    state: present
+    src: /tmp/mce-agentconfig.yaml
+
+- name: Wait for assisted-service (MCE namespace)
+  kubernetes.core.k8s_info:
+    api_version: apps/v1
+    kind: Deployment
+    name: assisted-service
+    namespace: "{{ mce_namespace }}"
+  register: assisted_service_status
+  until: >-
+    assisted_service_status.resources is defined and
+    assisted_service_status.resources | length > 0 and
+    assisted_service_status.resources[0].status.conditions |
+    selectattr('type', 'equalto', 'Available') |
+    selectattr('status', 'equalto', 'True') |
+    list |
+    length > 0
+  retries: "{{ high_retries | int }}"
+  delay: "{{ medium_delay | int }}"
+
+- name: Wait for CAPI controller
+  kubernetes.core.k8s_info:
+    api_version: apps/v1
+    kind: Deployment
+    namespace: "{{ mce_namespace }}"
+    label_selectors:
+      - "cluster.x-k8s.io/provider=cluster-api"
+  register: capi_status
+  until: >-
+    capi_status.resources is defined and
+    capi_status.resources | length > 0 and
+    capi_status.resources[0].status.conditions |
+    selectattr('type', 'equalto', 'Available') |
+    selectattr('status', 'equalto', 'True') |
+    list |
+    length > 0
+  retries: "{{ high_retries | int }}"
+  delay: "{{ medium_delay | int }}"
+

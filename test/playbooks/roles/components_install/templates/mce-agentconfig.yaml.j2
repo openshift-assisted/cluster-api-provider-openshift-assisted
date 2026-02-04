@@ -1,0 +1,35 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: assisted-installer-config-override
+  namespace: {{ mce_namespace }}
+data:
+  INSTALL_TO_EXISTING_ROOT: "true"
+---
+apiVersion: agent-install.openshift.io/v1beta1
+kind: AgentServiceConfig
+metadata:
+  name: agent
+  annotations:
+    unsupported.agent-install.openshift.io/assisted-service-configmap: "assisted-installer-config-override"
+    agent-install.openshift.io/enable-image-service: "false"
+spec:
+  ingress:
+    className: nginx
+    assistedServiceHostname: "assisted-service.assisted-installer.com"
+    imageServiceHostname: "assisted-image.assisted-installer.com"
+  databaseStorage:
+    accessModes:
+    - ReadWriteOnce
+    resources:
+      requests:
+        storage: "10Gi"
+  filesystemStorage:
+    accessModes:
+    - ReadWriteOnce
+    resources:
+      requests:
+        storage: "10Gi"
+  osImages: []
+

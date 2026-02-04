@@ -53,6 +53,12 @@ The following environment variables must be set before running the playbook:
 - `CAPM3_VERSION`: Cluster API Provider Metal3 version (default: "v1.9.3")  
 - `CONTAINER_TAG`: Container image tag for built images (default: "local")
 
+### MCE Installation Variables
+- `USE_MCE_CHART`: When set to `true`, installs CAPI components via MCE Helm chart instead of clusterctl (default: "false")
+- `INSTALLATION_MODE`: `downstream` or `upstream` - selects which image manifest to use (default: "downstream")
+- `GITHUB_TOKEN`: GitHub Personal Access Token for accessing private upstream manifest (required for upstream mode)
+- `MCE_REGISTRY_OVERRIDE`: Override the image registry for downstream mode (default: "quay.io/acm-d")
+
 ### Example Environment Setup
 
 ```bash
@@ -107,6 +113,16 @@ The playbook executes a series of roles in sequence, each handling a specific as
 - Installs Metal3 provider components  
 - Deploys cert-manager and other dependencies
 - Installs the OpenShift Assisted providers
+
+This role supports two installation modes controlled by the `USE_MCE_CHART` environment variable:
+
+#### Standard Mode (default)
+Uses `clusterctl` and kustomize to install components individually.
+
+#### MCE Chart Mode
+When `USE_MCE_CHART=true`, installs InfrastructureOperator, CAPI, CAPOA, and CAPM3 via the MCE (Multicluster Engine) Helm chart from [stolostron/mce-operator-helm-xks](https://github.com/stolostron/mce-operator-helm-xks).
+
+See [MCE Installation](#mce-installation) section for details.
 
 ### 8. bmh_setup
 **Purpose**: Set up BareMetalHost resources
@@ -169,3 +185,141 @@ The playbook includes configurable timing parameters for different operations:
 - **High operations**: 60 second delay, 300 retries
 
 These can be adjusted by modifying the respective variables in the playbook.
+
+## MCE Installation
+
+The `components_install` role supports installing CAPI components via the MCE (Multicluster Engine) Helm chart instead of the standard clusterctl approach.
+
+### When to Use MCE Mode
+
+- Testing with MCE-bundled components
+- Validating MCE integration
+- Using specific MCE image versions
+
+### Quick Start
+
+```bash
+# Downstream mode (uses quay.io/acm-d images)
+USE_MCE_CHART=true make e2e-test
+
+# Upstream mode (requires GitHub authentication)
+USE_MCE_CHART=true INSTALLATION_MODE=upstream make e2e-test
+```
+
+### Installation Modes
+
+#### Downstream Mode (default)
+- Uses manifest from `stolostron/mce-operator-bundle`
+- Images are from `registry.redhat.io/multicluster-engine`
+- Automatically overrides registry to `quay.io/acm-d` for accessibility
+
+```bash
+USE_MCE_CHART=true make e2e-test
+```
+
+#### Upstream Mode
+- Uses manifest from `stolostron/release` (private repository)
+- Images are from `quay.io/stolostron` (public)
+- Requires GitHub authentication
+
+```bash
+# Option 1: Using gh CLI (recommended)
+gh auth login
+USE_MCE_CHART=true INSTALLATION_MODE=upstream make e2e-test
+
+# Option 2: Using Personal Access Token
+export GITHUB_TOKEN=ghp_yourPersonalAccessToken
+USE_MCE_CHART=true INSTALLATION_MODE=upstream make e2e-test
+```
+
+### GitHub Authentication for Upstream Mode
+
+The upstream image manifest is in a private GitHub repository. You need to authenticate using one of these methods:
+
+1. **GitHub CLI (recommended)**:
+   ```bash
+   # Install gh CLI: https://cli.github.com/
+   gh auth login
+   ```
+   The playbook will automatically use `gh auth token` to get your credentials.
+
+2. **Personal Access Token**:
+   - Go to https://github.com/settings/tokens
+   - Generate a new token (classic) with `repo` scope
+   - Set `GITHUB_TOKEN` environment variable
+
+### Components Installed via MCE
+
+When using MCE mode, the following components are installed from the MCE chart:
+- Infrastructure Operator (assisted-service)
+- Cluster API (CAPI)
+- Cluster API Provider OpenShift Assisted (CAPOA)
+- Cluster API Provider Metal3 (CAPM3)
+
+The following components are still installed separately (same as standard mode):
+- cert-manager
+- Ironic
+- Baremetal Operator (BMO)
+- MetalLB
+- nginx-ingress
+- kube-prometheus (MCE mode only)
+
+### Registry Override
+
+For downstream mode, you can override the image registry:
+
+```bash
+# Use a custom registry
+USE_MCE_CHART=true MCE_REGISTRY_OVERRIDE=my-registry.io/path make e2e-test
+
+# Use original registry from manifest (no override)
+USE_MCE_CHART=true MCE_REGISTRY_OVERRIDE= make e2e-test
+```
+
+### Image Overrides
+
+You can override specific images using environment variables. This is useful for testing with custom-built images.
+
+> **Important**: The upstream and downstream manifests use different image keys for some components. Use the correct environment variable based on your `INSTALLATION_MODE`.
+
+#### Cluster API Image Override
+
+| Mode | Environment Variable | Image Key in Manifest |
+|------|---------------------|----------------------|
+| **Upstream** | `MCE_OSE_CLUSTER_API_IMAGE` | `ose_cluster_api_rhel9` |
+| **Downstream** | `MCE_CLUSTER_API_IMAGE` | `cluster_api` |
+
+#### All Available Image Override Variables
+
+| Environment Variable | Image Key | Description |
+|---------------------|-----------|-------------|
+| `MCE_CLUSTER_API_IMAGE` | cluster_api | Cluster API (downstream only) |
+| `MCE_OSE_CLUSTER_API_IMAGE` | ose_cluster_api_rhel9 | OpenShift Cluster API (upstream) |
+| `MCE_CAPM3_IMAGE` | ose_baremetal_cluster_api_controllers_rhel9 | CAPM3 controller |
+| `MCE_CAPOA_BOOTSTRAP_IMAGE` | cluster_api_provider_openshift_assisted_bootstrap | CAPOA bootstrap provider |
+| `MCE_CAPOA_CONTROLPLANE_IMAGE` | cluster_api_provider_openshift_assisted_control_plane | CAPOA control plane provider |
+| `MCE_ASSISTED_SERVICE_IMAGE` | assisted_service_9 | Assisted Service |
+| `MCE_ASSISTED_INSTALLER_IMAGE` | assisted_installer | Assisted Installer |
+| `MCE_ASSISTED_INSTALLER_AGENT_IMAGE` | assisted_installer_agent | Assisted Installer Agent |
+| `MCE_ASSISTED_INSTALLER_CONTROLLER_IMAGE` | assisted_installer_controller | Assisted Installer Controller |
+| `MCE_BACKPLANE_OPERATOR_IMAGE` | backplane_operator | MCE Backplane Operator |
+
+#### Examples
+
+```bash
+# Upstream mode - override cluster-api image
+USE_MCE_CHART=true INSTALLATION_MODE=upstream \
+  MCE_OSE_CLUSTER_API_IMAGE=quay.io/myrepo/cluster-api:latest \
+  make e2e-test
+
+# Downstream mode - override cluster-api image
+USE_MCE_CHART=true INSTALLATION_MODE=downstream \
+  MCE_CLUSTER_API_IMAGE=quay.io/myrepo/cluster-api:latest \
+  make e2e-test
+
+# Override multiple images (upstream)
+USE_MCE_CHART=true INSTALLATION_MODE=upstream \
+  MCE_OSE_CLUSTER_API_IMAGE=quay.io/myrepo/capi:v1 \
+  MCE_CAPOA_BOOTSTRAP_IMAGE=quay.io/myrepo/capoa-bootstrap:dev \
+  make e2e-test
+```

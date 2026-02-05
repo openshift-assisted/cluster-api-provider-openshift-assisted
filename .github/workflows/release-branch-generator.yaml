@@ -3,9 +3,9 @@ name: Release Branch Generator
 on:
   workflow_dispatch:
     inputs:
-      version:
-        description: "Version number (e.g., 2.11)"
-        required: true
+      next_version:
+        description: "Next version (optional, for non-sequential jumps)"
+        required: false
         type: string
 
 jobs:
@@ -13,24 +13,6 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Validate version input
-        run: |
-          VERSION_REGEX='^[0-9]+\.[0-9]+$'
-          VERSION=$(echo "${{ github.event.inputs.version }}" | xargs)
-          
-          if [ -z "${VERSION}" ]; then
-            echo "::error::Version input is empty or contains only whitespace"
-            exit 1
-          fi
-          
-          if ! [[ "${VERSION}" =~ ${VERSION_REGEX} ]]; then
-            echo "::error::Invalid version format '${VERSION}'. Expected format: major.minor (e.g., 2.11)"
-            exit 1
-          fi
-          
-          echo "Version '${VERSION}' is valid"
-          echo "VALIDATED_VERSION=${VERSION}" >> $GITHUB_ENV
-
       - name: Generate GitHub App Token
         id: generate_token
         uses: actions/create-github-app-token@v1
@@ -49,40 +31,85 @@ jobs:
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git config --global user.name "github-actions[bot]"
 
+      - name: Detect freeze version and determine next version
+        run: |
+          VERSION_REGEX='^[0-9]+\.[0-9]+$'
+          NEXT_VERSION=$(echo "${{ github.event.inputs.next_version }}" | xargs)
+          
+          # Find the latest backplane branch (freeze version) using version-aware sort
+          FREEZE_VERSION=$(git branch -r | grep -E 'origin/backplane-[0-9]+\.[0-9]+$' | sed 's|.*origin/backplane-||' | sort -V | tail -1)
+          
+          if [ -z "${FREEZE_VERSION}" ]; then
+            echo "::error::No existing backplane branches found. Cannot determine freeze version."
+            exit 1
+          fi
+          
+          FREEZE_BRANCH="backplane-${FREEZE_VERSION}"
+          echo "Detected freeze version: ${FREEZE_VERSION}"
+          echo "FREEZE_VERSION=${FREEZE_VERSION}" >> $GITHUB_ENV
+          
+          # Parse freeze version components
+          FREEZE_MAJOR=$(echo "${FREEZE_VERSION}" | cut -d. -f1)
+          FREEZE_MINOR=$(echo "${FREEZE_VERSION}" | cut -d. -f2)
+          
+          # Determine next version
+          if [ -n "${NEXT_VERSION}" ]; then
+            if ! [[ "${NEXT_VERSION}" =~ ${VERSION_REGEX} ]]; then
+              echo "::error::Invalid next version format '${NEXT_VERSION}'. Expected format: major.minor"
+              exit 1
+            fi
+            
+            # Validate that NEXT_VERSION > FREEZE_VERSION
+            NEXT_MAJOR=$(echo "${NEXT_VERSION}" | cut -d. -f1)
+            NEXT_MINOR=$(echo "${NEXT_VERSION}" | cut -d. -f2)
+            
+            if [ "${NEXT_MAJOR}" -lt "${FREEZE_MAJOR}" ] || \
+               ([ "${NEXT_MAJOR}" -eq "${FREEZE_MAJOR}" ] && [ "${NEXT_MINOR}" -le "${FREEZE_MINOR}" ]); then
+              echo "::error::Next version '${NEXT_VERSION}' must be greater than freeze version '${FREEZE_VERSION}'"
+              exit 1
+            fi
+            
+            echo "Using explicit next version: ${NEXT_VERSION}"
+          else
+            # Calculate next version (freeze + 1)
+            NEXT_VERSION="${FREEZE_MAJOR}.$((FREEZE_MINOR + 1))"
+            echo "Calculated next version: ${NEXT_VERSION}"
+          fi
+          
+          echo "NEXT_VERSION=${NEXT_VERSION}" >> $GITHUB_ENV
+
       - name: Create new branch
         run: |
-          VERSION="${VALIDATED_VERSION}"
-          TARGET_BRANCH="backplane-${VERSION}"
+          NEXT_BRANCH="backplane-${NEXT_VERSION}"
           git checkout master
           git pull
           
-          if git ls-remote --heads origin "${TARGET_BRANCH}" | grep -q "${TARGET_BRANCH}"; then
-            echo "::warning::Branch ${TARGET_BRANCH} already exists and will be reset to master"
+          if git ls-remote --heads origin "${NEXT_BRANCH}" | grep -q "${NEXT_BRANCH}"; then
+            echo "::warning::Branch ${NEXT_BRANCH} already exists and will be reset to master"
           fi
           
-          git checkout -B "${TARGET_BRANCH}"
-          git push origin "${TARGET_BRANCH}" --force
+          git checkout -B "${NEXT_BRANCH}"
+          git push origin "${NEXT_BRANCH}" --force
         env:
           GITHUB_TOKEN: ${{ steps.generate_token.outputs.token }}
 
       - name: Update Tekton YAML files, sync-branch.yaml and renovate.json
-        run: ./hack/branch "${VALIDATED_VERSION}"
+        run: ./hack/branch "${NEXT_VERSION}" "${FREEZE_VERSION}"
         env:
           CI: "true"
           GITHUB_TOKEN: ${{ steps.generate_token.outputs.token }}
 
       - name: Create Pull Request
         run: |
-          VERSION="${VALIDATED_VERSION}"
-          TARGET_BRANCH="backplane-${VERSION}"
+          NEXT_BRANCH="backplane-${NEXT_VERSION}"
 
-          PR_NUMBER=$(gh pr list --head "${TARGET_BRANCH}" --json number -q '.[0].number')
+          PR_NUMBER=$(gh pr list --head "${NEXT_BRANCH}" --json number -q '.[0].number')
           if [ -z "$PR_NUMBER" ]; then
             gh pr create \
-              --head "${TARGET_BRANCH}" \
+              --head "${NEXT_BRANCH}" \
               --base master \
-              --title "Release ${TARGET_BRANCH}" \
-              --body "Automated PR for release branch ${TARGET_BRANCH}"
+              --title "Release ${NEXT_BRANCH}" \
+              --body "Automated PR for release branch ${NEXT_BRANCH}. Freezing backplane-${FREEZE_VERSION}."
           else
             echo "PR #${PR_NUMBER} already exists"
           fi

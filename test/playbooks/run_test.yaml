@@ -40,6 +40,10 @@
     openshift_version: "4.20.0"
     rhcos_image_url: "https://mirror.openshift.com/pub/openshift-v4/dependencies/rhcos/4.20/4.20.0/rhcos-4.20.0-x86_64-nutanix.x86_64.qcow2"
     rhcos_checksum_url: https://mirror.openshift.com/pub/openshift-v4/dependencies/rhcos/4.20/4.20.0/sha256sum.txt
+    install_mce_operator: "{{ lookup('ansible.builtin.env', 'INSTALL_MCE_OPERATOR') | default('false') | bool }}"
+    mce_namespace: multicluster-engine
+    mce_git_repo: github.com/stolostron/mce-operator-helm-xks.git
+    mce_git_branch: 2.11
   environment:
     PATH: "{{ extra_paths | join(':') }}:{{ ansible_env.PATH }}"
   roles:
@@ -48,7 +52,10 @@
     - network_setup
     - baremetal_emulation
     - kind_setup
-    - build_images
+    - role: build_images
+      when: not install_mce_operator
+    - role: install_mce
+      when: install_mce_operator
     - components_install
     - bmh_setup
     - cluster_install

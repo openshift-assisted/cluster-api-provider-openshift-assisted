@@ -165,25 +165,27 @@
       {{ lookup('ansible.builtin.env',
       'ASSISTED_INSTALLER_VERSION',
       default=default_assisted_installer_version) }}
+  when: not install_mce_operator
 
 - name: Deploy infrastructure operator
   kubernetes.core.k8s:
     definition: "{{ lookup('kubernetes.core.kustomize', dir=playbook_dir + '/../../test/e2e/manifests/infrastructure-operator') }}"
     state: present
     apply: true
-
+  when: not install_mce_operator
 
 - name: Deploy agent service config
   kubernetes.core.k8s:
     state: present
     src: "{{ src_dir }}/test/e2e/manifests/infrastructure-operator/agentconfig.yaml"
+  when: not install_mce_operator
 
 - name: Wait for assisted-service
   kubernetes.core.k8s_info:
     api_version: apps/v1
     kind: Deployment
     name: assisted-service
-    namespace: assisted-installer
+    namespace: "{{ 'assisted-installer' if not install_mce_operator else mce_namespace }}"
   register: assisted_service_status
   until: >-
     assisted_service_status.resources is defined and

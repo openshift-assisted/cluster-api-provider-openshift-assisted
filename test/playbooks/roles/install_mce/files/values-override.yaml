@@ -1,0 +1,9 @@
+#operator_image: "quay.io/stolostron/backplane-operator@sha256:31da1f0599beeaf4f81c57c3aecc30e43fd68f7bd7c4695fb7d1513b0328f21f"
+#operator_version: 2.11.0
+#operand_images:
+  #cluster_api_provider_openshift_assisted_bootstrap: "quay.io/edge-infrastructure/cluster-api-bootstrap-provider-openshift-assisted:latest"
+  #cluster_api_provider_openshift_assisted_control_plane: "quay.io/edge-infrastructure/cluster-api-controlplane-provider-openshift-assisted:latest"
+  #backplane_operator: "quay.io/stolostron/backplane-operator@sha256:31da1f0599beeaf4f81c57c3aecc30e43fd68f7bd7c4695fb7d1513b0328f21f"
+
+
+

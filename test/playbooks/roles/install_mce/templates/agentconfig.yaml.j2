@@ -1,0 +1,31 @@
+apiVersion: agent-install.openshift.io/v1beta1
+kind: AgentServiceConfig
+metadata:
+  name: agent
+  annotations:
+    agent-install.openshift.io/enable-image-service: "false"
+    unsupported.agent-install.openshift.io/assisted-service-pvc-prefix: "pvc-"
+spec:
+  ingress:
+    className: nginx
+    assistedServiceHostname: "assisted-service.assisted-installer.com"
+    imageServiceHostname: "assisted-image.assisted-installer.com"
+  databaseStorage:
+    accessModes:
+    - ReadWriteOnce
+    resources:
+      requests:
+        storage: "10Gi"
+  filesystemStorage:
+    accessModes:
+    - ReadWriteOnce
+    resources:
+      requests:
+        storage: "10Gi"
+  imageStorage:
+    accessModes:
+    - ReadWriteOnce
+    resources:
+      requests:
+        storage: "10Gi"
+  osImages: []

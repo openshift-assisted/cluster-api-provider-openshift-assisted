@@ -180,9 +180,9 @@ func (dst *OpenshiftAssistedControlPlane) ConvertFrom(srcRaw conversion.Hub) err
 		dst.Status.Initialized = true
 	}
 
-	// v1alpha2 has Ready field that must be derived from ControlPlaneReady condition
+	// v1alpha2 has Ready field that must be derived from ControlPlaneAvailable condition
 	for _, condition := range src.Status.Conditions {
-		if condition.Type == string(ControlPlaneReadyCondition) && condition.Status == metav1.ConditionTrue {
+		if condition.Type == string(ControlPlaneAvailableCondition) && condition.Status == metav1.ConditionTrue {
 			dst.Status.Ready = true
 			break
 		}

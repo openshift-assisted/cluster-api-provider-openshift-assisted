@@ -44,7 +44,7 @@
         controlplane_ready.resources | length > 0 and
         controlplane_ready.resources[0].status.conditions is defined and
         controlplane_ready.resources[0].status.conditions |
-        selectattr('type', 'equalto', 'ControlPlaneReady') |
+        selectattr('type', 'equalto', 'Available') |
         selectattr('status', 'equalto', 'True') |
         list |
         length > 0

@@ -221,7 +221,7 @@ var _ = Describe("OpenshiftAssistedControlPlane", func() {
 					},
 					Conditions: []metav1.Condition{
 						{
-							Type:   string(ControlPlaneReadyCondition),
+							Type:   string(ControlPlaneAvailableCondition),
 							Status: metav1.ConditionTrue,
 							Reason: "Ready",
 						},
@@ -239,7 +239,7 @@ var _ = Describe("OpenshiftAssistedControlPlane", func() {
 			Expect(dst.Status.UpdatedReplicas).To(Equal(int32(3)))
 			Expect(dst.Status.UnavailableReplicas).To(Equal(int32(1))) // computed: 3 - 2 = 1
 			Expect(dst.Status.Initialized).To(BeTrue())
-			Expect(dst.Status.Ready).To(BeTrue()) // derived from ControlPlaneReady condition
+			Expect(dst.Status.Ready).To(BeTrue()) // derived from ControlPlaneAvailable condition
 			Expect(dst.Status.Conditions).To(HaveLen(1))
 		})
 	})
@@ -272,7 +272,7 @@ var _ = Describe("OpenshiftAssistedControlPlane", func() {
 					Status: OpenshiftAssistedControlPlaneStatus{
 						Conditions: clusterv1beta1.Conditions{
 							{
-								Type:               ControlPlaneReadyCondition,
+								Type:               ControlPlaneAvailableCondition,
 								Status:             corev1.ConditionTrue,
 								LastTransitionTime: testTime,
 								Reason:             "AllComponentsReady",
@@ -305,10 +305,10 @@ var _ = Describe("OpenshiftAssistedControlPlane", func() {
 				// Verify new conditions (metav1.Condition format)
 				Expect(dst.Status.Conditions).To(HaveLen(3))
 
-				// Find and verify ControlPlaneReady condition
+				// Find and verify ControlPlaneAvailable condition
 				var cpReady *metav1.Condition
 				for i := range dst.Status.Conditions {
-					if dst.Status.Conditions[i].Type == string(ControlPlaneReadyCondition) {
+					if dst.Status.Conditions[i].Type == string(ControlPlaneAvailableCondition) {
 						cpReady = &dst.Status.Conditions[i]
 						break
 					}
@@ -438,7 +438,7 @@ var _ = Describe("OpenshiftAssistedControlPlane", func() {
 					Status: controlplanev1alpha3.OpenshiftAssistedControlPlaneStatus{
 						Conditions: []metav1.Condition{
 							{
-								Type:               string(ControlPlaneReadyCondition),
+								Type:               string(ControlPlaneAvailableCondition),
 								Status:             metav1.ConditionTrue,
 								LastTransitionTime: testTime,
 								Reason:             "AllReady",
@@ -460,10 +460,10 @@ var _ = Describe("OpenshiftAssistedControlPlane", func() {
 
 				Expect(dst.Status.Conditions).To(HaveLen(2))
 
-				// Find and verify ControlPlaneReady condition
+				// Find and verify ControlPlaneAvailable condition
 				var cpReady *clusterv1beta1.Condition
 				for i := range dst.Status.Conditions {
-					if dst.Status.Conditions[i].Type == ControlPlaneReadyCondition {
+					if dst.Status.Conditions[i].Type == ControlPlaneAvailableCondition {
 						cpReady = &dst.Status.Conditions[i]
 						break
 					}
@@ -495,7 +495,7 @@ var _ = Describe("OpenshiftAssistedControlPlane", func() {
 					Status: controlplanev1alpha3.OpenshiftAssistedControlPlaneStatus{
 						Conditions: []metav1.Condition{
 							{
-								Type:               string(ControlPlaneReadyCondition),
+								Type:               string(ControlPlaneAvailableCondition),
 								Status:             metav1.ConditionTrue,
 								LastTransitionTime: testTime,
 								Reason:             "AllReady",
@@ -521,7 +521,7 @@ var _ = Describe("OpenshiftAssistedControlPlane", func() {
 				var cpReady *clusterv1beta1.Condition
 				var machinesReady *clusterv1beta1.Condition
 				for i := range dst.Status.Conditions {
-					if dst.Status.Conditions[i].Type == ControlPlaneReadyCondition {
+					if dst.Status.Conditions[i].Type == ControlPlaneAvailableCondition {
 						cpReady = &dst.Status.Conditions[i]
 					}
 					if dst.Status.Conditions[i].Type == "MachinesReady" {
@@ -540,7 +540,7 @@ var _ = Describe("OpenshiftAssistedControlPlane", func() {
 				Expect(machinesReady.Message).To(Equal("All machines are ready"))
 			})
 
-			It("should set Ready status based on ControlPlaneReady condition", func() {
+			It("should set Ready status based on ControlPlaneAvailable condition", func() {
 				src := &controlplanev1alpha3.OpenshiftAssistedControlPlane{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "test-cp",
@@ -560,7 +560,7 @@ var _ = Describe("OpenshiftAssistedControlPlane", func() {
 					Status: controlplanev1alpha3.OpenshiftAssistedControlPlaneStatus{
 						Conditions: []metav1.Condition{
 							{
-								Type:               string(ControlPlaneReadyCondition),
+								Type:               string(ControlPlaneAvailableCondition),
 								Status:             metav1.ConditionTrue,
 								LastTransitionTime: testTime,
 								Reason:             "Ready",
@@ -573,11 +573,11 @@ var _ = Describe("OpenshiftAssistedControlPlane", func() {
 				dst := &OpenshiftAssistedControlPlane{}
 				Expect(dst.ConvertFrom(src)).To(Succeed())
 
-				// Ready should be derived from ControlPlaneReady condition
+				// Ready should be derived from ControlPlaneAvailable condition
 				Expect(dst.Status.Ready).To(BeTrue())
 			})
 
-			It("should not set Ready when ControlPlaneReady is false", func() {
+			It("should not set Ready when ControlPlaneAvailable is false", func() {
 				src := &controlplanev1alpha3.OpenshiftAssistedControlPlane{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "test-cp",
@@ -597,7 +597,7 @@ var _ = Describe("OpenshiftAssistedControlPlane", func() {
 					Status: controlplanev1alpha3.OpenshiftAssistedControlPlaneStatus{
 						Conditions: []metav1.Condition{
 							{
-								Type:               string(ControlPlaneReadyCondition),
+								Type:               string(ControlPlaneAvailableCondition),
 								Status:             metav1.ConditionFalse,
 								LastTransitionTime: testTime,
 								Reason:             "NotReady",
@@ -639,7 +639,7 @@ var _ = Describe("OpenshiftAssistedControlPlane", func() {
 						Replicas:    3,
 						Conditions: clusterv1beta1.Conditions{
 							{
-								Type:               ControlPlaneReadyCondition,
+								Type:               ControlPlaneAvailableCondition,
 								Status:             corev1.ConditionTrue,
 								LastTransitionTime: testTime,
 								Reason:             "AllReady",
@@ -683,12 +683,12 @@ var _ = Describe("OpenshiftAssistedControlPlane", func() {
 					conditionTypes[c.Type] = c
 				}
 
-				Expect(conditionTypes).To(HaveKey(ControlPlaneReadyCondition))
+				Expect(conditionTypes).To(HaveKey(ControlPlaneAvailableCondition))
 				Expect(conditionTypes).To(HaveKey(clusterv1beta1.ConditionType("MachinesReady")))
 				Expect(conditionTypes).To(HaveKey(clusterv1beta1.ConditionType("UpgradeCompleted")))
 
 				// Verify specific condition values
-				cpReady := conditionTypes[ControlPlaneReadyCondition]
+				cpReady := conditionTypes[ControlPlaneAvailableCondition]
 				Expect(cpReady.Status).To(Equal(corev1.ConditionTrue))
 				Expect(cpReady.Reason).To(Equal("AllReady"))
 				Expect(cpReady.Message).To(Equal("Control plane is fully operational"))

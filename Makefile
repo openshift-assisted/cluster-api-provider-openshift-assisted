@@ -200,9 +200,9 @@ generate-dockerfiles: generate-dockerfile-bootstrap generate-dockerfile-controlp
 generate-dockerfile-bootstrap:
 	jinja2 Dockerfile.j2 -D provider=bootstrap > Dockerfile.bootstrap-provider
 
-.PHONY: generate-dockerfile-bootstrap
+.PHONY: generate-dockerfile-controlplane
 generate-dockerfile-controlplane:
-	jinja2 Dockerfile.j2 -D provider=controlplane > Dockerfile.controlplane-provider
+	jinja2 Dockerfile.j2 -D provider=control-plane > Dockerfile.controlplane-provider
 
 .PHONY: build-installer
 build-installer:

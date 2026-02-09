@@ -1,5 +1,6 @@
 # Build the manager binary
 FROM registry.access.redhat.com/ubi9/go-toolset:1.25 AS builder
+
 ARG TARGETOS
 ARG TARGETARCH
 
@@ -11,36 +12,44 @@ COPY go.sum go.sum
 COPY vendor vendor
 
 # Copy the go source
-COPY {{ provider }}/main.go {{ provider }}/main.go
+COPY {{ provider | replace('-', '') }}/main.go {{ provider | replace('-', '') }}/main.go
 COPY bootstrap/api/ bootstrap/api/
 COPY controlplane/api/ controlplane/api/
 COPY util util
 COPY pkg pkg
 COPY assistedinstaller assistedinstaller
-COPY {{ provider }}/internal/ {{ provider }}/internal/
+COPY {{ provider | replace('-', '') }}/internal/ {{ provider | replace('-', '') }}/internal/
 
 # Build
 # the GOARCH has not a default value to allow the binary be built according to the host where the command
 # was called. For example, if we call make docker-build in a local env which has the Apple Silicon M1 SO
 # the docker BUILDPLATFORM arg will be linux/arm64 when for Apple x86 it will be linux/amd64. Therefore,
 # by leaving it empty we can ensure that the container and binary shipped on it will have the same platform.
-RUN CGO_ENABLED=1 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64} go build -mod=vendor -a -o manager {{ provider }}/main.go
+RUN CGO_ENABLED=1 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64} go build -mod=vendor -a -o manager {{ provider | replace('-', '') }}/main.go
 
-FROM registry.access.redhat.com/ubi9/ubi-minimal:latest
+FROM registry.access.redhat.com/ubi9/ubi-minimal:latest@sha256:6fc28bcb6776e387d7a35a2056d9d2b985dc4e26031e98a2bd35a7137cd6fd71
+ARG release=main
+ARG version=latest
+
 WORKDIR /
 COPY --from=builder /opt/app-root/src/manager .
 USER 65532:65532
 
-ENV SUMMARY="Cluster API {{ provider | capitalize }} Provider OpenShift Assisted is a CAPI {{ provider }} provider for provisioning OpenShift clusters" \
-    DESCRIPTION="Cluster API {{ provider | capitalize  }} Provider OpenShift Assisted orchestrates cluster provisioning leveraging Assisted Installer"
+ENV SUMMARY="Cluster API {{ provider | title }} Provider OpenShift Assisted is a CAPI {{ provider }} provider for provisioning OpenShift clusters" \
+    DESCRIPTION="Cluster API {{ provider | title  }} Provider OpenShift Assisted orchestrates cluster provisioning leveraging Assisted Installer"
 
 LABEL name="multicluster-engine/capoa-{{ provider }}-rhel9" \
       cpe="cpe:/a:redhat:multicluster_engine:2.10::el9" \
       summary="${SUMMARY}" \
       description="${DESCRIPTION}" \
       com.redhat.component="cluster-api-{{ provider }}-provider-openshift-assisted" \
-      io.k8s.display-name="CAPI {{ provider | capitalize  }} Provider OpenShift Assisted" \
+      io.k8s.display-name="CAPI {{ provider | title  }} Provider OpenShift Assisted" \
       io.k8s.description="${DESCRIPTION}" \
-      io.openshift.tags="capi,install,cluster,provisioning,{{ provider }}"
+      io.openshift.tags="capi,install,cluster,provisioning,{{ provider }}" \
+      distribution-scope="public" \
+      release="${release}" \
+      version="${version}" \
+      url="https://github.com/openshift-assisted/cluster-api-provider-openshift-assisted" \
+      vendor="Red Hat, Inc."
 
 ENTRYPOINT ["/manager"]

@@ -122,7 +122,7 @@ func (r *OpenshiftAssistedControlPlaneReconciler) Reconcile(ctx context.Context,
 			conditions.ForConditionTypes{
 				string(clusterv1.MachinesReadyCondition),
 				string(controlplanev1alpha3.KubeconfigAvailableCondition),
-				string(controlplanev1alpha3.ControlPlaneReadyCondition),
+				string(controlplanev1alpha3.ControlPlaneAvailableCondition),
 				string(controlplanev1alpha3.MachinesCreatedCondition),
 			},
 		)

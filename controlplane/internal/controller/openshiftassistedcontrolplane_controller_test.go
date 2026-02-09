@@ -183,16 +183,16 @@ var _ = Describe("OpenshiftAssistedControlPlane Controller", func() {
 						*metav1.NewControllerRef(cluster, clusterv1.GroupVersion.WithKind(clusterv1.ClusterKind)),
 					},
 				)
-				// Simulate AgentClusterInstall marking KubeconfigAvailableCondition and ControlPlaneReadyCondition
+				// Simulate AgentClusterInstall marking KubeconfigAvailableCondition and ControlPlaneAvailableCondition
 				conditions.Set(openshiftAssistedControlPlane, metav1.Condition{
 					Type:   string(controlplanev1alpha3.KubeconfigAvailableCondition),
 					Status: metav1.ConditionTrue,
 					Reason: string(controlplanev1alpha3.KubeconfigAvailableCondition),
 				})
 				conditions.Set(openshiftAssistedControlPlane, metav1.Condition{
-					Type:   string(controlplanev1alpha3.ControlPlaneReadyCondition),
+					Type:   string(controlplanev1alpha3.ControlPlaneAvailableCondition),
 					Status: metav1.ConditionTrue,
-					Reason: string(controlplanev1alpha3.ControlPlaneReadyCondition),
+					Reason: string(controlplanev1alpha3.ControlPlaneAvailableCondition),
 				})
 
 				Expect(k8sClient.Create(ctx, openshiftAssistedControlPlane)).To(Succeed())
@@ -390,9 +390,9 @@ var _ = Describe("Upgrade scenarios", func() {
 			Reason: string(controlplanev1alpha3.KubeconfigAvailableCondition),
 		})
 		conditions.Set(openshiftAssistedControlPlane, metav1.Condition{
-			Type:   string(controlplanev1alpha3.ControlPlaneReadyCondition),
+			Type:   string(controlplanev1alpha3.ControlPlaneAvailableCondition),
 			Status: metav1.ConditionTrue,
-			Reason: string(controlplanev1alpha3.ControlPlaneReadyCondition),
+			Reason: string(controlplanev1alpha3.ControlPlaneAvailableCondition),
 		})
 		Expect(k8sClient.Create(ctx, openshiftAssistedControlPlane)).To(Succeed())
 	})

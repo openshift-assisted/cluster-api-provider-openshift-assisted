@@ -3,8 +3,8 @@ package v1alpha3
 import clusterv1beta2 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 
 const (
-	// ControlPlaneReadyCondition documents that the OpenshiftAssistedControlPlane is ready.
-	ControlPlaneReadyCondition clusterv1beta2.ConditionType = "ControlPlaneReady"
+	// ControlPlaneAvailableCondition documents that the OpenshiftAssistedControlPlane is available.
+	ControlPlaneAvailableCondition clusterv1beta2.ConditionType = "Available"
 
 	// KubeconfigAvailableCondition documents that the kubeconfig for the workload cluster is available.
 	KubeconfigAvailableCondition clusterv1beta2.ConditionType = "KubeconfigAvailable"

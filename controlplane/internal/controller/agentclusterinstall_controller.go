@@ -74,13 +74,13 @@ func (r *AgentClusterInstallReconciler) Reconcile(ctx context.Context, req ctrl.
 		return ctrl.Result{}, err
 	}
 
-	// Check if AgentClusterInstall has moved to day 2 aka control plane is installed
-	if isInstalled(aci) {
+	// Check if AgentClusterInstall has reached finalizing or day 2 (adding-hosts) state
+	if isAvailable(aci) {
 		oacp.Status.Initialization.ControlPlaneInitialized = ptr.To(true)
-		setConditionTrue(&oacp, controlplanev1alpha3.ControlPlaneReadyCondition)
+		setConditionTrue(&oacp, controlplanev1alpha3.ControlPlaneAvailableCondition)
 		return ctrl.Result{}, r.updateControlplaneStatus(ctx, &oacp)
 	}
-	setConditionFalse(&oacp, controlplanev1alpha3.ControlPlaneReadyCondition,
+	setConditionFalse(&oacp, controlplanev1alpha3.ControlPlaneAvailableCondition,
 		controlplanev1alpha3.ControlPlaneInstallingReason,
 		"Controlplane installing, status: %s", aci.Status.DebugInfo.State)
 	return ctrl.Result{}, r.updateControlplaneStatus(ctx, &oacp)
@@ -200,8 +200,9 @@ func hasKubeconfigRef(aci *hiveext.AgentClusterInstall) bool {
 	return aci.Spec.ClusterMetadata != nil && aci.Spec.ClusterMetadata.AdminKubeconfigSecretRef.Name != ""
 }
 
-func isInstalled(aci *hiveext.AgentClusterInstall) bool {
-	return aci.Status.DebugInfo.State == aimodels.ClusterStatusAddingHosts
+func isAvailable(aci *hiveext.AgentClusterInstall) bool {
+	state := aci.Status.DebugInfo.State
+	return state == aimodels.ClusterStatusFinalizing || state == aimodels.ClusterStatusAddingHosts
 }
 
 func (r *AgentClusterInstallReconciler) ClusterKubeconfigSecretExists(

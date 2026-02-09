@@ -1,5 +1,6 @@
 # Build the manager binary
 FROM registry.access.redhat.com/ubi9/go-toolset:1.25 AS builder
+
 ARG TARGETOS
 ARG TARGETARCH
 
@@ -8,7 +9,6 @@ WORKDIR /opt/app-root/src
 # Copy the Go Modules manifests
 COPY go.mod go.mod
 COPY go.sum go.sum
-
 COPY vendor vendor
 
 # Copy the go source
@@ -27,30 +27,29 @@ COPY controlplane/internal/ controlplane/internal/
 # by leaving it empty we can ensure that the container and binary shipped on it will have the same platform.
 RUN CGO_ENABLED=1 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64} go build -mod=vendor -a -o manager controlplane/main.go
 
-FROM registry.access.redhat.com/ubi9/ubi-minimal:latest
+FROM registry.access.redhat.com/ubi9/ubi-minimal:latest@sha256:6fc28bcb6776e387d7a35a2056d9d2b985dc4e26031e98a2bd35a7137cd6fd71
 ARG release=main
 ARG version=latest
 
-ENV SUMMARY="The OpenShift Assisted controlplane provider for use when installing OpenShift using CAPI" \
-    DESCRIPTION="The OpenShift Assisted controlplane provider implements the CAPI controlplane provider contract and allows installing OpenShift by integrating with Assisted Installer"
+WORKDIR /
+COPY --from=builder /opt/app-root/src/manager .
+USER 65532:65532
 
+ENV SUMMARY="Cluster API Control-Plane Provider OpenShift Assisted is a CAPI control-plane provider for provisioning OpenShift clusters" \
+    DESCRIPTION="Cluster API Control-Plane Provider OpenShift Assisted orchestrates cluster provisioning leveraging Assisted Installer"
 
-LABEL name="multicluster-engine/capoa-controlplane-rhel9" \
+LABEL name="multicluster-engine/capoa-control-plane-rhel9" \
+      cpe="cpe:/a:redhat:multicluster_engine:2.9::el9" \
       summary="${SUMMARY}" \
       description="${DESCRIPTION}" \
-      cpe="cpe:/a:redhat:multicluster_engine:2.9::el9" \
-      com.redhat.component="cluster-api-provider-openshift-assisted-controlplane" \
-      io.k8s.display-name="OpenShift Assisted cluster API controlplane provider" \
+      com.redhat.component="cluster-api-control-plane-provider-openshift-assisted" \
+      io.k8s.display-name="CAPI Control-Plane Provider OpenShift Assisted" \
       io.k8s.description="${DESCRIPTION}" \
-      io.openshift.tags="install,cluster,provisioning" \
+      io.openshift.tags="capi,install,cluster,provisioning,control-plane" \
       distribution-scope="public" \
       release="${release}" \
       version="${version}" \
       url="https://github.com/openshift-assisted/cluster-api-provider-openshift-assisted" \
       vendor="Red Hat, Inc."
-
-WORKDIR /
-COPY --from=builder /opt/app-root/src/manager .
-USER 65532:65532
 
 ENTRYPOINT ["/manager"]

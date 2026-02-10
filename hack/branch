@@ -65,9 +65,18 @@ else
 fi
 
 next_branch="backplane-${next_version}"
-pr_branch="ffwd_${next_branch}"
+pr_branch="mce-cutoff-${next_branch}"
 
 if [[ "${CI:-}" != "true" ]]; then
+    git checkout master
+
+    git checkout -b "${next_branch}"
+    read -p "Create (push) branch ${next_branch}? (y/n)? " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        git push upstream "${next_branch}"
+    fi
+
     git checkout master
     git checkout -b "${pr_branch}"
 fi
@@ -138,22 +147,16 @@ git add "${SYNC_BRANCH_FILE}"
 
 if [[ "${CI:-}" == "true" ]]; then
     if git commit -m "Prepare release branch ${next_branch} with updated Tekton YAML, sync-branch.yaml and renovate.json"; then
-        git push origin "${next_branch}"
+        echo "Changes committed successfully"
     else
-        echo "No changes to commit on release branch"
+        echo "No changes to commit"
     fi
 else
     git commit -s -m "create ffwd branch ${next_branch}, freeze ${freeze_branch}"
 
     read -p "Push changes to ${pr_branch} (y/n)? " -n 1 -r
+    echo
     if [[ $REPLY =~ ^[Yy]$ ]]; then
         git push origin "${pr_branch}"
-    fi
-
-    # branch out the new branch
-    git checkout -b "${next_branch}"
-    read -p "Create (push) branch ${next_branch}? (y/n)? " -n 1 -r
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        git push upstream "${next_branch}"
     fi
 fi

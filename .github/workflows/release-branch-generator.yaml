@@ -78,7 +78,7 @@ jobs:
           
           echo "NEXT_VERSION=${NEXT_VERSION}" >> $GITHUB_ENV
 
-      - name: Create new branch
+      - name: Create release branch (clean copy of master)
         run: |
           NEXT_BRANCH="backplane-${NEXT_VERSION}"
           git checkout master
@@ -93,8 +93,14 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ steps.generate_token.outputs.token }}
 
-      - name: Update Tekton YAML files, sync-branch.yaml and renovate.json
-        run: ./hack/branch "${NEXT_VERSION}" "${FREEZE_VERSION}"
+      - name: Create working branch and update files
+        run: |
+          NEXT_BRANCH="backplane-${NEXT_VERSION}"
+          PR_BRANCH="mce-cutoff-${NEXT_BRANCH}"
+          git checkout master
+          git checkout -B "${PR_BRANCH}"
+          ./hack/branch "${NEXT_VERSION}" "${FREEZE_VERSION}"
+          git push origin "${PR_BRANCH}" --force
         env:
           CI: "true"
           GITHUB_TOKEN: ${{ steps.generate_token.outputs.token }}
@@ -102,11 +108,12 @@ jobs:
       - name: Create Pull Request
         run: |
           NEXT_BRANCH="backplane-${NEXT_VERSION}"
+          PR_BRANCH="mce-cutoff-${NEXT_BRANCH}"
 
-          PR_NUMBER=$(gh pr list --head "${NEXT_BRANCH}" --json number -q '.[0].number')
+          PR_NUMBER=$(gh pr list --head "${PR_BRANCH}" --json number -q '.[0].number')
           if [ -z "$PR_NUMBER" ]; then
             gh pr create \
-              --head "${NEXT_BRANCH}" \
+              --head "${PR_BRANCH}" \
               --base master \
               --title "Release ${NEXT_BRANCH}" \
               --body "Automated PR for release branch ${NEXT_BRANCH}. Freezing backplane-${FREEZE_VERSION}."

@@ -58,6 +58,8 @@ The following environment variables must be set before running the playbook:
 - `INSTALLATION_MODE`: `downstream` or `upstream` - selects which image manifest to use (default: "downstream")
 - `GITHUB_TOKEN`: GitHub Personal Access Token for accessing private upstream manifest (required for upstream mode)
 - `MCE_REGISTRY_OVERRIDE`: Override the image registry for downstream mode (default: "quay.io/acm-d")
+- `CAPI_STANDALONE`: When `true` and using MCE, installs CAPI via clusterctl instead of MCE (default: "false")
+- `CAPM3_STANDALONE`: When `true` and using MCE, installs CAPM3 via clusterctl instead of MCE (default: "false")
 
 ### Example Environment Setup
 
@@ -263,6 +265,26 @@ The following components are still installed separately (same as standard mode):
 - MetalLB
 - nginx-ingress
 - kube-prometheus (MCE mode only)
+
+### Standalone Components with MCE
+
+When using MCE mode (`USE_MCE_CHART=true`), you can optionally install CAPI and/or CAPM3 as standalone components via clusterctl instead of through MCE. This is useful for testing specific versions or custom builds of these components.
+
+```bash
+# Use MCE but install CAPI standalone via clusterctl
+USE_MCE_CHART=true CAPI_STANDALONE=true make e2e-test
+
+# Use MCE but install CAPM3 standalone via clusterctl
+USE_MCE_CHART=true CAPM3_STANDALONE=true make e2e-test
+
+# Use MCE but install both CAPI and CAPM3 standalone
+USE_MCE_CHART=true CAPI_STANDALONE=true CAPM3_STANDALONE=true make e2e-test
+```
+
+When standalone mode is enabled:
+- The component is disabled in the MCE MultiClusterEngine CR
+- The component is installed via `clusterctl` using the versions specified by `CAPI_VERSION` and `CAPM3_VERSION`
+- CAPOA (bootstrap and control plane providers) are still installed via MCE
 
 ### Registry Override
 

@@ -1,0 +1,22 @@
+# Configuration for kustomize name reference transformer
+# Ensures ClusterRoleBinding roleRef.name gets updated when ClusterRole is renamed
+nameReference:
+  - kind: ClusterRole
+    fieldSpecs:
+      - kind: ClusterRoleBinding
+        path: roleRef/name
+      - kind: RoleBinding
+        path: roleRef/name
+
+  - kind: Role
+    fieldSpecs:
+      - kind: RoleBinding
+        path: roleRef/name
+
+  - kind: ServiceAccount
+    fieldSpecs:
+      - kind: ClusterRoleBinding
+        path: subjects/name
+      - kind: RoleBinding
+        path: subjects/name
+

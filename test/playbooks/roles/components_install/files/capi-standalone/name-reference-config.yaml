@@ -1,0 +1,65 @@
+# Configuration for kustomize name reference transformer
+# Ensures all cross-references are updated when resources are renamed
+
+nameReference:
+  # ClusterRole references in bindings
+  - kind: ClusterRole
+    fieldSpecs:
+      - kind: ClusterRoleBinding
+        path: roleRef/name
+      - kind: RoleBinding
+        path: roleRef/name
+
+  # Role references in bindings
+  - kind: Role
+    fieldSpecs:
+      - kind: RoleBinding
+        path: roleRef/name
+
+  # ServiceAccount references
+  - kind: ServiceAccount
+    fieldSpecs:
+      - kind: ClusterRoleBinding
+        path: subjects/name
+      - kind: RoleBinding
+        path: subjects/name
+      - kind: Deployment
+        path: spec/template/spec/serviceAccountName
+      - kind: Pod
+        path: spec/serviceAccountName
+
+  # Secret references in volumes
+  - kind: Secret
+    fieldSpecs:
+      - kind: Deployment
+        path: spec/template/spec/volumes/secret/secretName
+      - kind: Pod
+        path: spec/volumes/secret/secretName
+      - kind: Deployment
+        path: spec/template/spec/containers/env/valueFrom/secretKeyRef/name
+      - kind: Deployment
+        path: spec/template/spec/initContainers/env/valueFrom/secretKeyRef/name
+
+  # ConfigMap references in volumes
+  - kind: ConfigMap
+    fieldSpecs:
+      - kind: Deployment
+        path: spec/template/spec/volumes/configMap/name
+      - kind: Pod
+        path: spec/volumes/configMap/name
+
+  # Service references (for webhooks)
+  - kind: Service
+    fieldSpecs:
+      - kind: MutatingWebhookConfiguration
+        path: webhooks/clientConfig/service/name
+      - kind: ValidatingWebhookConfiguration
+        path: webhooks/clientConfig/service/name
+      - kind: APIService
+        path: spec/service/name
+
+  # Certificate references (cert-manager)
+  - kind: Certificate
+    fieldSpecs:
+      - kind: Issuer
+        path: spec/ca/secretName

@@ -14,8 +14,8 @@
 
 components:
   assisted_service: true
-  cluster_api: true
-  cluster_api_provider_metal3_preview: true
+  cluster_api: {{ 'false' if capi_standalone else 'true' }}
+  cluster_api_provider_metal3_preview: {{ 'false' if capm3_standalone else 'true' }}
   cluster_api_provider_openshift_assisted_preview: true
   cluster_lifecycle: false
   cluster_manager: true
@@ -29,6 +29,13 @@ components:
   local_cluster: false
   managedserviceaccount: false
   server_foundation: false
+
+{% if capi_standalone %}
+# CAPI will be installed standalone via clusterctl
+{% endif %}
+{% if capm3_standalone %}
+# CAPM3 will be installed standalone via clusterctl
+{% endif %}
 
 {% set backplane_op = mce_images | selectattr('image-key', 'equalto', 'backplane_operator') | first %}
 {% if mce_image_overrides.backplane_operator %}

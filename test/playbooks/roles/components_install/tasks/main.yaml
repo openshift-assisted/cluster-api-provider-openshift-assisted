@@ -1,20 +1,35 @@
 ---
 # Components installation entry point
 # Conditionally uses MCE Helm chart or standard installation based on USE_MCE_CHART env var
+#
+# When skip_capi_install=true:
+#   - Installs common dependencies (cert-manager, prometheus, ironic, BMO, MetalLB, nginx-ingress)
+#   - Skips CAPI/MCE component installation
+#
+# When skip_capi_install=false (default):
+#   - Installs common dependencies
+#   - Installs CAPI components via standard method or MCE chart
 
 - name: Display installation mode
   ansible.builtin.debug:
-    msg: "Installing components with MCE chart: {{ use_mce_chart }}, Mode: {{ installation_mode }}"
+    msg: "Installing components - MCE chart: {{ use_mce_chart }}, Mode: {{ installation_mode }}, Skip CAPI install: {{ skip_capi_install }}"
 
-# Install common components (cert-manager, ironic, BMO, MetalLB, nginx-ingress)
+# Install common components (cert-manager, prometheus, ironic, BMO, MetalLB, nginx-ingress)
+# This always runs
 - name: Install common components
   ansible.builtin.include_tasks: common.yaml
 
-# Conditionally install CAPI components
+# Skip CAPI/MCE installation if skip_capi_install is true
+- name: Skip CAPI installation (manual MCE deployment mode)
+  ansible.builtin.debug:
+    msg: "Skipping CAPI/MCE installation - skip_capi_install enabled. Deploy MCE manually with helm."
+  when: skip_capi_install
+
+# Conditionally install CAPI components (only when not skip_capi_install)
 - name: Install CAPI components via standard method
   ansible.builtin.include_tasks: capi_standard.yaml
-  when: not use_mce_chart
+  when: not skip_capi_install and not use_mce_chart
 
 - name: Install CAPI components via MCE chart
   ansible.builtin.include_tasks: capi_mce.yaml
-  when: use_mce_chart
+  when: not skip_capi_install and use_mce_chart

@@ -1,0 +1,67 @@
+# Kustomization for standalone CAPI installation
+# Renames ALL resources to avoid conflicts with MCE-managed CAPI
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Use a different namespace
+namespace: capi-standalone
+
+# Prefix ALL resource names to avoid MCE conflicts
+namePrefix: standalone-
+
+resources:
+  - base-manifests.yaml
+
+# Transform labels to identify standalone resources
+commonLabels:
+  capi-standalone: "true"
+
+# Enable built-in transformers to update references
+configurations:
+  - name-reference-config.yaml
+
+# Patches for cert-manager and namespace references
+patches:
+  # Fix Certificate to reference the prefixed Issuer name and update dnsNames
+  - target:
+      kind: Certificate
+      name: capi-serving-cert
+    patch: |-
+      - op: replace
+        path: /spec/issuerRef/name
+        value: standalone-capi-selfsigned-issuer
+      - op: replace
+        path: /spec/dnsNames
+        value:
+          - standalone-capi-webhook-service.capi-standalone.svc
+          - standalone-capi-webhook-service.capi-standalone.svc.cluster.local
+
+  # Update webhook configurations - namespace and cert-manager CA injection annotation
+  - target:
+      kind: MutatingWebhookConfiguration
+    patch: |-
+      - op: replace
+        path: /metadata/annotations/cert-manager.io~1inject-ca-from
+        value: capi-standalone/standalone-capi-serving-cert
+      - op: replace
+        path: /webhooks/0/clientConfig/service/namespace
+        value: capi-standalone
+
+  - target:
+      kind: ValidatingWebhookConfiguration
+    patch: |-
+      - op: replace
+        path: /metadata/annotations/cert-manager.io~1inject-ca-from
+        value: capi-standalone/standalone-capi-serving-cert
+      - op: replace
+        path: /webhooks/0/clientConfig/service/namespace
+        value: capi-standalone
+
+  # Update CRD conversion webhook cert-manager annotation
+  - target:
+      kind: CustomResourceDefinition
+      annotationSelector: cert-manager.io/inject-ca-from
+    patch: |-
+      - op: replace
+        path: /metadata/annotations/cert-manager.io~1inject-ca-from
+        value: capi-standalone/standalone-capi-serving-cert

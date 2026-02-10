@@ -1,4 +1,25 @@
 ---
+# Setup and run tests playbook
+#
+# Environment variables for conditional execution:
+#   SKIP_BUILD=true        - Skip building provider images
+#   SKIP_CAPI_INSTALL=true - Skip CAPI/MCE component installation (dependencies still installed)
+#   SKIP_CLUSTER=true      - Skip cluster manifest application and assertions
+#
+# Examples:
+#   # Full test run (default)
+#   ansible-playbook -i inventories/local_host.yaml run_test.yaml
+#
+#   # Skip image build (use pre-built images)
+#   SKIP_BUILD=true ansible-playbook -i inventories/local_host.yaml run_test.yaml
+#
+#   # Demo mode: setup everything for manual MCE deployment and cluster provisioning
+#   # (infra, dependencies, BMH setup - but skip CAPI install and cluster provisioning)
+#   SKIP_BUILD=true SKIP_CAPI_INSTALL=true SKIP_CLUSTER=true ansible-playbook -i inventories/local_host.yaml run_test.yaml
+#
+#   # Deploy components but skip cluster provisioning
+#   SKIP_CLUSTER=true ansible-playbook -i inventories/local_host.yaml run_test.yaml
+
 - name: Setup and run tests
   hosts: test_runner
   vars:
@@ -40,18 +61,32 @@
     openshift_version: "4.20.0"
     rhcos_image_url: "https://mirror.openshift.com/pub/openshift-v4/dependencies/rhcos/4.20/4.20.0/rhcos-4.20.0-x86_64-nutanix.x86_64.qcow2"
     rhcos_checksum_url: https://mirror.openshift.com/pub/openshift-v4/dependencies/rhcos/4.20/4.20.0/sha256sum.txt
+    # Conditional execution flags
+    skip_build: "{{ lookup('ansible.builtin.env', 'SKIP_BUILD', default='false') | lower in ['true', '1', 'yes'] }}"
+    skip_capi_install: "{{ lookup('ansible.builtin.env', 'SKIP_CAPI_INSTALL', default='false') | lower in ['true', '1', 'yes'] }}"
+    skip_cluster: "{{ lookup('ansible.builtin.env', 'SKIP_CLUSTER', default='false') | lower in ['true', '1', 'yes'] }}"
   environment:
     PATH: "{{ extra_paths | join(':') }}:{{ ansible_env.PATH }}"
   roles:
+    # Infrastructure setup (always runs)
     - system_dependencies
     - sourcecode_setup
     - network_setup
     - baremetal_emulation
     - kind_setup
-    - build_images
+    # Build provider images (skip if skip_build)
+    - role: build_images
+      when: not skip_build
+    # Components install - always runs, but respects skip_capi_install internally
+    # Always installs dependencies (cert-manager, prometheus, ironic, BMO, MetalLB, nginx)
+    # Skips CAPI/MCE components if skip_capi_install=true
     - components_install
+    # BMH setup (always runs - needed for demo and full test)
     - bmh_setup
-    - cluster_install
-    - assert_install
+    # Cluster provisioning (skip if skip_cluster)
+    - role: cluster_install
+      when: not skip_cluster
+    - role: assert_install
+      when: not skip_cluster
     - role: assert_upgrade
-      when: "upgrade_to_version is defined"
+      when: not skip_cluster and upgrade_to_version is defined

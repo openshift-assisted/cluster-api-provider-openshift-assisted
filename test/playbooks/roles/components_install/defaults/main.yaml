@@ -1,7 +1,15 @@
 ---
+# Skip CAPI/MCE component installation - install dependencies only
+skip_capi_install: "{{ lookup('ansible.builtin.env', 'SKIP_CAPI_INSTALL', default='false') | lower in ['true', '1', 'yes'] }}"
+
 # MCE installation settings
 use_mce_chart: "{{ lookup('ansible.builtin.env', 'USE_MCE_CHART', default='false') | lower in ['true', '1', 'yes'] }}"
 installation_mode: "{{ lookup('ansible.builtin.env', 'INSTALLATION_MODE', default='downstream') }}"
+
+# Standalone component installation (only relevant when USE_MCE_CHART=true)
+# When true, the component is installed via clusterctl instead of MCE
+capi_standalone: "{{ lookup('ansible.builtin.env', 'CAPI_STANDALONE', default='false') | lower in ['true', '1', 'yes'] }}"
+capm3_standalone: "{{ lookup('ansible.builtin.env', 'CAPM3_STANDALONE', default='false') | lower in ['true', '1', 'yes'] }}"
 
 # GitHub token for accessing private repos (upstream manifest)
 # Can be set via GITHUB_TOKEN env var or will try to get from 'gh' CLI
@@ -67,4 +75,3 @@ mce_required_images:
   - ose_baremetal_cluster_api_controllers_rhel9
   - ose_cluster_api_rhel9
   - postgresql_13
-

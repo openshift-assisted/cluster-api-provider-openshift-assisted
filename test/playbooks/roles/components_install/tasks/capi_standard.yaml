@@ -97,4 +97,3 @@
     definition: "{{ lookup('kubernetes.core.kustomize', dir=playbook_dir + '/../../test/e2e/manifests/capcoa') }}"
     state: present
     apply: true
-

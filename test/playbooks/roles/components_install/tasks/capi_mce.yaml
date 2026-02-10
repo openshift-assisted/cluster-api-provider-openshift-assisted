@@ -1,46 +1,11 @@
 ---
 # MCE-based CAPI installation
 # Installs: InfrastructureOperator, CAPI, CAPOA, CAPM3 via MCE Helm chart
-
-- name: Check if Helm is installed
-  ansible.builtin.command: which helm
-  register: helm_check
-  failed_when: false
-  changed_when: false
-
-- name: Download Helm
-  ansible.builtin.get_url:
-    url: "https://get.helm.sh/helm-{{ helm_version }}-linux-amd64.tar.gz"
-    dest: /tmp/helm.tar.gz
-    mode: '0644'
-  when: helm_check.rc != 0
-
-- name: Extract Helm
-  ansible.builtin.unarchive:
-    src: /tmp/helm.tar.gz
-    dest: /tmp
-    remote_src: true
-  when: helm_check.rc != 0
-
-- name: Install Helm
-  ansible.builtin.copy:
-    src: /tmp/linux-amd64/helm
-    dest: /usr/local/bin/helm
-    mode: '0755'
-    remote_src: true
-  when: helm_check.rc != 0
-
-- name: Install kube-prometheus (required by MCE)
-  ansible.builtin.command: >
-    helm install kube-prometheus oci://ghcr.io/prometheus-community/charts/kube-prometheus-stack
-    --set prometheus.prometheusSpec.maximumStartupDurationSeconds=300
-    --namespace monitoring
-    --create-namespace
-    --wait
-    --timeout 10m
-  changed_when: true
-  register: prometheus_install
-  failed_when: prometheus_install.rc != 0 and 'already exists' not in prometheus_install.stderr
+#
+# Prerequisites (installed by common.yaml):
+# - cert-manager
+# - kube-prometheus-stack
+# - helm
 
 - name: Try to get GitHub token from gh CLI on localhost
   ansible.builtin.command: gh auth token
@@ -115,11 +80,13 @@
 
 - name: Install MCE CRDs
   ansible.builtin.shell: |
+    set -o pipefail
     helm show crds {{ mce_chart_path }} | kubectl apply -f -
   changed_when: true
 
 - name: Install MCE chart via helm template
   ansible.builtin.shell: |
+    set -o pipefail
     helm template mce --namespace {{ mce_namespace }} \
       --values /tmp/mce-values.yaml \
       {{ mce_chart_path }} | kubectl -n {{ mce_namespace }} apply -f -
@@ -142,10 +109,10 @@
               enabled: true
               configOverrides: {}
             - name: cluster-api
-              enabled: true
+              enabled: "{{ not capi_standalone }}"
               configOverrides: {}
             - name: cluster-api-provider-metal3-preview
-              enabled: true
+              enabled: "{{ not capm3_standalone }}"
               configOverrides: {}
             - name: cluster-api-provider-openshift-assisted-preview
               enabled: true
@@ -250,7 +217,7 @@
   retries: "{{ high_retries | int }}"
   delay: "{{ medium_delay | int }}"
 
-- name: Wait for CAPI controller
+- name: Wait for CAPI controller (MCE)
   kubernetes.core.k8s_info:
     api_version: apps/v1
     kind: Deployment
@@ -268,4 +235,156 @@
     length > 0
   retries: "{{ high_retries | int }}"
   delay: "{{ medium_delay | int }}"
+  when: not capi_standalone
 
+# Standalone CAPI/CAPM3 installation (when not using MCE for these components)
+# This happens AFTER MCE is fully deployed and reconciled
+
+- name: Install clusterctl for standalone components
+  ansible.builtin.get_url:
+    url: "https://github.com/kubernetes-sigs/cluster-api/releases/download/{{ capi_version }}/clusterctl-linux-amd64"
+    dest: /usr/local/bin/clusterctl
+    mode: '0755'
+  when: capi_standalone or capm3_standalone
+
+- name: Wait for MCE to fully stabilize before standalone installation
+  ansible.builtin.pause:
+    seconds: 30
+    prompt: "Waiting for MCE to fully stabilize before standalone CAPI/CAPM3 installation..."
+  when: capi_standalone or capm3_standalone
+
+- name: Check for MCE-installed CAPI CRDs
+  ansible.builtin.command: kubectl get crds -o name
+  register: all_crds
+  changed_when: false
+  when: capi_standalone or capm3_standalone
+
+- name: Debug existing CAPI CRDs
+  ansible.builtin.debug:
+    msg: "Existing CAPI CRDs: {{ all_crds.stdout_lines | select('search', 'cluster.x-k8s.io') | list }}"
+  when: capi_standalone or capm3_standalone
+
+# Standalone CAPI/CAPM3 installation using kustomize to rename ALL resources
+# This prevents MCE from removing resources it thinks it should control
+
+- name: Set manifests path (use /tmp for remote execution)
+  ansible.builtin.set_fact:
+    capi_manifests_path: "/tmp/capi-standalone"
+    capm3_manifests_path: "/tmp/capm3-standalone"
+  when: capi_standalone or capm3_standalone
+
+- name: Ensure CAPI standalone manifests directory exists
+  ansible.builtin.file:
+    path: "{{ capi_manifests_path }}"
+    state: directory
+    mode: '0755'
+  when: capi_standalone
+
+- name: Copy CAPI kustomization files
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "{{ capi_manifests_path }}/"
+    mode: '0644'
+  loop:
+    - capi-standalone/kustomization.yaml
+    - capi-standalone/name-reference-config.yaml
+  when: capi_standalone
+
+- name: Ensure CAPM3 standalone manifests directory exists
+  ansible.builtin.file:
+    path: "{{ capm3_manifests_path }}"
+    state: directory
+    mode: '0755'
+  when: capm3_standalone
+
+- name: Copy CAPM3 kustomization files
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "{{ capm3_manifests_path }}/"
+    mode: '0644'
+  loop:
+    - capm3-standalone/kustomization.yaml
+    - capm3-standalone/name-reference-config.yaml
+  when: capm3_standalone
+
+- name: Generate CAPI base manifests from clusterctl
+  ansible.builtin.shell: |
+    set -o pipefail
+    clusterctl generate provider --core cluster-api:{{ capi_version }} > {{ capi_manifests_path }}/base-manifests.yaml
+  changed_when: true
+  when: capi_standalone
+
+- name: Create capi-standalone namespace
+  kubernetes.core.k8s:
+    api_version: v1
+    kind: Namespace
+    name: capi-standalone
+    state: present
+  when: capi_standalone
+
+- name: Apply standalone CAPI via kustomize (all resources renamed)
+  ansible.builtin.shell: |
+    set -o pipefail
+    kubectl apply --server-side --force-conflicts -k {{ capi_manifests_path }}/
+  changed_when: true
+  when: capi_standalone
+
+- name: Generate CAPM3 base manifests from clusterctl
+  ansible.builtin.shell: |
+    set -o pipefail
+    clusterctl generate provider --infrastructure metal3:{{ capm3_version }} > {{ capm3_manifests_path }}/base-manifests.yaml
+  changed_when: true
+  when: capm3_standalone
+
+- name: Create capm3-standalone namespace
+  kubernetes.core.k8s:
+    api_version: v1
+    kind: Namespace
+    name: capm3-standalone
+    state: present
+  when: capm3_standalone
+
+- name: Apply standalone CAPM3 via kustomize (all resources renamed)
+  ansible.builtin.shell: |
+    set -o pipefail
+    kubectl apply --server-side --force-conflicts -k {{ capm3_manifests_path }}/
+  changed_when: true
+  when: capm3_standalone
+
+- name: Wait for standalone CAPI controller
+  kubernetes.core.k8s_info:
+    api_version: apps/v1
+    kind: Deployment
+    name: standalone-capi-controller-manager
+    namespace: capi-standalone
+  register: capi_standalone_status
+  until: >-
+    capi_standalone_status.resources is defined and
+    capi_standalone_status.resources | length > 0 and
+    capi_standalone_status.resources[0].status.conditions |
+    selectattr('type', 'equalto', 'Available') |
+    selectattr('status', 'equalto', 'True') |
+    list |
+    length > 0
+  retries: "{{ medium_retries | int }}"
+  delay: "{{ medium_delay | int }}"
+  when: capi_standalone
+
+- name: Wait for standalone CAPM3 controller
+  kubernetes.core.k8s_info:
+    api_version: apps/v1
+    kind: Deployment
+    name: standalone-capm3-controller-manager
+    namespace: capm3-standalone
+  register: capm3_standalone_status
+  until: >-
+    capm3_standalone_status.resources is defined and
+    capm3_standalone_status.resources | length > 0 and
+    capm3_standalone_status.resources[0].status.conditions |
+    selectattr('type', 'equalto', 'Available') |
+    selectattr('status', 'equalto', 'True') |
+    list |
+    length > 0
+  retries: "{{ medium_retries | int }}"
+  delay: "{{ medium_delay | int }}"
+  when: capm3_standalone

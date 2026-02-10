@@ -118,7 +118,7 @@ if ! jq . renovate.json > /dev/null 2>&1; then
     exit 1
 fi
 
-if ! jq '.baseBranchPatterns += ["'"${freeze_branch}"'"]' renovate.json > renovate.updated.json; then
+if ! jq '.packageRules[0].baseBranchPatterns += ["'"${freeze_branch}"'"]' renovate.json > renovate.updated.json; then
     echo "Error: Failed to update renovate.json"
     rm -f renovate.updated.json
     exit 1

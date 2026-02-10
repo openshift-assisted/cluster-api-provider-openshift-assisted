@@ -7,11 +7,12 @@ When a new MCE (Multicluster Engine) version is released, a new branch needs to 
 The script performs the following actions:
 
 1. **Detects the freeze version** - automatically finds the latest `backplane-X.Y` branch
-2. **Creates a new branch** named `backplane-X.Y` for the next version
+2. **Creates a new branch** named `backplane-X.Y` for the next version (clean copy of master)
 3. **Updates Tekton files** - renames files and updates their content to the new version
-4. **Updates `renovate.json`** - adds the freeze branch to the list of branches receiving Konflux updates
-5. **Updates `sync-branch.yaml`** - sets the `TARGET_BRANCH` to the new branch
-6. **Creates a PR** to master with all the changes
+4. **Updates Dockerfiles** - updates the `cpe` label version in `Dockerfile.j2`, `Dockerfile.bootstrap-provider` and `Dockerfile.controlplane-provider`
+5. **Updates `renovate.json`** - adds the freeze branch to the list of branches receiving Konflux updates
+6. **Updates `sync-branch.yaml`** - sets the `TARGET_BRANCH` to the new branch
+7. **Creates a PR** to master with all the changes (changes are fast-forwarded to the release branch after merge)
 
 ## How to Run
 

@@ -54,6 +54,7 @@ import (
 	"sigs.k8s.io/cluster-api/util/annotations"
 	"sigs.k8s.io/cluster-api/util/collections"
 	"sigs.k8s.io/cluster-api/util/conditions"
+	utilconversion "sigs.k8s.io/cluster-api/util/conversion"
 	"sigs.k8s.io/cluster-api/util/patch"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -754,7 +755,11 @@ func (r *OpenshiftAssistedControlPlaneReconciler) generateOpenshiftAssistedConfi
 
 	// Merge in annotations from the OpenshiftAssistedControlPlane itself
 	// This allows propagation of discovery-ignition-override and other annotations
+	// Skip the conversion data annotation to avoid corrupting the bootstrap config's TypeMeta during conversion
 	for k, v := range oacp.Annotations {
+		if k == utilconversion.DataAnnotation {
+			continue
+		}
 		if _, exists := annotations[k]; !exists {
 			annotations[k] = v
 		}

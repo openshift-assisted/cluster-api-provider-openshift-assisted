@@ -1,0 +1,77 @@
+---
+# Skip CAPI/MCE component installation - install dependencies only
+skip_capi_install: "{{ lookup('ansible.builtin.env', 'SKIP_CAPI_INSTALL', default='false') | lower in ['true', '1', 'yes'] }}"
+
+# MCE installation settings
+use_mce_chart: "{{ lookup('ansible.builtin.env', 'USE_MCE_CHART', default='false') | lower in ['true', '1', 'yes'] }}"
+installation_mode: "{{ lookup('ansible.builtin.env', 'INSTALLATION_MODE', default='downstream') }}"
+
+# Standalone component installation (only relevant when USE_MCE_CHART=true)
+# When true, the component is installed via clusterctl instead of MCE
+capi_standalone: "{{ lookup('ansible.builtin.env', 'CAPI_STANDALONE', default='false') | lower in ['true', '1', 'yes'] }}"
+capm3_standalone: "{{ lookup('ansible.builtin.env', 'CAPM3_STANDALONE', default='false') | lower in ['true', '1', 'yes'] }}"
+
+# GitHub token for accessing private repos (upstream manifest)
+# Can be set via GITHUB_TOKEN env var or will try to get from 'gh' CLI
+github_token: "{{ lookup('ansible.builtin.env', 'GITHUB_TOKEN', default='') }}"
+
+# Image manifest URLs
+mce_manifest_url_downstream: "https://raw.githubusercontent.com/stolostron/mce-operator-bundle/refs/heads/backplane-2.11/extras/2.11.0.json"
+mce_manifest_url_upstream: "https://raw.githubusercontent.com/stolostron/release/refs/heads/backplane-2.11/image-manifests/2.11.0.json"
+
+# Registry override settings per mode
+# Downstream: registry.redhat.io/multicluster-engine -> quay.io/acm-d
+# Upstream: quay.io/stolostron (no override needed, images are public)
+mce_registry_overrides:
+  downstream:
+    original: "registry.redhat.io/multicluster-engine"
+    override: "{{ lookup('ansible.builtin.env', 'MCE_REGISTRY_OVERRIDE', default='quay.io/acm-d') }}"
+  upstream:
+    original: ""
+    override: ""
+
+mce_registry_original: "{{ mce_registry_overrides[installation_mode].original }}"
+mce_registry_override: "{{ mce_registry_overrides[installation_mode].override }}"
+
+# Image overrides - set via environment variables to use custom images
+# Format: full image reference (e.g., quay.io/myrepo/myimage:tag or quay.io/myrepo/myimage@sha256:...)
+mce_image_overrides:
+  cluster_api: "{{ lookup('ansible.builtin.env', 'MCE_CLUSTER_API_IMAGE', default='') }}"
+  ose_cluster_api_rhel9: "{{ lookup('ansible.builtin.env', 'MCE_OSE_CLUSTER_API_IMAGE', default='') }}"
+  ose_baremetal_cluster_api_controllers_rhel9: "{{ lookup('ansible.builtin.env', 'MCE_CAPM3_IMAGE', default='') }}"
+  cluster_api_provider_openshift_assisted_bootstrap: "{{ lookup('ansible.builtin.env', 'MCE_CAPOA_BOOTSTRAP_IMAGE', default='') }}"
+  cluster_api_provider_openshift_assisted_control_plane: "{{ lookup('ansible.builtin.env', 'MCE_CAPOA_CONTROLPLANE_IMAGE', default='') }}"
+  assisted_service_9: "{{ lookup('ansible.builtin.env', 'MCE_ASSISTED_SERVICE_IMAGE', default='') }}"
+  assisted_installer: "{{ lookup('ansible.builtin.env', 'MCE_ASSISTED_INSTALLER_IMAGE', default='') }}"
+  assisted_installer_agent: "{{ lookup('ansible.builtin.env', 'MCE_ASSISTED_INSTALLER_AGENT_IMAGE', default='') }}"
+  assisted_installer_controller: "{{ lookup('ansible.builtin.env', 'MCE_ASSISTED_INSTALLER_CONTROLLER_IMAGE', default='') }}"
+  backplane_operator: "{{ lookup('ansible.builtin.env', 'MCE_BACKPLANE_OPERATOR_IMAGE', default='') }}"
+
+# MCE version
+mce_version: "2.11.0"
+
+# Helm version
+helm_version: "v3.14.0"
+
+# MCE chart repository
+mce_chart_repo: "https://github.com/stolostron/mce-operator-helm-xks.git"
+mce_chart_branch: "main"
+mce_chart_path: "/tmp/mce-operator-helm-xks/charts/multicluster-engine"
+
+# MCE namespace
+mce_namespace: "multicluster-engine"
+
+# Required images to extract from manifest for MCE values file
+mce_required_images:
+  - assisted_image_service
+  - assisted_installer_agent
+  - assisted_installer_controller
+  - assisted_installer
+  - assisted_service_9
+  - backplane_operator
+  - cluster_api_provider_openshift_assisted_bootstrap
+  - cluster_api_provider_openshift_assisted_control_plane
+  - cluster_api
+  - ose_baremetal_cluster_api_controllers_rhel9
+  - ose_cluster_api_rhel9
+  - postgresql_13

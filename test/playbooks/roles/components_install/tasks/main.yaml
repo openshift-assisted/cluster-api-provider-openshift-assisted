@@ -1,218 +1,35 @@
 ---
-- name: Deploy cert-manager
-  kubernetes.core.k8s:
-    state: present
-    src: https://github.com/jetstack/cert-manager/releases/download/{{ cert_manager_version }}/cert-manager.yaml
+# Components installation entry point
+# Conditionally uses MCE Helm chart or standard installation based on USE_MCE_CHART env var
+#
+# When skip_capi_install=true:
+#   - Installs common dependencies (cert-manager, prometheus, ironic, BMO, MetalLB, nginx-ingress)
+#   - Skips CAPI/MCE component installation
+#
+# When skip_capi_install=false (default):
+#   - Installs common dependencies
+#   - Installs CAPI components via standard method or MCE chart
 
-- name: Wait for cert-manager
-  kubernetes.core.k8s_info:
-    api_version: apps/v1
-    kind: Deployment
-    name: cert-manager-webhook
-    namespace: cert-manager
-  register: cert_manager_status
-  until: >-
-    cert_manager_status.resources[0].status.conditions |
-    selectattr('type', 'equalto', 'Available') |
-    selectattr('status', 'equalto', 'True') |
-    list | length > 0
-  retries: "{{ medium_retries | int }}"
-  delay: "{{ medium_delay | int }}"
-- name: Show PATH
+- name: Display installation mode
   ansible.builtin.debug:
-    msg: "PATH: {{ ansible_env.PATH }}"
-- name: Deploy ironic
-  kubernetes.core.k8s:
-    definition: "{{ lookup('kubernetes.core.kustomize', dir=playbook_dir + '/../../test/e2e/manifests/ironic') }}"
-    state: present
-    apply: true
+    msg: "Installing components - MCE chart: {{ use_mce_chart }}, Mode: {{ installation_mode }}, Skip CAPI install: {{ skip_capi_install }}"
 
-- name: Wait for ironic
-  kubernetes.core.k8s_info:
-    api_version: apps/v1
-    kind: Deployment
-    name: ironic
-    namespace: baremetal-operator-system
-  register: ironic_status
-  until: >-
-    ironic_status.resources[0].status.conditions |
-    selectattr('type', 'equalto', 'Available') |
-    selectattr('status', 'equalto', 'True') |
-    list | length > 0
-  retries: "{{ medium_retries | int }}"
-  delay: "{{ medium_delay | int }}"
+# Install common components (cert-manager, prometheus, ironic, BMO, MetalLB, nginx-ingress)
+# This always runs
+- name: Install common components
+  ansible.builtin.include_tasks: common.yaml
 
-- name: Deploy BMO
-  kubernetes.core.k8s:
-    definition: "{{ lookup('kubernetes.core.kustomize', dir=playbook_dir + '/../../test/e2e/manifests/bmo') }}"
-    state: present
-    apply: true
+# Skip CAPI/MCE installation if skip_capi_install is true
+- name: Skip CAPI installation (manual MCE deployment mode)
+  ansible.builtin.debug:
+    msg: "Skipping CAPI/MCE installation - skip_capi_install enabled. Deploy MCE manually with helm."
+  when: skip_capi_install
 
-- name: Wait for BMO
-  kubernetes.core.k8s_info:
-    api_version: apps/v1
-    kind: Deployment
-    name: baremetal-operator-controller-manager
-    namespace: baremetal-operator-system
-  register: bmo_status
-  until: >-
-    bmo_status.resources[0].status.conditions |
-    selectattr('type', 'equalto', 'Available') |
-    selectattr('status', 'equalto', 'True') |
-    list | length > 0
-  retries: "{{ medium_retries | int }}"
-  delay: "{{ medium_delay | int }}"
+# Conditionally install CAPI components (only when not skip_capi_install)
+- name: Install CAPI components via standard method
+  ansible.builtin.include_tasks: capi_standard.yaml
+  when: not skip_capi_install and not use_mce_chart
 
-- name: Deploy MetalLB
-  kubernetes.core.k8s:
-    state: present
-    src: https://raw.githubusercontent.com/metallb/metallb/v0.13.7/config/manifests/metallb-native.yaml
-
-- name: Wait for MetalLB
-  kubernetes.core.k8s_info:
-    api_version: apps/v1
-    kind: Deployment
-    name: controller
-    namespace: metallb-system
-  register: metallb_status
-  until: >-
-    metallb_status.resources[0].status.conditions |
-    selectattr('type', 'equalto', 'Available') |
-    selectattr('status', 'equalto', 'True') |
-    list | length > 0
-  retries: "{{ medium_retries | int }}"
-  delay: "{{ medium_delay | int }}"
-
-- name: Deploy metallb IPAddressPool
-  kubernetes.core.k8s:
-    definition: "{{ lookup('template', playbook_dir ~ '/../../test/e2e/manifests/metallb/metallb.yaml.j2') }}"
-    state: present
-    apply: true
-
-- name: Create nginx-ingress namespace
-  kubernetes.core.k8s:
-    api_version: v1
-    kind: Namespace
-    name: nginx-ingress
-    state: present
-
-- name: Deploy nginx-ingress
-  kubernetes.core.k8s:
-    state: present
-    src: "{{ src_dir }}/test/e2e/manifests/ingress-nginx/nginx.yaml"
-    apply: true
-
-- name: Wait for load balancer IP
-  kubernetes.core.k8s_info:
-    api_version: v1
-    kind: Service
-    name: ingress-nginx-controller
-    namespace: nginx-ingress
-  register: lb_status
-  until: lb_status.resources[0].status.loadBalancer.ingress is defined
-  retries: "{{ medium_retries | int }}"
-  delay: "{{ medium_delay | int }}"
-
-- name: Save load balancer IP
-  ansible.builtin.copy:
-    content: "{{ lb_status.resources[0].status.loadBalancer.ingress[0].ip }}"
-    dest: /tmp/loadbalancer_ip
-    mode: '0644'
-
-- name: Prepare infrastructure-operator
-  delegate_to: localhost
-  ansible.builtin.template:
-    src: "{{ playbook_dir }}/../../test/e2e/manifests/infrastructure-operator/kustomization.yaml.j2"
-    dest: "{{ playbook_dir }}/../../test/e2e/manifests/infrastructure-operator/kustomization.yaml"
-    mode: '0644'
-  vars:
-    assisted_service_image: >-
-      {{ lookup('ansible.builtin.env',
-      'ASSISTED_SERVICE_IMAGE', default=default_assisted_service_image) }}
-    infrastructure_operator_image: >-
-      {{ lookup('ansible.builtin.env',
-      'INFRASTRUCTURE_OPERATOR_IMAGE',
-      default=default_infrastructure_operator_image) }}
-    assisted_installer_agent_image: >-
-      {{ lookup('ansible.builtin.env',
-      'ASSISTED_INSTALLER_AGENT_IMAGE',
-      default=default_assisted_installer_agent_image) }}
-    assisted_installer_controller_image: >-
-      {{ lookup('ansible.builtin.env',
-      'ASSISTED_INSTALLER_CONTROLLER_IMAGE',
-      default=default_assisted_installer_controller_image) }}
-    assisted_installer_image: >-
-      {{ lookup('ansible.builtin.env',
-      'ASSISTED_INSTALLER_IMAGE',
-      default=default_assisted_installer_image) }}
-    infrastructure_operator_version: >-
-      {{ lookup('ansible.builtin.env',
-      'INFRASTRUCTURE_OPERATOR_VERSION',
-      default=default_infrastructure_operator_version) }}
-    assisted_service_version: >-
-      {{ lookup('ansible.builtin.env',
-      'ASSISTED_SERVICE_VERSION',
-      default=default_assisted_service_version) }}
-    assisted_installer_agent_version: >-
-      {{ lookup('ansible.builtin.env',
-      'ASSISTED_INSTALLER_AGENT_VERSION',
-      default=default_assisted_installer_agent_version) }}
-    assisted_installer_controller_version: >-
-      {{ lookup('ansible.builtin.env',
-      'ASSISTED_INSTALLER_CONTROLLER_VERSION',
-      default=default_assisted_installer_controller_version) }}
-    assisted_installer_version: >-
-      {{ lookup('ansible.builtin.env',
-      'ASSISTED_INSTALLER_VERSION',
-      default=default_assisted_installer_version) }}
-
-- name: Deploy infrastructure operator
-  kubernetes.core.k8s:
-    definition: "{{ lookup('kubernetes.core.kustomize', dir=playbook_dir + '/../../test/e2e/manifests/infrastructure-operator') }}"
-    state: present
-    apply: true
-
-
-- name: Deploy agent service config
-  kubernetes.core.k8s:
-    state: present
-    src: "{{ src_dir }}/test/e2e/manifests/infrastructure-operator/agentconfig.yaml"
-
-- name: Wait for assisted-service
-  kubernetes.core.k8s_info:
-    api_version: apps/v1
-    kind: Deployment
-    name: assisted-service
-    namespace: assisted-installer
-  register: assisted_service_status
-  until: >-
-    assisted_service_status.resources is defined and
-    assisted_service_status.resources | length > 0 and
-    assisted_service_status.resources[0].status.conditions |
-    selectattr('type', 'equalto', 'Available') |
-    selectattr('status', 'equalto', 'True') |
-    list |
-    length > 0
-  retries: "{{ medium_retries | int }}"
-  delay: "{{ medium_delay | int }}"
-
-- name: Install clusterctl
-  ansible.builtin.get_url:
-    url: "https://github.com/kubernetes-sigs/cluster-api/releases/download/{{ capi_version }}/clusterctl-linux-amd64"
-    dest: /usr/local/bin/clusterctl
-    mode: '0755'
-
-- name: Deploy CAPI
-  ansible.builtin.command: "clusterctl init --core cluster-api:{{ capi_version }} --bootstrap - --control-plane - --infrastructure metal3:{{ capm3_version }}"
-  changed_when: true
-
-- name: Deploy CAPBOA
-  kubernetes.core.k8s:
-    definition: "{{ lookup('kubernetes.core.kustomize', dir=playbook_dir + '/../../test/e2e/manifests/capboa') }}"
-    state: present
-    apply: true
-- name: Deploy CAPCOA
-  kubernetes.core.k8s:
-    definition: "{{ lookup('kubernetes.core.kustomize', dir=playbook_dir + '/../../test/e2e/manifests/capcoa') }}"
-    state: present
-    apply: true
+- name: Install CAPI components via MCE chart
+  ansible.builtin.include_tasks: capi_mce.yaml
+  when: not skip_capi_install and use_mce_chart

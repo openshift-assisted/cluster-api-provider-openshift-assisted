@@ -1,0 +1,21 @@
+# Kustomization for standalone CAPI installation
+# Renames ALL resources to avoid conflicts with MCE-managed CAPI
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Use a different namespace
+namespace: capi-standalone
+
+# Prefix ALL resource names to avoid MCE conflicts
+namePrefix: standalone-
+
+resources:
+  - base-manifests.yaml
+
+# Transform labels to identify standalone resources
+commonLabels:
+  capi-standalone: "true"
+
+# Enable built-in transformers to update references
+configurations:
+  - name-reference-config.yaml

@@ -473,6 +473,70 @@ var _ = Describe("getIgnitionConfig", func() {
 			Entry("contains space", "$VAR NAME"),
 		)
 
+		Context("ignition-override annotation", func() {
+			const validOverride = `{"ignition":{"version":"3.1.0"},"storage":{"files":[{"path":"/etc/override-file","contents":{"source":"data:,"},"mode":384}]}}`
+
+			It("should merge valid ignition-override annotation into host ignition", func() {
+				config := &bootstrapv1alpha2.OpenshiftAssistedConfig{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							bootstrapv1alpha2.IgnitionOverrideAnnotation: validOverride,
+						},
+					},
+					Spec: bootstrapv1alpha2.OpenshiftAssistedConfigSpec{
+						NodeRegistration: bootstrapv1alpha2.NodeRegistrationOptions{
+							KubeletExtraLabels: []string{"zone=east"},
+						},
+					},
+				}
+
+				ignitionJSON, err := getIgnitionConfig(config)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(ignitionJSON).To(ContainSubstring(`/etc/override-file`))
+				Expect(ignitionJSON).To(ContainSubstring(`kubelet_custom_labels`))
+			})
+
+			It("should ignore annotation when value is not valid JSON", func() {
+				config := &bootstrapv1alpha2.OpenshiftAssistedConfig{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							bootstrapv1alpha2.IgnitionOverrideAnnotation: `not-json`,
+						},
+					},
+					Spec: bootstrapv1alpha2.OpenshiftAssistedConfigSpec{
+						NodeRegistration: bootstrapv1alpha2.NodeRegistrationOptions{
+							KubeletExtraLabels: []string{"zone=east"},
+						},
+					},
+				}
+
+				ignitionJSON, err := getIgnitionConfig(config)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(ignitionJSON).NotTo(ContainSubstring(`/etc/override-file`))
+				Expect(ignitionJSON).To(ContainSubstring(`kubelet_custom_labels`))
+			})
+
+			It("should return error when annotation is valid JSON but invalid ignition", func() {
+				config := &bootstrapv1alpha2.OpenshiftAssistedConfig{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							// Unknown ignition version so parse fails
+							bootstrapv1alpha2.IgnitionOverrideAnnotation: `{"ignition":{"version":"99.0.0"}}`,
+						},
+					},
+					Spec: bootstrapv1alpha2.OpenshiftAssistedConfigSpec{
+						NodeRegistration: bootstrapv1alpha2.NodeRegistrationOptions{
+							KubeletExtraLabels: []string{"zone=east"},
+						},
+					},
+				}
+
+				_, err := getIgnitionConfig(config)
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring(bootstrapv1alpha2.IgnitionOverrideAnnotation))
+			})
+		})
+
 		Context("ProviderID", func() {
 			It("should write KUBELET_PROVIDERID with static value", func() {
 				config := &bootstrapv1alpha2.OpenshiftAssistedConfig{

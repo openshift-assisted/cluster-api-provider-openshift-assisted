@@ -110,4 +110,29 @@ var _ = Describe("Ignition utils", func() {
 			Expect(foundHostnameScript).To(BeTrue(), "set_hostname script should be present with ${VAR} notation")
 		})
 	})
+
+	When("merging ignition configs", func() {
+		const base = `{"ignition":{"version":"3.1.0"},"storage":{"files":[{"path":"/base","contents":{"source":"data:,"},"mode":384}]}}`
+		const override = `{"ignition":{"version":"3.1.0"},"storage":{"files":[{"path":"/override","contents":{"source":"data:,"},"mode":384}]}}`
+
+		It("MergeIgnitionConfigStrings merges override into base", func() {
+			merged, err := MergeIgnitionConfigStrings(base, override)
+			Expect(err).NotTo(HaveOccurred())
+			cfg, _, err := config_31.Parse([]byte(merged))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(cfg.Storage.Files).To(HaveLen(2))
+			var paths []string
+			for _, f := range cfg.Storage.Files {
+				paths = append(paths, f.Path)
+			}
+			Expect(paths).To(ContainElement("/base"))
+			Expect(paths).To(ContainElement("/override"))
+		})
+
+		It("MergeIgnitionConfigStrings returns base when override is empty", func() {
+			merged, err := MergeIgnitionConfigStrings(base, "")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(merged).To(Equal(base))
+		})
+	})
 })

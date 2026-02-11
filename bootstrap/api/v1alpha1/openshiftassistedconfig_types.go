@@ -23,7 +23,10 @@ import (
 	clusterv1beta1 "sigs.k8s.io/cluster-api/api/core/v1beta1"
 )
 
-const DiscoveryIgnitionOverrideAnnotation = "openshiftassistedconfig.cluster.x-k8s.io/discovery-ignition-override"
+const (
+	DiscoveryIgnitionOverrideAnnotation = "openshiftassistedconfig.cluster.x-k8s.io/discovery-ignition-override"
+	IgnitionOverrideAnnotation          = "openshiftassistedconfig.cluster.x-k8s.io/ignition-override"
+)
 
 // OpenshiftAssistedConfigSpec defines the desired state of OpenshiftAssistedConfig
 type OpenshiftAssistedConfigSpec struct {

@@ -547,6 +547,109 @@ var _ = Describe("ClusterDeployment Controller", func() {
 			})
 		})
 	})
+	Context("ClusterDeployment ClusterInstallRef update", func() {
+		When("ClusterInstallRef is already correctly set", func() {
+			It("should skip the update and not error", func() {
+				cluster := utils.NewCluster(clusterName, namespace)
+				Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
+
+				oacp := utils.NewOpenshiftAssistedControlPlane(namespace, clusterName)
+				oacp.Spec.DistributionVersion = openShiftVersion
+				Expect(controllerutil.SetOwnerReference(cluster, oacp, testScheme)).To(Succeed())
+				Expect(k8sClient.Create(ctx, oacp)).To(Succeed())
+
+				cd := utils.NewClusterDeploymentWithOwnerCluster(namespace, clusterName, clusterName, oacp)
+				cd.Spec.ClusterInstallRef = &hivev1.ClusterInstallLocalReference{
+					Group:   hiveext.Group,
+					Version: hiveext.Version,
+					Kind:    "AgentClusterInstall",
+					Name:    cd.Name,
+				}
+				Expect(controllerutil.SetOwnerReference(oacp, cd, testScheme)).To(Succeed())
+				Expect(k8sClient.Create(ctx, cd)).To(Succeed())
+
+				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: client.ObjectKeyFromObject(cd),
+				})
+				Expect(err).NotTo(HaveOccurred())
+
+				By("Verifying the ClusterInstallRef is still set correctly")
+				updatedCD := &hivev1.ClusterDeployment{}
+				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cd), updatedCD)).To(Succeed())
+				Expect(updatedCD.Spec.ClusterInstallRef).NotTo(BeNil())
+				Expect(updatedCD.Spec.ClusterInstallRef.Group).To(Equal(hiveext.Group))
+				Expect(updatedCD.Spec.ClusterInstallRef.Version).To(Equal(hiveext.Version))
+				Expect(updatedCD.Spec.ClusterInstallRef.Kind).To(Equal("AgentClusterInstall"))
+				Expect(updatedCD.Spec.ClusterInstallRef.Name).To(Equal(cd.Name))
+			})
+		})
+		When("ClusterInstallRef is not set", func() {
+			It("should set the ClusterInstallRef", func() {
+				cluster := utils.NewCluster(clusterName, namespace)
+				Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
+
+				oacp := utils.NewOpenshiftAssistedControlPlane(namespace, clusterName)
+				oacp.Spec.DistributionVersion = openShiftVersion
+				Expect(controllerutil.SetOwnerReference(cluster, oacp, testScheme)).To(Succeed())
+				Expect(k8sClient.Create(ctx, oacp)).To(Succeed())
+
+				cd := utils.NewClusterDeploymentWithOwnerCluster(namespace, clusterName, clusterName, oacp)
+				cd.Spec.ClusterInstallRef = nil
+				Expect(controllerutil.SetOwnerReference(oacp, cd, testScheme)).To(Succeed())
+				Expect(k8sClient.Create(ctx, cd)).To(Succeed())
+
+				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: client.ObjectKeyFromObject(cd),
+				})
+				Expect(err).NotTo(HaveOccurred())
+
+				By("Verifying the ClusterInstallRef is now set")
+				updatedCD := &hivev1.ClusterDeployment{}
+				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cd), updatedCD)).To(Succeed())
+				Expect(updatedCD.Spec.ClusterInstallRef).NotTo(BeNil())
+				Expect(updatedCD.Spec.ClusterInstallRef.Group).To(Equal(hiveext.Group))
+				Expect(updatedCD.Spec.ClusterInstallRef.Version).To(Equal(hiveext.Version))
+				Expect(updatedCD.Spec.ClusterInstallRef.Kind).To(Equal("AgentClusterInstall"))
+				Expect(updatedCD.Spec.ClusterInstallRef.Name).To(Equal(cd.Name))
+			})
+		})
+		When("ClusterInstallRef has incorrect values", func() {
+			It("should update the ClusterInstallRef to the correct values", func() {
+				cluster := utils.NewCluster(clusterName, namespace)
+				Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
+
+				oacp := utils.NewOpenshiftAssistedControlPlane(namespace, clusterName)
+				oacp.Spec.DistributionVersion = openShiftVersion
+				Expect(controllerutil.SetOwnerReference(cluster, oacp, testScheme)).To(Succeed())
+				Expect(k8sClient.Create(ctx, oacp)).To(Succeed())
+
+				cd := utils.NewClusterDeploymentWithOwnerCluster(namespace, clusterName, clusterName, oacp)
+				cd.Spec.ClusterInstallRef = &hivev1.ClusterInstallLocalReference{
+					Group:   "wrong.group",
+					Version: "wrong-version",
+					Kind:    "WrongKind",
+					Name:    "wrong-name",
+				}
+				Expect(controllerutil.SetOwnerReference(oacp, cd, testScheme)).To(Succeed())
+				Expect(k8sClient.Create(ctx, cd)).To(Succeed())
+
+				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: client.ObjectKeyFromObject(cd),
+				})
+				Expect(err).NotTo(HaveOccurred())
+
+				By("Verifying the ClusterInstallRef has been corrected")
+				updatedCD := &hivev1.ClusterDeployment{}
+				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cd), updatedCD)).To(Succeed())
+				Expect(updatedCD.Spec.ClusterInstallRef).NotTo(BeNil())
+				Expect(updatedCD.Spec.ClusterInstallRef.Group).To(Equal(hiveext.Group))
+				Expect(updatedCD.Spec.ClusterInstallRef.Version).To(Equal(hiveext.Version))
+				Expect(updatedCD.Spec.ClusterInstallRef.Kind).To(Equal("AgentClusterInstall"))
+				Expect(updatedCD.Spec.ClusterInstallRef.Name).To(Equal(cd.Name))
+			})
+		})
+	})
+
 	AfterEach(func() {
 		k8sClient = nil
 		controllerReconciler = nil

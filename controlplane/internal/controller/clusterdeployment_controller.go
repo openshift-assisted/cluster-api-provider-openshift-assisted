@@ -237,12 +237,25 @@ func (r *ClusterDeploymentReconciler) updateClusterDeploymentRef(
 	ctx context.Context,
 	cd *hivev1.ClusterDeployment,
 ) error {
-	cd.Spec.ClusterInstallRef = &hivev1.ClusterInstallLocalReference{
+	expectedRef := &hivev1.ClusterInstallLocalReference{
 		Group:   hiveext.Group,
 		Version: hiveext.Version,
 		Kind:    "AgentClusterInstall",
 		Name:    cd.Name,
 	}
+
+	// Skip update if ClusterInstallRef is already correctly set.
+	// This avoids triggering Hive's immutability validation for spec.clusterMetadata
+	// which rejects any update to ClusterDeployment after installation.
+	if cd.Spec.ClusterInstallRef != nil &&
+		cd.Spec.ClusterInstallRef.Group == expectedRef.Group &&
+		cd.Spec.ClusterInstallRef.Version == expectedRef.Version &&
+		cd.Spec.ClusterInstallRef.Kind == expectedRef.Kind &&
+		cd.Spec.ClusterInstallRef.Name == expectedRef.Name {
+		return nil
+	}
+
+	cd.Spec.ClusterInstallRef = expectedRef
 	return r.Update(ctx, cd)
 }
 

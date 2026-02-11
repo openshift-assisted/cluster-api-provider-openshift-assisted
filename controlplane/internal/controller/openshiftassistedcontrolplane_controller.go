@@ -141,6 +141,7 @@ func (r *OpenshiftAssistedControlPlaneReconciler) Reconcile(ctx context.Context,
 	}()
 
 	if oacp.DeletionTimestamp != nil {
+		log.V(logutil.DebugLevel).Info("deleting OpenshiftAssistedControlPlane")
 		return ctrl.Result{}, r.handleDeletion(ctx, oacp)
 	}
 
@@ -175,8 +176,12 @@ func (r *OpenshiftAssistedControlPlaneReconciler) Reconcile(ctx context.Context,
 	}
 
 	log.V(logutil.TraceLevel).Info("validation passed")
-
-	if !isInfrastructureProvisioned(cluster) || !cluster.Spec.ControlPlaneEndpoint.IsValid() {
+	if !cluster.Spec.ControlPlaneEndpoint.IsValid() {
+		log.V(logutil.DebugLevel).Info("control plane endpoint is not valid")
+		return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 20}, nil
+	}
+	if !isInfrastructureProvisioned(cluster) {
+		log.V(logutil.DebugLevel).Info("infrastructure not provisioned")
 		return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 20}, nil
 	}
 	log.V(logutil.TraceLevel).Info("infra provisioned")

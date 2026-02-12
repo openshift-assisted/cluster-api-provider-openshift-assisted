@@ -85,6 +85,18 @@ type OpenshiftAssistedConfigSpec struct {
 	// NodeRegistrationOption holds fields related to registering nodes to the cluster
 	// +optional
 	NodeRegistration NodeRegistrationOptions `json:"nodeRegistration,omitempty"`
+
+	// PreInstallCommands specifies a list of commands to run on the discovery host before installation.
+	// Each entry is a shell command that will be written as a line in a script and executed via a systemd
+	// unit in the discovery ignition.
+	// +optional
+	PreInstallCommands []string `json:"preInstallCommands,omitempty"`
+
+	// PostInstallCommands specifies a list of commands to run on the installed OCP node after installation.
+	// Each entry is a shell command that will be written as a line in a script and executed via a systemd
+	// unit in the node ignition.
+	// +optional
+	PostInstallCommands []string `json:"postInstallCommands,omitempty"`
 }
 
 // NodeRegistrationOption holds fields related to registering nodes to the cluster

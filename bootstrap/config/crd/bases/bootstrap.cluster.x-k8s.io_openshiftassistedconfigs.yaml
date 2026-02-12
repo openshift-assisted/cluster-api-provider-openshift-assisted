@@ -160,6 +160,22 @@ spec:
                   (i.e. OSImageVersion should equal to an OpenshiftVersion in OSImages list).
                   Note: OSImageVersion can't be specified along with ClusterRef.
                 type: string
+              postInstallCommands:
+                description: |-
+                  PostInstallCommands specifies a list of commands to run on the installed OCP node after installation.
+                  Each entry is a shell command that will be written as a line in a script and executed via a systemd
+                  unit in the node ignition.
+                items:
+                  type: string
+                type: array
+              preInstallCommands:
+                description: |-
+                  PreInstallCommands specifies a list of commands to run on the discovery host before installation.
+                  Each entry is a shell command that will be written as a line in a script and executed via a systemd
+                  unit in the discovery ignition.
+                items:
+                  type: string
+                type: array
               proxy:
                 description: |-
                   Proxy defines the proxy settings for agents and clusters that use the InfraEnv. If
@@ -484,6 +500,22 @@ spec:
                   (i.e. OSImageVersion should equal to an OpenshiftVersion in OSImages list).
                   Note: OSImageVersion can't be specified along with ClusterRef.
                 type: string
+              postInstallCommands:
+                description: |-
+                  PostInstallCommands specifies a list of commands to run on the installed OCP node after installation.
+                  Each entry is a shell command that will be written as a line in a script and executed via a systemd
+                  unit in the node ignition.
+                items:
+                  type: string
+                type: array
+              preInstallCommands:
+                description: |-
+                  PreInstallCommands specifies a list of commands to run on the discovery host before installation.
+                  Each entry is a shell command that will be written as a line in a script and executed via a systemd
+                  unit in the discovery ignition.
+                items:
+                  type: string
+                type: array
               proxy:
                 description: |-
                   Proxy defines the proxy settings for agents and clusters that use the InfraEnv. If

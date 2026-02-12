@@ -199,7 +199,8 @@ fi
 		"root", "data:text/plain;charset=utf-8;base64,"+b64Content, 493, true)
 
 	opts := ignition.IgnitionOptions{
-		NodeNameEnvVar: config.Spec.NodeRegistration.Name,
+		NodeNameEnvVar:     config.Spec.NodeRegistration.Name,
+		PreInstallCommands: config.Spec.PreInstallCommands,
 	}
 	baseIgnition, err := ignition.GetIgnitionConfigOverrides(opts, kubeletCustomLabels)
 	if err != nil {

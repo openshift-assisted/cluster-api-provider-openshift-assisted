@@ -46,6 +46,8 @@ func (src *OpenshiftAssistedConfig) ConvertTo(dstRaw conversion.Hub) error {
 			Name:               src.Spec.NodeRegistration.Name,
 			KubeletExtraLabels: src.Spec.NodeRegistration.KubeletExtraLabels,
 		},
+		PreInstallCommands:  src.Spec.PreInstallCommands,
+		PostInstallCommands: src.Spec.PostInstallCommands,
 	}
 
 	// Use MarshalData to preserve any additional fields and handle conditions conversion
@@ -91,6 +93,8 @@ func (dst *OpenshiftAssistedConfig) ConvertFrom(srcRaw conversion.Hub) error {
 			Name:               src.Spec.NodeRegistration.Name,
 			KubeletExtraLabels: src.Spec.NodeRegistration.KubeletExtraLabels,
 		},
+		PreInstallCommands:  src.Spec.PreInstallCommands,
+		PostInstallCommands: src.Spec.PostInstallCommands,
 	}
 
 	// Use UnmarshalData to restore any additional fields and handle conditions conversion
@@ -133,6 +137,8 @@ func (src *OpenshiftAssistedConfigTemplate) ConvertTo(dstRaw conversion.Hub) err
 			Name:               src.Spec.Template.Spec.NodeRegistration.Name,
 			KubeletExtraLabels: src.Spec.Template.Spec.NodeRegistration.KubeletExtraLabels,
 		},
+		PreInstallCommands:  src.Spec.Template.Spec.PreInstallCommands,
+		PostInstallCommands: src.Spec.Template.Spec.PostInstallCommands,
 	}
 
 	return utilconversion.MarshalData(src, dst)
@@ -158,6 +164,8 @@ func (dst *OpenshiftAssistedConfigTemplate) ConvertFrom(srcRaw conversion.Hub) e
 			Name:               src.Spec.Template.Spec.NodeRegistration.Name,
 			KubeletExtraLabels: src.Spec.Template.Spec.NodeRegistration.KubeletExtraLabels,
 		},
+		PreInstallCommands:  src.Spec.Template.Spec.PreInstallCommands,
+		PostInstallCommands: src.Spec.Template.Spec.PostInstallCommands,
 	}
 
 	_, err := utilconversion.UnmarshalData(src, dst)

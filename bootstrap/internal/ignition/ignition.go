@@ -227,9 +227,11 @@ func CreateIgnitionFile(path, user, content string, mode int, overwrite bool) co
 	}
 }
 
-// MergeIgnitionConfigStrings merges overrideIgnition into baseIgnition (both must be valid
-// Ignition config JSON, e.g. v3.1.0). The result is base + override merged (override appends
-// or overrides fields per ignition merge semantics). Returns the merged JSON string.
+// MergeIgnitionConfigStrings merges overrideIgnition into baseIgnition.
+// Both arguments must be valid Ignition config JSON (e.g. v3.1.0). The result is base plus
+// override merged: the override appends or overrides fields per Ignition merge semantics.
+// Returns the merged config as a JSON string. If overrideIgnition is empty, baseIgnition
+// is returned unchanged.
 func MergeIgnitionConfigStrings(baseIgnition, overrideIgnition string) (string, error) {
 	if overrideIgnition == "" {
 		return baseIgnition, nil

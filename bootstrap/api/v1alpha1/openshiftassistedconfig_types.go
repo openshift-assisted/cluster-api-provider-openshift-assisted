@@ -24,8 +24,12 @@ import (
 )
 
 const (
+	// DiscoveryIgnitionOverrideAnnotation is the annotation key for a JSON ignition config
+	// applied to the discovery ignition (pre-install boot).
 	DiscoveryIgnitionOverrideAnnotation = "openshiftassistedconfig.cluster.x-k8s.io/discovery-ignition-override"
-	IgnitionOverrideAnnotation          = "openshiftassistedconfig.cluster.x-k8s.io/ignition-override"
+	// IgnitionOverrideAnnotation is the annotation key for a JSON ignition config (v3.1.0)
+	// to merge into host.IgnitionConfigOverrides (install-time / post-discovery ignition).
+	IgnitionOverrideAnnotation = "openshiftassistedconfig.cluster.x-k8s.io/ignition-override"
 )
 
 // OpenshiftAssistedConfigSpec defines the desired state of OpenshiftAssistedConfig

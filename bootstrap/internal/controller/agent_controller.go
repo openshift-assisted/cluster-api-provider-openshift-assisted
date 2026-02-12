@@ -138,6 +138,9 @@ func (r *AgentReconciler) canApproveAgent(ctx context.Context, agent *aiv1beta1.
 	return true, nil
 }
 
+// getIgnitionConfig builds the install-time (post-discovery) ignition config for the agent:
+// node registration (hostname, kubelet labels, provider ID) plus any override from the
+// openshiftassistedconfig.cluster.x-k8s.io/ignition-override annotation.
 func getIgnitionConfig(config *bootstrapv1alpha2.OpenshiftAssistedConfig) (string, error) {
 	dynamic, static, err := parseLabels(config.Spec.NodeRegistration.KubeletExtraLabels)
 	if err != nil {

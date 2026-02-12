@@ -22,6 +22,7 @@ import (
 	metal3v1beta1 "github.com/metal3-io/cluster-api-provider-metal3/api/v1beta1"
 	bootstrapv1alpha2 "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/bootstrap/api/v1alpha2"
 
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 
@@ -63,5 +64,6 @@ var _ = BeforeSuite(func() {
 	utilruntime.Must(hiveext.AddToScheme(testScheme))
 	utilruntime.Must(metal3v1beta1.AddToScheme(testScheme))
 	utilruntime.Must(bootstrapv1alpha2.AddToScheme(testScheme))
+	utilruntime.Must(apiextensionsv1.AddToScheme(testScheme))
 
 })

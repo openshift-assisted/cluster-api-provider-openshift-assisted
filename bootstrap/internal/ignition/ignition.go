@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 
+	"github.com/coreos/ignition/v2/config/v3_1"
 	config_types "github.com/coreos/ignition/v2/config/v3_1/types"
 	"github.com/go-logr/logr"
 	logutil "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/util/log"
@@ -224,4 +225,29 @@ func CreateIgnitionFile(path, user, content string, mode int, overwrite bool) co
 			Mode: &mode,
 		},
 	}
+}
+
+// MergeIgnitionConfigStrings merges overrideIgnition into baseIgnition.
+// Both arguments must be valid Ignition config JSON (e.g. v3.1.0). The result is base plus
+// override merged: the override appends or overrides fields per Ignition merge semantics.
+// Returns the merged config as a JSON string. If overrideIgnition is empty, baseIgnition
+// is returned unchanged.
+func MergeIgnitionConfigStrings(baseIgnition, overrideIgnition string) (string, error) {
+	if overrideIgnition == "" {
+		return baseIgnition, nil
+	}
+	baseConfig, _, err := v3_1.ParseCompatibleVersion([]byte(baseIgnition))
+	if err != nil {
+		return "", err
+	}
+	overrideConfig, _, err := v3_1.ParseCompatibleVersion([]byte(overrideIgnition))
+	if err != nil {
+		return "", err
+	}
+	merged := v3_1.Merge(baseConfig, overrideConfig)
+	out, err := json.Marshal(merged)
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
 }

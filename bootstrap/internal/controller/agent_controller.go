@@ -138,6 +138,9 @@ func (r *AgentReconciler) canApproveAgent(ctx context.Context, agent *aiv1beta1.
 	return true, nil
 }
 
+// getIgnitionConfig builds the install-time (post-discovery) ignition config for the agent:
+// node registration (hostname, kubelet labels, provider ID) plus any override from the
+// openshiftassistedconfig.cluster.x-k8s.io/ignition-override annotation.
 func getIgnitionConfig(config *bootstrapv1alpha2.OpenshiftAssistedConfig) (string, error) {
 	dynamic, static, err := parseLabels(config.Spec.NodeRegistration.KubeletExtraLabels)
 	if err != nil {
@@ -198,7 +201,19 @@ fi
 	opts := ignition.IgnitionOptions{
 		NodeNameEnvVar: config.Spec.NodeRegistration.Name,
 	}
-	return ignition.GetIgnitionConfigOverrides(opts, kubeletCustomLabels)
+	baseIgnition, err := ignition.GetIgnitionConfigOverrides(opts, kubeletCustomLabels)
+	if err != nil {
+		return "", err
+	}
+	// Merge in install-time ignition override from annotation (openshiftassistedconfig.cluster.x-k8s.io/ignition-override)
+	if override, ok := config.GetAnnotations()[bootstrapv1alpha2.IgnitionOverrideAnnotation]; ok && override != "" && json.Valid([]byte(override)) {
+		merged, mergeErr := ignition.MergeIgnitionConfigStrings(baseIgnition, override)
+		if mergeErr != nil {
+			return "", fmt.Errorf("invalid %s annotation: %w", bootstrapv1alpha2.IgnitionOverrideAnnotation, mergeErr)
+		}
+		return merged, nil
+	}
+	return baseIgnition, nil
 }
 
 // parseEnvVarRef parses a value that may be an environment variable reference.

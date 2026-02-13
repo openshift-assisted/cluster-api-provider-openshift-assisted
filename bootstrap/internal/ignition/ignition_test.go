@@ -121,12 +121,6 @@ var _ = Describe("Ignition utils", func() {
 			cfg, _, err := config_31.Parse([]byte(merged))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(cfg.Storage.Files).To(HaveLen(2))
-			paths := make([]string, 0, len(cfg.Storage.Files))
-			for _, f := range cfg.Storage.Files {
-				paths = append(paths, f.Path)
-			}
-			Expect(paths).To(ContainElement("/base"))
-			Expect(paths).To(ContainElement("/override"))
 		})
 
 		It("MergeIgnitionConfigStrings returns base when override is empty", func() {

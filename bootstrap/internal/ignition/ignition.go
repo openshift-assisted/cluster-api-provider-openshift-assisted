@@ -3,6 +3,7 @@ package ignition
 import (
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/coreos/ignition/v2/config/v3_1"
@@ -90,17 +91,30 @@ type IgnitionOptions struct {
 	// NodeNameEnvVar is the environment variable reference (e.g., "$METADATA_HOSTNAME")
 	// to use for setting the hostname. If empty, no hostname unit is added.
 	NodeNameEnvVar string
+
+	// PreInstallCommands are shell commands to run on the discovery host before installation.
+	// Used only by GetIgnitionConfigOverrides (discovery ignition).
+	PreInstallCommands []string
+
+	// PostInstallCommands are shell commands to run on the installed OCP node after installation.
+	// Used only by MergeIgnitionConfig (node ignition).
+	PostInstallCommands []string
 }
 
 func GetIgnitionConfigOverrides(opts IgnitionOptions, files ...config_types.File) (string, error) {
 	files = append(files, getConfigdriveMetadataFile())
 	units := getSystemdUnits()
 
-	// Add hostname unit if NodeNameEnvVar is specified
 	if opts.NodeNameEnvVar != "" {
 		hostnameUnit, hostnameFile := getSetHostnameUnit(opts.NodeNameEnvVar)
 		units = append(units, hostnameUnit)
 		files = append(files, hostnameFile)
+	}
+
+	if len(opts.PreInstallCommands) > 0 {
+		preInstallFile, preInstallUnit := getCommandsScriptAndUnit("pre-install", opts.PreInstallCommands)
+		files = append(files, preInstallFile)
+		units = append(units, preInstallUnit)
 	}
 
 	config := config_types.Config{
@@ -170,18 +184,52 @@ WantedBy=multi-user.target
 	return unit, file
 }
 
+// getCommandsScriptAndUnit creates an ignition file containing a shell script from the given
+// commands and a oneshot systemd unit to execute it at boot.
+func getCommandsScriptAndUnit(name string, commands []string) (config_types.File, config_types.Unit) {
+	var sb strings.Builder
+	sb.WriteString("#!/bin/bash\nset -e\n")
+	for _, cmd := range commands {
+		sb.WriteString(cmd)
+		sb.WriteString("\n")
+	}
+
+	scriptPath := fmt.Sprintf("/usr/local/bin/%s", name)
+	file := CreateIgnitionFile(scriptPath,
+		"root", "data:text/plain;charset=utf-8;base64,"+base64Encode(sb.String()), 493, true)
+
+	unitName := fmt.Sprintf("%s.service", name)
+	unitContents := fmt.Sprintf(`[Unit]
+Description=Run %s commands
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=%s
+
+[Install]
+WantedBy=multi-user.target
+`, name, scriptPath)
+
+	enabled := true
+	unit := config_types.Unit{
+		Contents: &unitContents,
+		Enabled:  &enabled,
+		Name:     unitName,
+	}
+
+	return file, unit
+}
+
 func base64Encode(s string) string {
 	return base64.StdEncoding.EncodeToString([]byte(s))
 }
 
 // MergeIgnitionConfig merges additional units and files into an existing ignition config.
-// This is used to add the set-hostname unit to the ignition config from Assisted Installer
-// for the installed OS (reboot phase).
+// This is used to add configdrive metadata, hostname, and post-install commands to the
+// ignition config from Assisted Installer for the installed OS (reboot phase).
 func MergeIgnitionConfig(log logr.Logger, baseIgnition []byte, opts IgnitionOptions) ([]byte, error) {
-	if opts.NodeNameEnvVar == "" {
-		return baseIgnition, nil
-	}
-
 	var versionInfo ignitionVersionInfo
 	if err := json.Unmarshal(baseIgnition, &versionInfo); err == nil {
 		if versionInfo.Ignition.Version != expectedIgnitionVersion {
@@ -198,14 +246,20 @@ func MergeIgnitionConfig(log logr.Logger, baseIgnition []byte, opts IgnitionOpti
 		return nil, err
 	}
 
-	// Add configdrive-metadata service and script (required to populate /etc/metadata_env)
 	config.Storage.Files = append(config.Storage.Files, getConfigdriveMetadataFile())
 	config.Systemd.Units = append(config.Systemd.Units, getConfigdriveMetadataSystemdUnit())
 
-	// Add set-hostname service and script
-	hostnameUnit, hostnameFile := getSetHostnameUnit(opts.NodeNameEnvVar)
-	config.Systemd.Units = append(config.Systemd.Units, hostnameUnit)
-	config.Storage.Files = append(config.Storage.Files, hostnameFile)
+	if opts.NodeNameEnvVar != "" {
+		hostnameUnit, hostnameFile := getSetHostnameUnit(opts.NodeNameEnvVar)
+		config.Systemd.Units = append(config.Systemd.Units, hostnameUnit)
+		config.Storage.Files = append(config.Storage.Files, hostnameFile)
+	}
+
+	if len(opts.PostInstallCommands) > 0 {
+		postInstallFile, postInstallUnit := getCommandsScriptAndUnit("post-install", opts.PostInstallCommands)
+		config.Storage.Files = append(config.Storage.Files, postInstallFile)
+		config.Systemd.Units = append(config.Systemd.Units, postInstallUnit)
+	}
 
 	return json.Marshal(config)
 }

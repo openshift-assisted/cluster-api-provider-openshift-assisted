@@ -44,6 +44,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
@@ -78,6 +79,7 @@ type OpenshiftAssistedControlPlaneReconciler struct {
 
 var minVersion = semver.MustParse(minOpenShiftVersion)
 
+// +kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,verbs=get;list;watch
 // +kubebuilder:rbac:groups=bootstrap.cluster.x-k8s.io,resources=openshiftassistedconfigs,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=*,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machinedeployments,verbs=get;list;watch
@@ -447,8 +449,8 @@ func (r *OpenshiftAssistedControlPlaneReconciler) computeDesiredMachine(oacp *co
 	desiredMachine.Spec.Deletion = oacp.Spec.MachineTemplate.Deletion
 	desiredMachine.Spec.FailureDomain = failureDomain
 
-	// Note: by setting the ownerRef on creation we signal to the Machine controller that this is not a stand-alone Machine.
-	_ = controllerutil.SetOwnerReference(oacp, desiredMachine, r.Scheme)
+	// Note: by setting the controller ownerRef on creation we signal to the Machine controller that this is not a stand-alone Machine.
+	_ = controllerutil.SetControllerReference(oacp, desiredMachine, r.Scheme)
 
 	// Set the in-place mutable fields.
 	// When we create a new Machine we will just create the Machine with those fields.
@@ -533,7 +535,6 @@ func (r *OpenshiftAssistedControlPlaneReconciler) reconcileReplicas(ctx context.
 	numMachines := machines.Len()
 	desiredReplicas := int(oacp.Spec.Replicas)
 	machinesToCreate := desiredReplicas - numMachines
-	var errs []error
 	if machinesToCreate > 0 {
 		fd, err := failuredomains.NextFailureDomainForScaleUp(ctx, cluster, machines)
 		if err != nil {
@@ -560,12 +561,12 @@ func (r *OpenshiftAssistedControlPlaneReconciler) reconcileReplicas(ctx context.
 	log.V(logutil.DebugLevel).Info("updating replica status", "oacp", oacp, "machines", machines)
 
 	r.updateReplicaStatus(ctx, oacp, machines)
-	return kerrors.NewAggregate(errs)
+	return nil
 }
 
 func (r *OpenshiftAssistedControlPlaneReconciler) scaleUpControlPlane(ctx context.Context, oacp *controlplanev1alpha3.OpenshiftAssistedControlPlane, cluster *clusterv1.Cluster, failureDomain string) (*clusterv1.Machine, error) {
 	name := names.SimpleNameGenerator.GenerateName(oacp.Name + "-")
-	machine, err := r.generateMachine(ctx, oacp, name, cluster, failureDomain)
+	machine, infraObj, err := r.generateMachine(ctx, oacp, name, cluster, failureDomain)
 	if err != nil {
 		return nil, err
 	}
@@ -574,6 +575,9 @@ func (r *OpenshiftAssistedControlPlaneReconciler) scaleUpControlPlane(ctx contex
 	if err := r.Create(ctx, bootstrapConfig); err != nil {
 		setConditionFalse(oacp, controlplanev1alpha3.MachinesCreatedCondition, controlplanev1alpha3.BootstrapTemplateCloningFailedReason,
 			"error creating bootstrap config: %v", err)
+		if deleteInfraErr := r.Delete(ctx, infraObj); deleteInfraErr != nil {
+			err = errors.Join(err, deleteInfraErr)
+		}
 		return nil, err
 	}
 	machine.Spec.Bootstrap.ConfigRef = clusterv1.ContractVersionedObjectReference{
@@ -587,9 +591,8 @@ func (r *OpenshiftAssistedControlPlaneReconciler) scaleUpControlPlane(ctx contex
 		if deleteBootstrapErr := r.Delete(ctx, bootstrapConfig); deleteBootstrapErr != nil {
 			err = errors.Join(err, deleteBootstrapErr)
 		}
-		infraRefKey := &corev1.ObjectReference{Name: machine.Spec.InfrastructureRef.Name, Namespace: machine.Namespace}
-		if deleteInfraRefErr := external.Delete(ctx, r.Client, infraRefKey); deleteInfraRefErr != nil {
-			err = errors.Join(err, deleteInfraRefErr)
+		if deleteInfraErr := r.Delete(ctx, infraObj); deleteInfraErr != nil {
+			err = errors.Join(err, deleteInfraErr)
 		}
 		return nil, err
 	}
@@ -697,18 +700,17 @@ func (r *OpenshiftAssistedControlPlaneReconciler) updateReplicaStatus(ctx contex
 	}
 }
 
-func (r *OpenshiftAssistedControlPlaneReconciler) generateMachine(ctx context.Context, oacp *controlplanev1alpha3.OpenshiftAssistedControlPlane, name string, cluster *clusterv1.Cluster, failureDomain string) (*clusterv1.Machine, error) {
-	// Compute desired Machine
+func (r *OpenshiftAssistedControlPlaneReconciler) generateMachine(ctx context.Context, oacp *controlplanev1alpha3.OpenshiftAssistedControlPlane, name string, cluster *clusterv1.Cluster, failureDomain string) (*clusterv1.Machine, *unstructured.Unstructured, error) {
 	machine := r.computeDesiredMachine(oacp, name, cluster, failureDomain)
-	infraRef, err := r.computeInfraRef(ctx, oacp, machine.Name, cluster.Name)
+	infraObj, infraRef, err := r.createInfraMachine(ctx, oacp, machine.Name, cluster.Name)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	machine.Spec.InfrastructureRef = infraRef
-	return machine, nil
+	return machine, infraObj, nil
 }
 
-func (r *OpenshiftAssistedControlPlaneReconciler) computeInfraRef(ctx context.Context, oacp *controlplanev1alpha3.OpenshiftAssistedControlPlane, machineName, clusterName string) (clusterv1.ContractVersionedObjectReference, error) {
+func (r *OpenshiftAssistedControlPlaneReconciler) createInfraMachine(ctx context.Context, oacp *controlplanev1alpha3.OpenshiftAssistedControlPlane, machineName, clusterName string) (*unstructured.Unstructured, clusterv1.ContractVersionedObjectReference, error) {
 	// Since the cloned resource should eventually have a controller ref for the Machine, we create an
 	// OwnerReference here without the Controller field set
 	infraCloneOwner := &metav1.OwnerReference{
@@ -718,13 +720,24 @@ func (r *OpenshiftAssistedControlPlaneReconciler) computeInfraRef(ctx context.Co
 		UID:        oacp.UID,
 	}
 
-	// Convert ContractVersionedObjectReference to corev1.ObjectReference for external.CreateFromTemplate
-	// The external package expects corev1.ObjectReference with APIVersion
-	templateRef := contractVersionedRefToObjectRef(&oacp.Spec.MachineTemplate.InfrastructureRef, oacp.Namespace)
+	// Fetch the infrastructure template using contract-based API version resolution
+	// instead of hardcoding an API version
+	template, err := external.GetObjectFromContractVersionedRef(ctx, r.Client, oacp.Spec.MachineTemplate.InfrastructureRef, oacp.Namespace)
+	if err != nil {
+		setConditionFalse(oacp, controlplanev1alpha3.MachinesCreatedCondition, controlplanev1alpha3.InfrastructureTemplateCloningFailedReason,
+			"error fetching infrastructure template: %v", err)
+		return nil, clusterv1.ContractVersionedObjectReference{}, err
+	}
 
-	// Clone the infrastructure template
-	_, infraRef, err := external.CreateFromTemplate(ctx, &external.CreateFromTemplateInput{
-		Client:      r.Client,
+	templateRef := &corev1.ObjectReference{
+		APIVersion: template.GetAPIVersion(),
+		Kind:       template.GetKind(),
+		Name:       template.GetName(),
+		Namespace:  template.GetNamespace(),
+	}
+
+	infraMachine, err := external.GenerateTemplate(&external.GenerateTemplateInput{
+		Template:    template,
 		TemplateRef: templateRef,
 		Namespace:   oacp.Namespace,
 		Name:        machineName,
@@ -734,12 +747,22 @@ func (r *OpenshiftAssistedControlPlaneReconciler) computeInfraRef(ctx context.Co
 		Annotations: oacp.Spec.MachineTemplate.ObjectMeta.Annotations,
 	})
 	if err != nil {
-		// Safe to return early here since no resources have been created yet.
 		setConditionFalse(oacp, controlplanev1alpha3.MachinesCreatedCondition, controlplanev1alpha3.InfrastructureTemplateCloningFailedReason,
-			"error creating infraenv: %v", err)
-		return clusterv1.ContractVersionedObjectReference{}, err
+			"error generating infrastructure clone: %v", err)
+		return nil, clusterv1.ContractVersionedObjectReference{}, err
 	}
-	return infraRef, nil
+
+	if err := r.Create(ctx, infraMachine); err != nil {
+		setConditionFalse(oacp, controlplanev1alpha3.MachinesCreatedCondition, controlplanev1alpha3.InfrastructureTemplateCloningFailedReason,
+			"error creating infrastructure clone: %v", err)
+		return nil, clusterv1.ContractVersionedObjectReference{}, err
+	}
+
+	return infraMachine, clusterv1.ContractVersionedObjectReference{
+		APIGroup: infraMachine.GroupVersionKind().Group,
+		Kind:     infraMachine.GetKind(),
+		Name:     infraMachine.GetName(),
+	}, nil
 }
 
 func (r *OpenshiftAssistedControlPlaneReconciler) generateOpenshiftAssistedConfig(oacp *controlplanev1alpha3.OpenshiftAssistedControlPlane, clusterName string, name string) *bootstrapv1alpha2.OpenshiftAssistedConfig {
@@ -826,24 +849,6 @@ func selectMachineForScaleDown(eligibleMachines collections.Machines, failureDom
 		return nil, errors.New("failed to pick control plane Machine to scale down")
 	}
 	return machineToScaleDown, nil
-}
-
-// contractVersionedRefToObjectRef converts ContractVersionedObjectReference (with APIGroup)
-// to corev1.ObjectReference (with APIVersion) for use with external.CreateFromTemplate.
-// Since ContractVersionedObjectReference only has APIGroup, we use the contract version convention
-// and default to v1beta1 for infrastructure providers.
-func contractVersionedRefToObjectRef(in *clusterv1.ContractVersionedObjectReference, namespace string) *corev1.ObjectReference {
-	apiVersion := ""
-	if in.APIGroup != "" {
-		// Default to v1beta1 for infrastructure group, as that's the common convention
-		apiVersion = in.APIGroup + "/v1beta1"
-	}
-	return &corev1.ObjectReference{
-		Kind:       in.Kind,
-		Name:       in.Name,
-		Namespace:  namespace,
-		APIVersion: apiVersion,
-	}
 }
 
 // Condition helper functions for setting metav1.Condition (new format).

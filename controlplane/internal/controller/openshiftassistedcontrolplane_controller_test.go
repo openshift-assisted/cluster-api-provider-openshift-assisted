@@ -48,6 +48,7 @@ import (
 
 	testutils "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/test/utils"
 	corev1 "k8s.io/api/core/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 )
@@ -597,6 +598,7 @@ var _ = Describe("Scale operations and machine updates", func() {
 		k8sVersion := "1.30.0"
 		mockKubernetesVersionDetector.EXPECT().GetKubernetesVersion(gomock.Any(), gomock.Any()).Return(&k8sVersion, nil).AnyTimes()
 
+		Expect(k8sClient.Create(ctx, getMetal3MachineTemplateCRD())).To(Succeed())
 		machineTemplate := getMachineTemplate("infratemplate", namespace)
 		Expect(k8sClient.Create(ctx, &machineTemplate)).To(Succeed())
 
@@ -1062,7 +1064,6 @@ var _ = Describe("Scale operations and machine updates", func() {
 	})
 })
 
-// Create dummy machine template
 func getMachineTemplate(name string, namespace string) metal3v1beta1.Metal3MachineTemplate {
 	return metal3v1beta1.Metal3MachineTemplate{
 		TypeMeta: metav1.TypeMeta{
@@ -1074,6 +1075,28 @@ func getMachineTemplate(name string, namespace string) metal3v1beta1.Metal3Machi
 			Namespace: namespace,
 		},
 		Spec: metal3v1beta1.Metal3MachineTemplateSpec{},
+	}
+}
+
+func getMetal3MachineTemplateCRD() *apiextensionsv1.CustomResourceDefinition {
+	return &apiextensionsv1.CustomResourceDefinition{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "metal3machinetemplates.infrastructure.cluster.x-k8s.io",
+			Labels: map[string]string{
+				"cluster.x-k8s.io/v1beta1": "v1beta1",
+			},
+		},
+		Spec: apiextensionsv1.CustomResourceDefinitionSpec{
+			Group: "infrastructure.cluster.x-k8s.io",
+			Names: apiextensionsv1.CustomResourceDefinitionNames{
+				Kind:   "Metal3MachineTemplate",
+				Plural: "metal3machinetemplates",
+			},
+			Scope: apiextensionsv1.NamespaceScoped,
+			Versions: []apiextensionsv1.CustomResourceDefinitionVersion{
+				{Name: "v1beta1", Served: true, Storage: true},
+			},
+		},
 	}
 }
 

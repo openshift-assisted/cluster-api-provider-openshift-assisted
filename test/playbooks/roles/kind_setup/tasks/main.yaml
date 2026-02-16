@@ -258,49 +258,48 @@
     msg: "{{ kind_cluster_result.stdout_lines | default([]) }}"
   when: kind_cluster_result.stdout_lines is defined
 
-- name: Get latest kubectl version if not specified
+- name: Check if kubectl exists and get version
+  ansible.builtin.shell: |
+    set -o pipefail
+    kubectl version --client 2>/dev/null | grep 'Client Version:' | awk '{print $3}'
+  register: kubectl_version_check
+  changed_when: false
+  failed_when: false
+  become: false
+
+- name: Set kubectl_installed fact
+  ansible.builtin.set_fact:
+    kubectl_installed: "{{ kubectl_version_check.rc == 0 and kubectl_version_check.stdout | length > 0 }}"
+
+- name: Kubectl version
+  ansible.builtin.debug:
+    msg: "{{ kubectl_version_check.stdout | default('not installed') }}"
+
+- name: Get latest kubectl version if not specified and kubectl is not installed
   ansible.builtin.uri:
     url: https://dl.k8s.io/release/stable.txt
     return_content: true
   register: stable_version
   changed_when: false
   failed_when: stable_version.rc != 0 or not stable_version.stdout is regex('^v[0-9]+\.[0-9]+\.[0-9]+')
-  when: kubectl_version is not defined
+  when: not (kubectl_installed | bool) and kubectl_version is not defined
   become: false
 
 - name: Set kubectl version from stable release
   ansible.builtin.set_fact:
     kubectl_version: "{{ stable_version.stdout | trim }}"
-  when: kubectl_version is not defined
+  when: not (kubectl_installed | bool) and kubectl_version is not defined
 
-- name: Check if kubectl exists and get version
-  ansible.builtin.shell: |
-    set -o pipefail
-    kubectl version 2>/dev/null | grep 'Client Version:' | sed 's/Client Version: //g'
-  register: kubectl_version_check
-  changed_when: false
-  failed_when: false
-  become: false
-
-- name: Kubectl version
-  ansible.builtin.debug:
-    msg: "{{ kubectl_version_check.stdout }}"
 - name: Install kubectl binary  # noqa: command-instead-of-module no-changed-when
   # Using curl with -4 to force IPv4 - get_url module doesn't support this
   ansible.builtin.command:
     cmd: >-
       curl -4 -fsSL -o /usr/local/bin/kubectl
       "https://cdn.dl.k8s.io/release/{{ kubectl_version }}/bin/linux/amd64/kubectl"
-  when: >
-    kubectl_version_check.stdout is not defined or
-    kubectl_version_check.stdout | length == 0 or
-    kubectl_version not in kubectl_version_check.stdout
+  when: not (kubectl_installed | bool)
 
 - name: Set kubectl permissions
   ansible.builtin.file:
     path: /usr/local/bin/kubectl
     mode: '0755'
-  when: >
-    kubectl_version_check.stdout is not defined or
-    kubectl_version_check.stdout | length == 0 or
-    kubectl_version not in kubectl_version_check.stdout
+  when: not (kubectl_installed | bool)

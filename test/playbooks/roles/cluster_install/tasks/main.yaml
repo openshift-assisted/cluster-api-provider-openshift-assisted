@@ -115,5 +115,5 @@
 - name: Apply example manifest
   kubernetes.core.k8s:
     state: present
-    definition: "{{ lookup('template', playbook_dir ~ '/../../examples/' ~ example_manifest) }}"
+    definition: "{{ lookup('template', playbook_dir ~ '/../../test/e2e/templates/' ~ example_manifest) }}"
     namespace: "{{ test_namespace }}"

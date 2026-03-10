@@ -25,14 +25,6 @@ import (
 
 const DiscoveryIgnitionOverrideAnnotation = "openshiftassistedconfig.cluster.x-k8s.io/discovery-ignition-override"
 
-// Migration annotations used during v1alpha1 to v1alpha2 conversion.
-// The controller reads these and adds managed-by labels to the referenced resources.
-const (
-	MigrateInfraEnvRefAnnotation          = "openshiftassistedconfig.cluster.x-k8s.io/migrate-infraenv-ref"
-	MigrateInfraEnvRefNamespaceAnnotation = "openshiftassistedconfig.cluster.x-k8s.io/migrate-infraenv-ref-namespace"
-	MigrateAgentRefAnnotation             = "openshiftassistedconfig.cluster.x-k8s.io/migrate-agent-ref"
-)
-
 // OpenshiftAssistedConfigSpec defines the desired state of OpenshiftAssistedConfig
 type OpenshiftAssistedConfigSpec struct {
 	// Below some fields that would map to the InfraEnv https://github.com/openshift/assisted-service/blob/5b9d5f9197c950750f0d57dc7900a60cef255171/api/v1beta1/infraenv_types.go#L48
@@ -108,7 +100,7 @@ type NodeRegistrationOptions struct {
 }
 
 type OpenshiftAssistedConfigInitializationStatus struct {
-	// dataSecretCreated is true when the Machine's boostrap secret is created.
+	// dataSecretCreated is true when the Machine's bootstrap secret is created.
 	// NOTE: this field is part of the Cluster API contract, and it is used to orchestrate initial Machine provisioning.
 	// +optional
 	DataSecretCreated *bool `json:"dataSecretCreated,omitempty"`
@@ -116,7 +108,7 @@ type OpenshiftAssistedConfigInitializationStatus struct {
 
 // OpenshiftAssistedConfigStatus defines the observed state of OpenshiftAssistedConfig
 type OpenshiftAssistedConfigStatus struct {
-	// conditions represents the observations of a KubeadmConfig's current state.
+	// conditions represents the observations of a OpenshiftAssistedConfig's current state.
 	// Known condition types are Ready, DataSecretAvailable, CertificatesAvailable.
 	// +optional
 	// +listType=map
@@ -124,7 +116,7 @@ type OpenshiftAssistedConfigStatus struct {
 	// +kubebuilder:validation:MaxItems=32
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 
-	// initialization provides observations of the KubeadmConfig initialization process.
+	// initialization provides observations of the OpenshiftAssistedConfig initialization process.
 	// NOTE: Fields in this struct are part of the Cluster API contract and are used to orchestrate initial Machine provisioning.
 	// +optional
 	Initialization OpenshiftAssistedConfigInitializationStatus `json:"initialization,omitempty,omitzero"`

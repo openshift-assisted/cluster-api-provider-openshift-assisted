@@ -269,7 +269,7 @@ spec:
               of OpenshiftAssistedConfigTemplate
             properties:
               template:
-                description: OpenshiftAssistedConfig template
+                description: Template specifies the OpenshiftAssistedConfig template
                 properties:
                   metadata:
                     description: |-

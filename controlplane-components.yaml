@@ -770,7 +770,7 @@ spec:
               of OpenshiftAssistedControlPlane
             properties:
               config:
-                description: Config specs for the OpenshiftAssistedControlPlane
+                description: Config contains configuration specs for the OpenshiftAssistedControlPlane
                 properties:
                   apiVIPs:
                     description: |-

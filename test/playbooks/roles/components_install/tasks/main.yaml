@@ -162,6 +162,44 @@
     dest: /tmp/loadbalancer_ip
     mode: '0644'
 
+# Install CAPI/CAPM3 before assisted-service (metal3.io CRDs required)
+- name: Install clusterctl
+  ansible.builtin.get_url:
+    url: "https://github.com/kubernetes-sigs/cluster-api/releases/download/{{ capi_version }}/clusterctl-linux-amd64"
+    dest: /usr/local/bin/clusterctl
+    mode: '0755'
+    force: true
+  become: true
+
+- name: Deploy CAPI
+  ansible.builtin.command: "clusterctl init --core cluster-api:{{ capi_version }} --bootstrap - --control-plane - --infrastructure metal3:{{ capm3_version }}"
+  environment:
+    CLUSTER_TOPOLOGY: "true"
+  changed_when: true
+
+- name: Wait for CAPM3 controller manager
+  kubernetes.core.k8s_info:
+    api_version: apps/v1
+    kind: Deployment
+    name: capm3-controller-manager
+    namespace: capm3-system
+  register: capm3_status
+  until: >-
+    capm3_status.resources is defined and
+    capm3_status.resources | length > 0 and
+    capm3_status.resources[0].status.conditions |
+    selectattr('type', 'equalto', 'Available') |
+    selectattr('status', 'equalto', 'True') |
+    list |
+    length > 0
+  retries: "{{ medium_retries | int }}"
+  delay: "{{ medium_delay | int }}"
+
+- name: Wait for CAPM3 webhook to be ready
+  ansible.builtin.pause:
+    seconds: 30
+    prompt: "Waiting for CAPM3 webhook certificates to be injected and trusted"
+
 - name: Prepare infrastructure-operator
   delegate_to: localhost
   ansible.builtin.template:
@@ -237,46 +275,6 @@
     length > 0
   retries: "{{ medium_retries | int }}"
   delay: "{{ medium_delay | int }}"
-
-- name: Install clusterctl
-  ansible.builtin.get_url:
-    url: "https://github.com/kubernetes-sigs/cluster-api/releases/download/{{ capi_version }}/clusterctl-linux-amd64"
-    dest: /usr/local/bin/clusterctl
-    mode: '0755'
-    force: true
-  become: true
-
-- name: Deploy CAPI
-  ansible.builtin.command: "clusterctl init --core cluster-api:{{ capi_version }} --bootstrap - --control-plane - --infrastructure metal3:{{ capm3_version }}"
-  environment:
-    # Note: clusterctl uses CLUSTER_TOPOLOGY as a template variable in feature gates.
-    # It expects a boolean value (true/false), not a topology type (sno/multinode).
-    # We enable ClusterTopology feature for both SNO and multinode deployments.
-    CLUSTER_TOPOLOGY: "true"
-  changed_when: true
-
-- name: Wait for CAPM3 controller manager
-  kubernetes.core.k8s_info:
-    api_version: apps/v1
-    kind: Deployment
-    name: capm3-controller-manager
-    namespace: capm3-system
-  register: capm3_status
-  until: >-
-    capm3_status.resources is defined and
-    capm3_status.resources | length > 0 and
-    capm3_status.resources[0].status.conditions |
-    selectattr('type', 'equalto', 'Available') |
-    selectattr('status', 'equalto', 'True') |
-    list |
-    length > 0
-  retries: "{{ medium_retries | int }}"
-  delay: "{{ medium_delay | int }}"
-
-- name: Wait for CAPM3 webhook to be ready
-  ansible.builtin.pause:
-    seconds: 30
-    prompt: "Waiting for CAPM3 webhook certificates to be injected and trusted"
 
 - name: Deploy CAPBOA
   kubernetes.core.k8s:

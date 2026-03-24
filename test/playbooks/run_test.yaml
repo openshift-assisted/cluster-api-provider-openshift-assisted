@@ -2,13 +2,23 @@
 # Setup and run tests playbook
 #
 # Environment variables for conditional execution:
+#   MANAGEMENT_CLUSTER=kind|ocp - Select management cluster type (default: kind)
 #   SKIP_BUILD=true        - Skip building provider images
 #   SKIP_CAPI_INSTALL=true - Skip CAPI/MCE component installation (dependencies still installed)
 #   SKIP_CLUSTER=true      - Skip cluster manifest application and assertions
 #
+# OCP flow environment variables:
+#   HUB_OCP_RELEASE        - OCP release image for the management cluster (default mirrors openshift_version)
+#   MCE_CATALOG_IMAGE      - CatalogSource index image for MCE operator
+#   MCE_CHANNEL_VERSION    - MCE subscription channel version (default: 2.11)
+#   FORCE_OCP_REPROVISION  - Force OCP cluster recreation even if it already exists (default: false)
+#
 # Examples:
-#   # Full test run (default)
+#   # Full test run (default - Kind management cluster)
 #   ansible-playbook -i inventories/local_host.yaml run_test.yaml
+#
+#   # OCP management cluster flow
+#   MANAGEMENT_CLUSTER=ocp MCE_CATALOG_IMAGE=quay.io/acm-d/mce-custom-registry:2.11-latest ansible-playbook -i inventories/local_host.yaml run_test.yaml
 #
 #   # Skip image build (use pre-built images)
 #   SKIP_BUILD=true ansible-playbook -i inventories/local_host.yaml run_test.yaml
@@ -23,6 +33,8 @@
 - name: Setup and run tests
   hosts: test_runner
   vars:
+    # Management cluster selection: 'kind' (default) or 'ocp'
+    management_cluster: "{{ lookup('ansible.builtin.env', 'MANAGEMENT_CLUSTER', default='kind') }}"
     cert_manager_version: v1.5.3
     remote_manifests_path: /tmp/manifests
     test_namespace: test-capi
@@ -61,24 +73,33 @@
     openshift_version: "4.20.0"
     rhcos_image_url: "https://mirror.openshift.com/pub/openshift-v4/dependencies/rhcos/4.20/4.20.0/rhcos-4.20.0-x86_64-nutanix.x86_64.qcow2"
     rhcos_checksum_url: https://mirror.openshift.com/pub/openshift-v4/dependencies/rhcos/4.20/4.20.0/sha256sum.txt
+    # OCP management cluster settings
+    hub_ocp_release: "{{ lookup('ansible.builtin.env', 'HUB_OCP_RELEASE', default='quay.io/openshift-release-dev/ocp-release:' + openshift_version + '-x86_64') }}"
+    ocp_kubeconfig: "/tmp/mini-agent/auth/kubeconfig"
     # Conditional execution flags
     skip_build: "{{ lookup('ansible.builtin.env', 'SKIP_BUILD', default='false') | lower in ['true', '1', 'yes'] }}"
     skip_capi_install: "{{ lookup('ansible.builtin.env', 'SKIP_CAPI_INSTALL', default='false') | lower in ['true', '1', 'yes'] }}"
     skip_cluster: "{{ lookup('ansible.builtin.env', 'SKIP_CLUSTER', default='false') | lower in ['true', '1', 'yes'] }}"
   environment:
-    PATH: "{{ extra_paths | join(':') }}:{{ ansible_env.PATH }}"
+    PATH: "{{ extra_paths | join(':') }}:{{ lookup('ansible.builtin.env', 'PATH') }}"
+    KUBECONFIG: "{{ ocp_kubeconfig if management_cluster == 'ocp' else omit }}"
   roles:
     # Infrastructure setup (always runs)
     - system_dependencies
     - sourcecode_setup
     - network_setup
     - baremetal_emulation
-    - kind_setup
-    # Build provider images (skip if skip_build)
+    # Management cluster provisioning (mutually exclusive)
+    - role: kind_setup
+      when: management_cluster == 'kind'
+    - role: ocp_setup
+      when: management_cluster == 'ocp'
+    # Build provider images (skip if skip_build or OCP flow)
     - role: build_images
-      when: not skip_build
+      when: not skip_build and management_cluster != 'ocp'
     # Components install - always runs, but respects skip_capi_install internally
-    # Always installs dependencies (cert-manager, prometheus, ironic, BMO, MetalLB, nginx)
+    # On Kind: installs cert-manager, prometheus, ironic, BMO, MetalLB, nginx-ingress
+    # On OCP: skips all common deps (handled by OCP/MCE); deploys MCE via OLM
     # Skips CAPI/MCE components if skip_capi_install=true
     - components_install
     # BMH setup (always runs - needed for demo and full test)

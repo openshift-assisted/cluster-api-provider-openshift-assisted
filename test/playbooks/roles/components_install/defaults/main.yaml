@@ -61,6 +61,11 @@ mce_chart_path: "/tmp/mce-operator-helm-xks/charts/multicluster-engine"
 # MCE namespace
 mce_namespace: "multicluster-engine"
 
+# OCP/OLM installation settings
+mce_catalog_image: "{{ lookup('ansible.builtin.env', 'MCE_CATALOG_IMAGE', default='quay.io/acm-d/mce-custom-registry:2.11-latest') }}"
+mce_channel_version: "{{ lookup('ansible.builtin.env', 'MCE_CHANNEL_VERSION', default='2.11') }}"
+mce_subscription_channel: "stable-{{ mce_channel_version }}"
+
 # Required images to extract from manifest for MCE values file
 mce_required_images:
   - assisted_image_service

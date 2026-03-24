@@ -4,10 +4,19 @@
     name: sushy-tools
     state: absent
 
-# remove kind cluster
+# Kind cluster cleanup (only for Kind management cluster)
 - name: Delete kind cluster
   ansible.builtin.command: "kind delete cluster --name {{ kind_cluster_name }}"
   changed_when: true
+  when: management_cluster | default('kind') == 'kind'
+
+# OCP cluster cleanup (only when explicitly requested)
+- name: Cleanup OCP management cluster via miniagent
+  ansible.builtin.command:
+    cmd: "./sno-cleanup.sh"
+    chdir: "{{ miniagent_dir | default('/tmp/miniagent') }}"
+  changed_when: true
+  when: management_cluster | default('kind') == 'ocp' and management_cluster_cleanup | default(false)
 
 - name: Destroy VMs
   community.libvirt.virt:

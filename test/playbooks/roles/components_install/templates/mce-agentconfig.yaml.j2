@@ -15,10 +15,12 @@ metadata:
     unsupported.agent-install.openshift.io/assisted-service-configmap: "assisted-installer-config-override"
     agent-install.openshift.io/enable-image-service: "false"
 spec:
+{% if management_cluster | default('kind') != 'ocp' %}
   ingress:
     className: nginx
     assistedServiceHostname: "assisted-service.assisted-installer.com"
     imageServiceHostname: "assisted-image.assisted-installer.com"
+{% endif %}
   databaseStorage:
     accessModes:
     - ReadWriteOnce

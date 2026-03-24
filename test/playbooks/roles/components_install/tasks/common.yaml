@@ -1,11 +1,13 @@
 ---
 # Common dependencies installation
-# These are required for both standard and MCE-based installations
+# On Kind: all dependencies (cert-manager, helm, prometheus, ironic, BMO, MetalLB, nginx-ingress)
+# On OCP: none needed (cert-manager, prometheus, ironic, BMO, nginx, MetalLB all handled by OCP/MCE)
 
 - name: Deploy cert-manager
   kubernetes.core.k8s:
     state: present
     src: https://github.com/jetstack/cert-manager/releases/download/{{ cert_manager_version }}/cert-manager.yaml
+  when: management_cluster != 'ocp'
 
 - name: Wait for cert-manager
   kubernetes.core.k8s_info:
@@ -21,6 +23,7 @@
     list | length > 0
   retries: "{{ medium_retries | int }}"
   delay: "{{ medium_delay | int }}"
+  when: management_cluster != 'ocp'
 
 # Install Helm (required for kube-prometheus-stack)
 - name: Check if Helm is installed
@@ -28,20 +31,21 @@
   register: helm_check
   failed_when: false
   changed_when: false
+  when: management_cluster != 'ocp'
 
 - name: Download Helm
   ansible.builtin.get_url:
     url: "https://get.helm.sh/helm-{{ helm_version }}-linux-amd64.tar.gz"
     dest: /tmp/helm.tar.gz
     mode: '0644'
-  when: helm_check.rc != 0
+  when: management_cluster != 'ocp' and helm_check.rc != 0
 
 - name: Extract Helm
   ansible.builtin.unarchive:
     src: /tmp/helm.tar.gz
     dest: /tmp
     remote_src: true
-  when: helm_check.rc != 0
+  when: management_cluster != 'ocp' and helm_check.rc != 0
 
 - name: Install Helm
   ansible.builtin.copy:
@@ -49,7 +53,7 @@
     dest: /usr/local/bin/helm
     mode: '0755'
     remote_src: true
-  when: helm_check.rc != 0
+  when: management_cluster != 'ocp' and helm_check.rc != 0
 
 # Install kube-prometheus-stack (required by MCE)
 - name: Install kube-prometheus-stack
@@ -63,6 +67,7 @@
   changed_when: true
   register: prometheus_install
   failed_when: prometheus_install.rc != 0 and 'already exists' not in prometheus_install.stderr
+  when: management_cluster != 'ocp'
 
 - name: Show PATH
   ansible.builtin.debug:
@@ -73,6 +78,7 @@
     definition: "{{ lookup('kubernetes.core.kustomize', dir=playbook_dir + '/../../test/e2e/manifests/ironic') }}"
     state: present
     apply: true
+  when: management_cluster != 'ocp'
 
 - name: Wait for ironic
   kubernetes.core.k8s_info:
@@ -88,12 +94,14 @@
     list | length > 0
   retries: "{{ medium_retries | int }}"
   delay: "{{ medium_delay | int }}"
+  when: management_cluster != 'ocp'
 
 - name: Deploy BMO
   kubernetes.core.k8s:
     definition: "{{ lookup('kubernetes.core.kustomize', dir=playbook_dir + '/../../test/e2e/manifests/bmo') }}"
     state: present
     apply: true
+  when: management_cluster != 'ocp'
 
 - name: Wait for BMO
   kubernetes.core.k8s_info:
@@ -109,11 +117,13 @@
     list | length > 0
   retries: "{{ medium_retries | int }}"
   delay: "{{ medium_delay | int }}"
+  when: management_cluster != 'ocp'
 
 - name: Deploy MetalLB
   kubernetes.core.k8s:
     state: present
     src: https://raw.githubusercontent.com/metallb/metallb/v0.13.7/config/manifests/metallb-native.yaml
+  when: management_cluster != 'ocp'
 
 - name: Wait for MetalLB
   kubernetes.core.k8s_info:
@@ -129,12 +139,14 @@
     list | length > 0
   retries: "{{ medium_retries | int }}"
   delay: "{{ medium_delay | int }}"
+  when: management_cluster != 'ocp'
 
 - name: Deploy metallb IPAddressPool
   kubernetes.core.k8s:
     definition: "{{ lookup('template', playbook_dir ~ '/../../test/e2e/manifests/metallb/metallb.yaml.j2') }}"
     state: present
     apply: true
+  when: management_cluster != 'ocp'
 
 - name: Create nginx-ingress namespace
   kubernetes.core.k8s:
@@ -142,12 +154,14 @@
     kind: Namespace
     name: nginx-ingress
     state: present
+  when: management_cluster != 'ocp'
 
 - name: Deploy nginx-ingress
   kubernetes.core.k8s:
     state: present
     src: "{{ src_dir }}/test/e2e/manifests/ingress-nginx/nginx.yaml"
     apply: true
+  when: management_cluster != 'ocp'
 
 - name: Wait for load balancer IP
   kubernetes.core.k8s_info:
@@ -159,9 +173,11 @@
   until: lb_status.resources[0].status.loadBalancer.ingress is defined
   retries: "{{ medium_retries | int }}"
   delay: "{{ medium_delay | int }}"
+  when: management_cluster != 'ocp'
 
 - name: Save load balancer IP
   ansible.builtin.copy:
     content: "{{ lb_status.resources[0].status.loadBalancer.ingress[0].ip }}"
     dest: /tmp/loadbalancer_ip
     mode: '0644'
+  when: management_cluster != 'ocp'

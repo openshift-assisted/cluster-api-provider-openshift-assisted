@@ -26,7 +26,7 @@ jobs:
         run: |
           mkdir -p scans/
       - name: Run Trivy vulnerability scanner for controlplane
-        uses: aquasecurity/trivy-action@0.32.0
+        uses: aquasecurity/trivy-action@v0.35.0
         with:
           image-ref: 'quay.io/edge-infrastructure/cluster-api-controlplane-provider-openshift-assisted:${{ github.sha }}'
           trivy-config: .trivy.yaml

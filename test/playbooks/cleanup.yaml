@@ -4,6 +4,9 @@
   vars:
     src_dir: "/tmp/capbcoa"
     kind_cluster_name: capi-baremetal-provider
+    management_cluster: "{{ lookup('ansible.builtin.env', 'MANAGEMENT_CLUSTER', default='kind') }}"
+    management_cluster_cleanup: "{{ lookup('ansible.builtin.env', 'MANAGEMENT_CLUSTER_CLEANUP', default='false') | lower in ['true', '1', 'yes'] }}"
+    number_of_nodes: "{{ lookup('ansible.builtin.env', 'NUMBER_OF_NODES', default='7') }}"
 
   roles:
     - cleanup

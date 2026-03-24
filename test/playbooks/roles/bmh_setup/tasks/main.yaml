@@ -68,9 +68,13 @@
       #!/bin/bash
       i=0
       for systemid in $(curl -s 192.168.222.1:8000/redfish/v1/Systems | jq -r '.Members[]."@odata.id"'); do
-        echo "starting VM BMH..."
-        i=$((i+1))
         name=$(curl -s 192.168.222.1:8000${systemid} | jq -r '.Name')
+        if [[ ! "$name" =~ ^bmh-vm- ]]; then
+          echo "skipping non-bmh VM: ${name}"
+          continue
+        fi
+        echo "starting VM BMH ${name}..."
+        i=$((i+1))
         sed -r "s%redfish-virtualmedia.*REPLACE_ID%redfish-virtualmedia+http://192.168.222.1:8000${systemid}%" {{ src_dir }}/test/e2e/bmh/bmh.yaml.tpl |\
         sed -r "s/REPLACE_NAME/${name}/g" |\
         sed -r "s/REPLACE_MAC/00:60:2f:31:81:0${name: -1}/g" |\

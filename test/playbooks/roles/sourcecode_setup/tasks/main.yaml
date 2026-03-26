@@ -8,3 +8,5 @@
     delete: true
     rsync_opts:
       - "--protocol=29"
+      - "--exclude=.claude/"
+      - "--no-times"

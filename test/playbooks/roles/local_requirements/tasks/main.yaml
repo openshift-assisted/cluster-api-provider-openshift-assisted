@@ -1,0 +1,94 @@
+---
+- name: Check if kubectl exists and get version
+  ansible.builtin.shell: |
+    set -o pipefail
+    kubectl version --client 2>/dev/null | grep 'Client Version:' | awk '{print $3}'
+  register: kubectl_version_check
+  changed_when: false
+  failed_when: false
+
+- name: Display kubectl version
+  ansible.builtin.debug:
+    msg: "kubectl version: {{ kubectl_version_check.stdout }}"
+
+- name: Download kubectl
+  ansible.builtin.get_url:
+    url: "https://dl.k8s.io/release/{{ kubectl_version }}/bin/linux/amd64/kubectl"
+    dest: /tmp/kubectl
+    mode: '0755'
+  when: >
+    kubectl_version_check.stdout is not defined or
+    kubectl_version_check.stdout | length == 0 or
+    kubectl_version not in kubectl_version_check.stdout
+
+- name: Install kubectl to /usr/local/bin
+  ansible.builtin.copy:
+    src: /tmp/kubectl
+    dest: /usr/local/bin/kubectl
+    mode: '0755'
+    remote_src: true
+  become: true
+  when: >
+    kubectl_version_check.stdout is not defined or
+    kubectl_version_check.stdout | length == 0 or
+    kubectl_version not in kubectl_version_check.stdout
+
+- name: Check if kustomize exists and get version
+  ansible.builtin.shell: |
+    set -o pipefail
+    kustomize version 2>/dev/null | head -1
+  register: kustomize_version_check
+  changed_when: false
+  failed_when: false
+
+- name: Display kustomize version
+  ansible.builtin.debug:
+    msg: "kustomize version: {{ kustomize_version_check.stdout }}"
+
+- name: Download kustomize
+  ansible.builtin.get_url:
+    url: "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2F{{ kustomize_version }}/kustomize_{{ kustomize_version }}_linux_amd64.tar.gz"
+    dest: /tmp/kustomize.tar.gz
+    mode: '0644'
+  when: >
+    kustomize_version_check.stdout is not defined or
+    kustomize_version_check.stdout | length == 0 or
+    kustomize_version not in kustomize_version_check.stdout
+
+- name: Extract kustomize
+  ansible.builtin.unarchive:
+    src: /tmp/kustomize.tar.gz
+    dest: /tmp
+    remote_src: true
+  when: >
+    kustomize_version_check.stdout is not defined or
+    kustomize_version_check.stdout | length == 0 or
+    kustomize_version not in kustomize_version_check.stdout
+
+- name: Install kustomize to /usr/local/bin
+  ansible.builtin.copy:
+    src: /tmp/kustomize
+    dest: /usr/local/bin/kustomize
+    mode: '0755'
+    remote_src: true
+  become: true
+  when: >
+    kustomize_version_check.stdout is not defined or
+    kustomize_version_check.stdout | length == 0 or
+    kustomize_version not in kustomize_version_check.stdout
+
+- name: Verify kubectl installation
+  ansible.builtin.command: kubectl version --client
+  changed_when: false
+  register: kubectl_verify
+
+- name: Verify kustomize installation
+  ansible.builtin.command: kustomize version
+  changed_when: false
+  register: kustomize_verify
+
+- name: Display tool versions
+  ansible.builtin.debug:
+    msg:
+      - "kubectl: {{ kubectl_verify.stdout_lines[0] }}"
+      - "kustomize: {{ kustomize_verify.stdout_lines[0] }}"

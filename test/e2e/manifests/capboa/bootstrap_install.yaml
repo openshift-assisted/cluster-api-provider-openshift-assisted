@@ -546,7 +546,7 @@ spec:
             properties:
               conditions:
                 description: |-
-                  conditions represents the observations of a OpenshiftAssistedConfig's current state.
+                  conditions represents the observations of a KubeadmConfig's current state.
                   Known condition types are Ready, DataSecretAvailable, CertificatesAvailable.
                 items:
                   description: Condition contains details for one aspect of the current
@@ -615,12 +615,12 @@ spec:
                 type: string
               initialization:
                 description: |-
-                  initialization provides observations of the OpenshiftAssistedConfig initialization process.
+                  initialization provides observations of the KubeadmConfig initialization process.
                   NOTE: Fields in this struct are part of the Cluster API contract and are used to orchestrate initial Machine provisioning.
                 properties:
                   dataSecretCreated:
                     description: |-
-                      dataSecretCreated is true when the Machine's bootstrap secret is created.
+                      dataSecretCreated is true when the Machine's boostrap secret is created.
                       NOTE: this field is part of the Cluster API contract, and it is used to orchestrate initial Machine provisioning.
                     type: boolean
                 type: object
@@ -975,7 +975,7 @@ spec:
               of OpenshiftAssistedConfigTemplate
             properties:
               template:
-                description: Template specifies the OpenshiftAssistedConfig template
+                description: OpenshiftAssistedConfig template
                 properties:
                   metadata:
                     description: |-

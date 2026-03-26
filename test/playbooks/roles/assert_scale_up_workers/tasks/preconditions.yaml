@@ -1,0 +1,91 @@
+---
+- name: Initialize precondition results
+  ansible.builtin.set_fact:
+    precondition_errors: []
+
+# Precondition 1: Cluster cannot be SNO
+- name: Check cluster topology is not SNO
+  ansible.builtin.set_fact:
+    precondition_errors: "{{ precondition_errors + ['Cluster topology is SNO - scale up workers test cannot run on single-node clusters'] }}"
+  when: cluster_topology == 'sno'
+
+# Precondition 2: Check for available (unassigned) BareMetalHosts
+- name: Get all BareMetalHosts in namespace
+  kubernetes.core.k8s_info:
+    api_version: metal3.io/v1alpha1
+    kind: BareMetalHost
+    namespace: "{{ test_namespace }}"
+  register: all_bmhs
+
+- name: Identify unassigned BareMetalHosts
+  ansible.builtin.set_fact:
+    unassigned_bmhs: >-
+      {{
+        all_bmhs.resources |
+        selectattr('spec.consumerRef', 'undefined') |
+        list
+      }}
+    assigned_bmhs: >-
+      {{
+        all_bmhs.resources |
+        selectattr('spec.consumerRef', 'defined') |
+        list
+      }}
+
+- name: Check for available BareMetalHosts
+  ansible.builtin.set_fact:
+    precondition_errors: "{{ precondition_errors + ['No unassigned BareMetalHosts available - all ' ~ (all_bmhs.resources | length) ~ ' BMHs are already assigned to the cluster'] }}"
+  when: unassigned_bmhs | length == 0
+
+# Display results
+- name: Display BareMetalHost status
+  ansible.builtin.debug:
+    msg:
+      - "Total BareMetalHosts:      {{ all_bmhs.resources | length }}"
+      - "Assigned to cluster:       {{ assigned_bmhs | length }}"
+      - "Available for scale up:    {{ unassigned_bmhs | length }}"
+
+- name: Display unassigned BareMetalHosts
+  ansible.builtin.debug:
+    msg: "Available BMH: {{ item.metadata.name }} (state: {{ item.status.provisioning.state | default('unknown') }})"
+  loop: "{{ unassigned_bmhs }}"
+  loop_control:
+    label: "{{ item.metadata.name }}"
+  when: unassigned_bmhs | length > 0
+
+# Handle precondition failures
+- name: Display precondition errors
+  when: precondition_errors | length > 0
+  block:
+    - name: Show error summary
+      ansible.builtin.debug:
+        msg:
+          - "================================================================================"
+          - "PRECONDITION CHECK FAILED"
+          - "================================================================================"
+          - "The following preconditions were not met:"
+          - ""
+          - "{{ precondition_errors | join('\n') }}"
+          - ""
+          - "Current state:"
+          - "  - Cluster topology:      {{ cluster_topology }}"
+          - "  - Total BMHs:            {{ all_bmhs.resources | length }}"
+          - "  - Assigned BMHs:         {{ assigned_bmhs | length }}"
+          - "  - Available BMHs:        {{ unassigned_bmhs | length }}"
+          - "================================================================================"
+
+    - name: Fail with precondition errors
+      ansible.builtin.fail:
+        msg: "Precondition check failed: {{ precondition_errors | join('; ') }}"
+
+# Success path
+- name: Display preconditions passed
+  ansible.builtin.debug:
+    msg:
+      - "================================================================================"
+      - "Preconditions Passed"
+      - "================================================================================"
+      - "Cluster topology:          {{ cluster_topology }} (not SNO)"
+      - "Available BMHs:            {{ unassigned_bmhs | length }}"
+      - "================================================================================"
+  when: precondition_errors | length == 0

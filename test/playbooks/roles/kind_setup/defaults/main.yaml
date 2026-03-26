@@ -1,2 +1,10 @@
 ---
+# Kind version to install
 kind_setup_kind_version: v0.25.0
+
+# Name of the test cluster used to verify kind rootless functionality
+kind_rootless_test_cluster_name: kind-rootless-test
+
+# Target user for rootless podman configuration
+# This should be set to the user who will run kind with podman
+kind_rootless_target_user: "{{ ansible_user | default(ansible_user_id) }}"

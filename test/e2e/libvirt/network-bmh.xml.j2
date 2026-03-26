@@ -34,8 +34,8 @@
     <dnsmasq:option value='address=/api-int.test-{{ cluster_topology }}.lab.home/192.168.222.40'/>
     <dnsmasq:option value='address=/.apps.test-{{ cluster_topology }}.lab.home/192.168.222.41'/>
 {% endif %}
-    <dnsmasq:option value='address=/assisted-service.assisted-installer.com/{{ loadbalancer_ip }}'/>
-    <dnsmasq:option value='address=/assisted-image.assisted-installer.com/{{ loadbalancer_ip }}'/>
+    <dnsmasq:option value='address=/assisted-service.assisted-installer.com/192.168.222.1'/>
+    <dnsmasq:option value='address=/assisted-image.assisted-installer.com/192.168.222.1'/>
     <dnsmasq:option value='server=/registry-proxy.engineering.redhat.com/10.11.5.160'/>
     <dnsmasq:option value='server=8.8.8.8'/>
   </dnsmasq:options>

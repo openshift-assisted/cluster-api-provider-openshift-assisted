@@ -1,0 +1,36 @@
+---
+- name: Ensure .ssh directory exists on remote host
+  ansible.builtin.file:
+    path: ~/.ssh
+    state: directory
+    mode: '0700'
+  become: false
+
+- name: Check if SSH key pair already exists on remote host
+  ansible.builtin.stat:
+    path: ~/.ssh/id_rsa
+  become: false
+  register: remote_ssh_key
+
+- name: Generate SSH key pair on remote host
+  ansible.builtin.command:
+    cmd: ssh-keygen -t rsa -b 4096 -f ~/.ssh/id_rsa -N "" -C "cluster-nodes-access@{{ ansible_host }}"
+  become: false
+  when: not remote_ssh_key.stat.exists
+
+- name: Read generated public key from remote host
+  ansible.builtin.slurp:
+    src: ~/.ssh/id_rsa.pub
+  become: false
+  register: generated_public_key
+
+- name: Set SSH authorized key fact from generated key
+  ansible.builtin.set_fact:
+    ssh_authorized_key: "{{ generated_public_key.content | b64decode | trim }}"
+
+- name: Display SSH key generation status
+  ansible.builtin.debug:
+    msg: |
+      SSH key pair ready on {{ ansible_user }}@{{ ansible_host }}
+      Private key: ~/.ssh/id_rsa
+      Public key will be injected into cluster nodes

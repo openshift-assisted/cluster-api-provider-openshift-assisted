@@ -1,4 +1,54 @@
 ---
+- name: Display upgrade information
+  ansible.builtin.debug:
+    msg:
+      - "================================================================================"
+      - "Starting Cluster Upgrade"
+      - "================================================================================"
+      - "Cluster:               {{ cluster_name }}"
+      - "Namespace:             {{ test_namespace }}"
+      - "Target Version:        {{ upgrade_to_version }}"
+      - "================================================================================"
+
+- name: Get current cluster version
+  kubernetes.core.k8s_info:
+    api_version: controlplane.cluster.x-k8s.io/v1alpha2
+    kind: OpenshiftAssistedControlPlane
+    name: "{{ cluster_name }}"
+    namespace: "{{ test_namespace }}"
+  register: current_controlplane
+  environment:
+    KUBECONFIG: "/home/{{ ansible_user }}/.kube/config"
+
+- name: Display current version
+  ansible.builtin.debug:
+    msg:
+      - "Current Version:       {{ current_controlplane.resources[0].spec.distributionVersion }}"
+      - "Status Version:        {{ current_controlplane.resources[0].status.distributionVersion }}"
+
+- name: Check if cluster is already at target version and skip upgrade
+  block:
+    - name: Display skip message
+      ansible.builtin.debug:
+        msg:
+          - "================================================================================"
+          - "Cluster Already at Target Version"
+          - "================================================================================"
+          - "Current Version:   {{ current_controlplane.resources[0].status.distributionVersion }}"
+          - "Target Version:    {{ upgrade_to_version }}"
+          - ""
+          - "No upgrade needed. Skipping upgrade process."
+          - "================================================================================"
+
+    - name: End role execution
+      ansible.builtin.meta: end_host
+  when: >-
+    current_controlplane.resources[0].spec.distributionVersion == upgrade_to_version and
+    current_controlplane.resources[0].status.distributionVersion == upgrade_to_version
+
+- name: Update AgentServiceConfig with OS image for target version
+  ansible.builtin.include_tasks: update_agentserviceconfig.yaml
+
 - name: Upgrade cluster
   kubernetes.core.k8s:
     state: present
@@ -10,6 +60,14 @@
     definition:
       spec:
         distributionVersion: "{{ upgrade_to_version }}"
+  environment:
+    KUBECONFIG: "/home/{{ ansible_user }}/.kube/config"
+
+- name: Display waiting message
+  ansible.builtin.debug:
+    msg:
+      - "Upgrade triggered. Waiting for completion..."
+      - "(This may take 1.5 to 2.5 hours - checking every {{ high_delay }} seconds)"
 
 - name: Wait for controlplane upgrade to complete
   kubernetes.core.k8s_info:
@@ -29,6 +87,22 @@
     length > 0
   retries: "{{ high_retries | int }}"
   delay: "{{ high_delay | int }}"
+  environment:
+    KUBECONFIG: "/home/{{ ansible_user }}/.kube/config"
+
+- name: Verify controlplane upgrade completed successfully
+  ansible.builtin.assert:
+    that:
+      - controlplane_upgrade.resources is defined
+      - controlplane_upgrade.resources | length > 0
+      - >-
+        controlplane_upgrade.resources[0].status.conditions | default([]) |
+        selectattr('type', 'equalto', 'UpgradeCompleted') |
+        selectattr('status', 'equalto', 'True') |
+        list |
+        length > 0
+    fail_msg: "Upgrade did not complete within the allowed time. Current status: {{ controlplane_upgrade.resources[0].status.conditions | default([]) | selectattr('type', 'equalto', 'UpgradeCompleted') | list | first | default('No UpgradeCompleted condition found') }}"
+    success_msg: "Controlplane upgrade completed successfully"
 
 - name: Wait for controlplane to be ready
   block:
@@ -58,3 +132,85 @@
     - name: Fail after showing debug info
       ansible.builtin.fail:
         msg: "Controlplane did not become ready in time"
+
+- name: Wait for spoke cluster to reach target version
+  block:
+    - name: Display clusterversion verification message
+      ansible.builtin.debug:
+        msg:
+          - "================================================================================"
+          - "Verifying Spoke Cluster Version"
+          - "================================================================================"
+          - "Waiting for clusterversion to show:"
+          - "  - Version: {{ upgrade_to_version }}"
+          - "  - Progressing: False"
+          - "  - Available: True"
+          - "================================================================================"
+
+    - name: Wait for clusterversion to reach target and stop progressing
+      ansible.builtin.shell: |
+        export KUBECONFIG=/tmp/{{ cluster_name }}-kubeconfig
+        kubectl get clusterversion version -o json | jq -r '
+          {
+            "version": (.status.desired.version // "unknown"),
+            "progressing": (.status.conditions[] | select(.type=="Progressing") | .status),
+            "available": (.status.conditions[] | select(.type=="Available") | .status),
+            "progressing_message": (.status.conditions[] | select(.type=="Progressing") | .message)
+          }
+        '
+      register: clusterversion_status
+      until: >-
+        clusterversion_status.rc == 0 and
+        (clusterversion_status.stdout | from_json).version == upgrade_to_version and
+        (clusterversion_status.stdout | from_json).progressing == "False" and
+        (clusterversion_status.stdout | from_json).available == "True"
+      retries: "{{ high_retries | int }}"
+      delay: "{{ high_delay | int }}"
+      changed_when: false
+      environment:
+        PATH: "{{ ansible_env.PATH }}:/usr/local/bin"
+
+    - name: Display final clusterversion status
+      ansible.builtin.shell: |
+        export KUBECONFIG=/tmp/{{ cluster_name }}-kubeconfig
+        kubectl get clusterversion
+      register: final_clusterversion
+      changed_when: false
+      environment:
+        PATH: "{{ ansible_env.PATH }}:/usr/local/bin"
+
+    - name: Show clusterversion result
+      ansible.builtin.debug:
+        msg:
+          - "================================================================================"
+          - "Spoke Cluster Upgrade Verified"
+          - "================================================================================"
+          - "{{ final_clusterversion.stdout_lines }}"
+          - "================================================================================"
+  rescue:
+    - name: Debug clusterversion_status on failure
+      ansible.builtin.debug:
+        msg:
+          - "Clusterversion verification failed"
+          - "Last status: {{ clusterversion_status.stdout | default('No output') }}"
+          - "Return code: {{ clusterversion_status.rc | default('N/A') }}"
+          - "Stderr: {{ clusterversion_status.stderr | default('No stderr') }}"
+
+    - name: Get current clusterversion for debugging
+      ansible.builtin.shell: |
+        export KUBECONFIG=/tmp/{{ cluster_name }}-kubeconfig
+        kubectl get clusterversion -o yaml
+      register: debug_clusterversion
+      changed_when: false
+      failed_when: false
+      environment:
+        PATH: "{{ ansible_env.PATH }}:/usr/local/bin"
+
+    - name: Show debug clusterversion
+      ansible.builtin.debug:
+        var: debug_clusterversion.stdout_lines
+      when: debug_clusterversion.stdout is defined
+
+    - name: Fail after showing debug info
+      ansible.builtin.fail:
+        msg: "Spoke cluster did not reach target version {{ upgrade_to_version }} or is still progressing"

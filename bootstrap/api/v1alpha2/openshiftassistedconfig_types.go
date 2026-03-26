@@ -82,6 +82,29 @@ type OpenshiftAssistedConfigSpec struct {
 	// +optional
 	OSImageVersion string `json:"osImageVersion,omitempty"`
 
+	// PreBootstrapCommands specifies extra commands to run before kubelet starts on first boot.
+	// Commands are executed as a shell script via a systemd oneshot unit ordered Before=kubelet.service.
+	// They run exactly once; on failure, they are retried on the next reboot.
+	// Commands run as root; callers are responsible for input sanitization.
+	// +optional
+	// +listType=atomic
+	PreBootstrapCommands []string `json:"preBootstrapCommands,omitempty"`
+
+	// PostBootstrapCommands specifies extra commands to run after kubelet starts on first boot.
+	// Commands are executed as a shell script via a systemd oneshot unit ordered After=kubelet.service.
+	// They run exactly once; on failure, they are retried on the next reboot.
+	// Commands run as root; callers are responsible for input sanitization.
+	// +optional
+	// +listType=atomic
+	PostBootstrapCommands []string `json:"postBootstrapCommands,omitempty"`
+
+	// BootstrapCommandSentinelDir specifies the directory where CAPOA stores persistent run-once
+	// sentinel files for preBootstrapCommands and postBootstrapCommands. If empty, CAPOA uses
+	// /var/lib/capoa. Must be an absolute path using only safe characters.
+	// +optional
+	// +kubebuilder:validation:Pattern=`^/[a-zA-Z0-9_./-]+$`
+	BootstrapCommandSentinelDir string `json:"bootstrapCommandSentinelDir,omitempty"`
+
 	// NodeRegistrationOption holds fields related to registering nodes to the cluster
 	// +optional
 	NodeRegistration NodeRegistrationOptions `json:"nodeRegistration,omitempty"`

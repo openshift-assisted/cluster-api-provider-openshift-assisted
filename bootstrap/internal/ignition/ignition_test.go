@@ -1,13 +1,19 @@
 package ignition
 
 import (
+	"encoding/base64"
+	"strings"
 	"testing"
 
+	config_31 "github.com/coreos/ignition/v2/config/v3_1"
+	config_types "github.com/coreos/ignition/v2/config/v3_1/types"
+	"github.com/go-logr/logr"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-
-	config_31 "github.com/coreos/ignition/v2/config/v3_1"
 )
+
+const preBootstrapServiceName = "capoa-pre-bootstrap.service"
+const postBootstrapServiceName = "capoa-post-bootstrap.service"
 
 func TestControllers(t *testing.T) {
 	RegisterFailHandler(Fail)
@@ -111,6 +117,340 @@ var _ = Describe("Ignition utils", func() {
 		})
 	})
 
+	When("generating ignition with preBootstrapCommands", func() {
+		It("should not include pre-bootstrap unit when commands are empty", func() {
+			opts := IgnitionOptions{}
+			i, err := GetIgnitionConfigOverrides(opts)
+			Expect(err).NotTo(HaveOccurred())
+			cfg, rep, err := config_31.Parse([]byte(i))
+			Expect(rep.Entries).To(BeNil())
+			Expect(err).NotTo(HaveOccurred())
+
+			for _, unit := range cfg.Systemd.Units {
+				Expect(unit.Name).NotTo(Equal("capoa-pre-bootstrap.service"))
+			}
+			for _, file := range cfg.Storage.Files {
+				Expect(file.Path).NotTo(Equal("/usr/local/bin/capoa-pre-bootstrap.sh"))
+			}
+		})
+
+		It("should include pre-bootstrap unit and script when commands are provided", func() {
+			opts := IgnitionOptions{
+				PreBootstrapCommands: []string{
+					"echo 'setting up disks'",
+					"sgdisk -n 1:0:0 /dev/sdb",
+				},
+			}
+			i, err := GetIgnitionConfigOverrides(opts)
+			Expect(err).NotTo(HaveOccurred())
+			cfg, rep, err := config_31.Parse([]byte(i))
+			Expect(rep.Entries).To(BeNil())
+			Expect(err).NotTo(HaveOccurred())
+
+			var foundUnit bool
+			for _, unit := range cfg.Systemd.Units {
+				if unit.Name == preBootstrapServiceName {
+					foundUnit = true
+					Expect(*unit.Enabled).To(BeTrue())
+					Expect(*unit.Contents).To(ContainSubstring("Before=kubelet.service"))
+					Expect(*unit.Contents).To(ContainSubstring("After=network.target"))
+					Expect(*unit.Contents).To(ContainSubstring("ostree-finalize-staged.service"))
+					Expect(*unit.Contents).To(ContainSubstring("configdrive-metadata.service"))
+					Expect(*unit.Contents).To(ContainSubstring("kubelet-customlabels.service"))
+					Expect(*unit.Contents).To(ContainSubstring("ConditionPathExists=!/var/lib/capoa/pre-bootstrap.done"))
+				}
+			}
+			Expect(foundUnit).To(BeTrue(), "capoa-pre-bootstrap.service unit should be present")
+
+			var foundScript bool
+			for _, file := range cfg.Storage.Files {
+				if file.Path == "/usr/local/bin/capoa-pre-bootstrap.sh" {
+					foundScript = true
+					Expect(*file.Mode).To(Equal(0700))
+				}
+			}
+			Expect(foundScript).To(BeTrue(), "capoa-pre-bootstrap.sh script should be present")
+		})
+
+		It("should order pre-bootstrap after hostname setup when hostname unit is enabled", func() {
+			opts := IgnitionOptions{
+				NodeNameEnvVar:       "$METADATA_NAME",
+				PreBootstrapCommands: []string{"echo pre"},
+			}
+			i, err := GetIgnitionConfigOverrides(opts)
+			Expect(err).NotTo(HaveOccurred())
+			cfg, rep, err := config_31.Parse([]byte(i))
+			Expect(rep.Entries).To(BeNil())
+			Expect(err).NotTo(HaveOccurred())
+
+			for _, unit := range cfg.Systemd.Units {
+				if unit.Name == preBootstrapServiceName {
+					Expect(*unit.Contents).To(ContainSubstring("set-hostname.service"))
+					return
+				}
+			}
+			Fail("capoa-pre-bootstrap.service unit should be present")
+		})
+
+		It("should generate a script with set -euo pipefail, commands in order, and sentinel", func() {
+			opts := IgnitionOptions{
+				PreBootstrapCommands: []string{
+					"echo step1",
+					"echo step2",
+					"echo step3",
+				},
+			}
+			i, err := GetIgnitionConfigOverrides(opts)
+			Expect(err).NotTo(HaveOccurred())
+			cfg, _, err := config_31.Parse([]byte(i))
+			Expect(err).NotTo(HaveOccurred())
+
+			scriptContent := extractFileContent(cfg, "/usr/local/bin/capoa-pre-bootstrap.sh")
+			Expect(scriptContent).NotTo(BeEmpty())
+			Expect(scriptContent).To(ContainSubstring("set -euo pipefail"))
+			Expect(scriptContent).To(ContainSubstring("echo step1"))
+			Expect(scriptContent).To(ContainSubstring("echo step2"))
+			Expect(scriptContent).To(ContainSubstring("echo step3"))
+			Expect(scriptContent).To(ContainSubstring("/var/lib/capoa/pre-bootstrap.done"))
+
+			// Commands should appear before sentinel
+			cmdIdx := strings.Index(scriptContent, "echo step1")
+			sentinelIdx := strings.Index(scriptContent, "pre-bootstrap.done")
+			Expect(cmdIdx).To(BeNumerically("<", sentinelIdx))
+		})
+
+		It("should use a custom sentinel directory when configured", func() {
+			opts := IgnitionOptions{
+				SentinelDirectory:   "/etc/capoa-state",
+				PreBootstrapCommands: []string{"echo step1"},
+			}
+			i, err := GetIgnitionConfigOverrides(opts)
+			Expect(err).NotTo(HaveOccurred())
+			cfg, rep, err := config_31.Parse([]byte(i))
+			Expect(rep.Entries).To(BeNil())
+			Expect(err).NotTo(HaveOccurred())
+
+			var foundUnit bool
+			for _, unit := range cfg.Systemd.Units {
+				if unit.Name == preBootstrapServiceName {
+					foundUnit = true
+					Expect(*unit.Contents).To(ContainSubstring("ConditionPathExists=!/etc/capoa-state/pre-bootstrap.done"))
+				}
+			}
+			Expect(foundUnit).To(BeTrue(), "capoa-pre-bootstrap.service unit should be present")
+
+			scriptContent := extractFileContent(cfg, "/usr/local/bin/capoa-pre-bootstrap.sh")
+			Expect(scriptContent).To(ContainSubstring("mkdir -p /etc/capoa-state"))
+			Expect(scriptContent).To(ContainSubstring("touch /etc/capoa-state/pre-bootstrap.done"))
+		})
+
+		It("should normalize a trailing slash in the sentinel directory", func() {
+			opts := IgnitionOptions{
+				SentinelDirectory:    "/custom/path/",
+				PreBootstrapCommands: []string{"echo step1"},
+			}
+			i, err := GetIgnitionConfigOverrides(opts)
+			Expect(err).NotTo(HaveOccurred())
+			cfg, rep, err := config_31.Parse([]byte(i))
+			Expect(rep.Entries).To(BeNil())
+			Expect(err).NotTo(HaveOccurred())
+
+			var foundUnit bool
+			for _, unit := range cfg.Systemd.Units {
+				if unit.Name == preBootstrapServiceName {
+					foundUnit = true
+					Expect(*unit.Contents).To(ContainSubstring("ConditionPathExists=!/custom/path/pre-bootstrap.done"))
+					Expect(*unit.Contents).NotTo(ContainSubstring("//"))
+				}
+			}
+			Expect(foundUnit).To(BeTrue(), "capoa-pre-bootstrap.service unit should be present")
+
+			scriptContent := extractFileContent(cfg, "/usr/local/bin/capoa-pre-bootstrap.sh")
+			Expect(scriptContent).To(ContainSubstring("mkdir -p /custom/path"))
+			Expect(scriptContent).To(ContainSubstring("touch /custom/path/pre-bootstrap.done"))
+			Expect(scriptContent).NotTo(ContainSubstring("//"))
+		})
+	})
+
+	When("generating ignition with postBootstrapCommands", func() {
+		It("should not include post-bootstrap unit when commands are empty", func() {
+			opts := IgnitionOptions{}
+			i, err := GetIgnitionConfigOverrides(opts)
+			Expect(err).NotTo(HaveOccurred())
+			cfg, rep, err := config_31.Parse([]byte(i))
+			Expect(rep.Entries).To(BeNil())
+			Expect(err).NotTo(HaveOccurred())
+
+			for _, unit := range cfg.Systemd.Units {
+				Expect(unit.Name).NotTo(Equal("capoa-post-bootstrap.service"))
+			}
+			for _, file := range cfg.Storage.Files {
+				Expect(file.Path).NotTo(Equal("/usr/local/bin/capoa-post-bootstrap.sh"))
+			}
+		})
+
+		It("should include post-bootstrap unit and script when commands are provided", func() {
+			opts := IgnitionOptions{
+				PostBootstrapCommands: []string{
+					"echo 'post-kubelet setup'",
+				},
+			}
+			i, err := GetIgnitionConfigOverrides(opts)
+			Expect(err).NotTo(HaveOccurred())
+			cfg, rep, err := config_31.Parse([]byte(i))
+			Expect(rep.Entries).To(BeNil())
+			Expect(err).NotTo(HaveOccurred())
+
+			var foundUnit bool
+			for _, unit := range cfg.Systemd.Units {
+				if unit.Name == "capoa-post-bootstrap.service" {
+					foundUnit = true
+					Expect(*unit.Enabled).To(BeTrue())
+					Expect(*unit.Contents).To(ContainSubstring("Requires=kubelet.service"))
+					Expect(*unit.Contents).To(ContainSubstring("After=kubelet.service"))
+					Expect(*unit.Contents).NotTo(ContainSubstring("Before=kubelet.service"))
+					Expect(*unit.Contents).To(ContainSubstring("ConditionPathExists=!/var/lib/capoa/post-bootstrap.done"))
+				}
+			}
+			Expect(foundUnit).To(BeTrue(), "capoa-post-bootstrap.service unit should be present")
+
+			var foundScript bool
+			for _, file := range cfg.Storage.Files {
+				if file.Path == "/usr/local/bin/capoa-post-bootstrap.sh" {
+					foundScript = true
+					Expect(*file.Mode).To(Equal(0700))
+				}
+			}
+			Expect(foundScript).To(BeTrue(), "capoa-post-bootstrap.sh script should be present")
+		})
+
+		It("should generate a post-bootstrap script with set -euo pipefail, commands, and sentinel", func() {
+			opts := IgnitionOptions{
+				PostBootstrapCommands: []string{
+					"systemctl restart custom-agent",
+				},
+			}
+			i, err := GetIgnitionConfigOverrides(opts)
+			Expect(err).NotTo(HaveOccurred())
+			cfg, _, err := config_31.Parse([]byte(i))
+			Expect(err).NotTo(HaveOccurred())
+
+			scriptContent := extractFileContent(cfg, "/usr/local/bin/capoa-post-bootstrap.sh")
+			Expect(scriptContent).NotTo(BeEmpty())
+			Expect(scriptContent).To(ContainSubstring("set -euo pipefail"))
+			Expect(scriptContent).To(ContainSubstring("systemctl restart custom-agent"))
+			Expect(scriptContent).To(ContainSubstring("/var/lib/capoa/post-bootstrap.done"))
+		})
+
+		It("should use a custom sentinel directory when configured", func() {
+			opts := IgnitionOptions{
+				SentinelDirectory:    "/etc/capoa-state",
+				PostBootstrapCommands: []string{"echo post"},
+			}
+			i, err := GetIgnitionConfigOverrides(opts)
+			Expect(err).NotTo(HaveOccurred())
+			cfg, rep, err := config_31.Parse([]byte(i))
+			Expect(rep.Entries).To(BeNil())
+			Expect(err).NotTo(HaveOccurred())
+
+			var foundUnit bool
+			for _, unit := range cfg.Systemd.Units {
+				if unit.Name == postBootstrapServiceName {
+					foundUnit = true
+					Expect(*unit.Contents).To(ContainSubstring("ConditionPathExists=!/etc/capoa-state/post-bootstrap.done"))
+				}
+			}
+			Expect(foundUnit).To(BeTrue(), "capoa-post-bootstrap.service unit should be present")
+
+			scriptContent := extractFileContent(cfg, "/usr/local/bin/capoa-post-bootstrap.sh")
+			Expect(scriptContent).To(ContainSubstring("mkdir -p /etc/capoa-state"))
+			Expect(scriptContent).To(ContainSubstring("touch /etc/capoa-state/post-bootstrap.done"))
+		})
+	})
+
+	When("generating ignition with both pre and post bootstrap commands", func() {
+		It("should include both units and scripts", func() {
+			opts := IgnitionOptions{
+				PreBootstrapCommands:  []string{"echo pre"},
+				PostBootstrapCommands: []string{"echo post"},
+			}
+			i, err := GetIgnitionConfigOverrides(opts)
+			Expect(err).NotTo(HaveOccurred())
+			cfg, rep, err := config_31.Parse([]byte(i))
+			Expect(rep.Entries).To(BeNil())
+			Expect(err).NotTo(HaveOccurred())
+
+			unitNames := make(map[string]bool)
+			for _, unit := range cfg.Systemd.Units {
+				unitNames[unit.Name] = true
+			}
+			Expect(unitNames).To(HaveKey("capoa-pre-bootstrap.service"))
+			Expect(unitNames).To(HaveKey("capoa-post-bootstrap.service"))
+
+			filePaths := make(map[string]bool)
+			for _, file := range cfg.Storage.Files {
+				filePaths[file.Path] = true
+			}
+			Expect(filePaths).To(HaveKey("/usr/local/bin/capoa-pre-bootstrap.sh"))
+			Expect(filePaths).To(HaveKey("/usr/local/bin/capoa-post-bootstrap.sh"))
+		})
+
+		It("should work alongside hostname unit", func() {
+			opts := IgnitionOptions{
+				NodeNameEnvVar:        "$METADATA_NAME",
+				PreBootstrapCommands:  []string{"echo pre"},
+				PostBootstrapCommands: []string{"echo post"},
+			}
+			i, err := GetIgnitionConfigOverrides(opts)
+			Expect(err).NotTo(HaveOccurred())
+			cfg, rep, err := config_31.Parse([]byte(i))
+			Expect(rep.Entries).To(BeNil())
+			Expect(err).NotTo(HaveOccurred())
+
+			unitNames := make(map[string]bool)
+			for _, unit := range cfg.Systemd.Units {
+				unitNames[unit.Name] = true
+			}
+			Expect(unitNames).To(HaveKey("capoa-pre-bootstrap.service"))
+			Expect(unitNames).To(HaveKey("capoa-post-bootstrap.service"))
+			Expect(unitNames).To(HaveKey("set-hostname.service"))
+		})
+	})
+
+	When("merging ignition with bootstrap commands via MergeIgnitionConfig", func() {
+		const baseIgnition = `{"ignition":{"version":"3.1.0"},"storage":{"files":[{"path":"/base-file","contents":{"source":"data:,"},"mode":384}]}}`
+
+		It("should include pre-bootstrap unit when merging with base ignition", func() {
+			opts := IgnitionOptions{
+				PreBootstrapCommands: []string{"echo merged-pre"},
+			}
+			merged, err := MergeIgnitionConfig(logr.Discard(), []byte(baseIgnition), opts)
+			Expect(err).NotTo(HaveOccurred())
+			cfg, _, err := config_31.Parse(merged)
+			Expect(err).NotTo(HaveOccurred())
+
+			var foundUnit bool
+			for _, unit := range cfg.Systemd.Units {
+				if unit.Name == "capoa-pre-bootstrap.service" {
+					foundUnit = true
+				}
+			}
+			Expect(foundUnit).To(BeTrue(), "capoa-pre-bootstrap.service should be in merged config")
+
+			scriptContent := extractFileContent(cfg, "/usr/local/bin/capoa-pre-bootstrap.sh")
+			Expect(scriptContent).To(ContainSubstring("echo merged-pre"))
+		})
+
+		It("should not include bootstrap units when no commands specified", func() {
+			opts := IgnitionOptions{}
+			merged, err := MergeIgnitionConfig(logr.Discard(), []byte(baseIgnition), opts)
+			Expect(err).NotTo(HaveOccurred())
+
+			// When no options are set, base is returned unchanged
+			Expect(merged).To(Equal([]byte(baseIgnition)))
+		})
+	})
+
 	When("merging ignition configs", func() {
 		const base = `{"ignition":{"version":"3.1.0"},"storage":{"files":[{"path":"/base","contents":{"source":"data:,"},"mode":384}]}}`
 		const override = `{"ignition":{"version":"3.1.0"},"storage":{"files":[{"path":"/override","contents":{"source":"data:,"},"mode":384}]}}`
@@ -130,3 +470,22 @@ var _ = Describe("Ignition utils", func() {
 		})
 	})
 })
+
+func extractFileContent(cfg config_types.Config, path string) string {
+	for _, file := range cfg.Storage.Files {
+		if file.Path == path {
+			if file.Contents.Source == nil {
+				return ""
+			}
+			source := *file.Contents.Source
+			if strings.HasPrefix(source, "data:text/plain;charset=utf-8;base64,") {
+				b64Data := strings.TrimPrefix(source, "data:text/plain;charset=utf-8;base64,")
+				decoded, err := base64.StdEncoding.DecodeString(b64Data)
+				Expect(err).NotTo(HaveOccurred())
+				return string(decoded)
+			}
+			return source
+		}
+	}
+	return ""
+}

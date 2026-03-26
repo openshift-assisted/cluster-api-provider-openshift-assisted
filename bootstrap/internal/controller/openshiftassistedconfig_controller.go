@@ -245,9 +245,12 @@ func (r *OpenshiftAssistedConfigReconciler) Reconcile(ctx context.Context, req c
 	}
 	log.V(logutil.TraceLevel).Info("ignition retrieved", "bytes", len(ignition))
 
-	// Merge additional ignition components (e.g., set-hostname unit) for the installed OS
+	// Merge additional ignition components (e.g., set-hostname unit, pre/post bootstrap commands)
 	opts := ign.IgnitionOptions{
-		NodeNameEnvVar: config.Spec.NodeRegistration.Name,
+		NodeNameEnvVar:        config.Spec.NodeRegistration.Name,
+		PreBootstrapCommands:  config.Spec.PreBootstrapCommands,
+		PostBootstrapCommands: config.Spec.PostBootstrapCommands,
+		SentinelDirectory:     config.Spec.BootstrapCommandSentinelDir,
 	}
 	ignition, err = ign.MergeIgnitionConfig(log, ignition, opts)
 	if err != nil {

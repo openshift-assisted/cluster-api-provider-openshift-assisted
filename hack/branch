@@ -119,13 +119,19 @@ if ! jq . renovate.json > /dev/null 2>&1; then
 fi
 
 if ! jq --indent 4 '.packageRules[0].baseBranchPatterns += ["'"${freeze_branch}"'"]' renovate.json > renovate.updated.json; then
-    echo "Error: Failed to update renovate.json"
+    echo "Error: Failed to update renovate.json (Konflux rule)"
     rm -f renovate.updated.json
     exit 1
 fi
 
-cp renovate.updated.json renovate.json
-rm -f renovate.updated.json
+if ! jq --indent 4 '.packageRules[1].baseBranchPatterns += ["'"${freeze_branch}"'"]' renovate.updated.json > renovate.updated2.json; then
+    echo "Error: Failed to update renovate.json (UBI rule)"
+    rm -f renovate.updated.json renovate.updated2.json
+    exit 1
+fi
+
+cp renovate.updated2.json renovate.json
+rm -f renovate.updated.json renovate.updated2.json
 git add renovate.json
 
 # Update sync-branch.yaml with validation

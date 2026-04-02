@@ -181,6 +181,16 @@ func (r *ClusterDeploymentReconciler) ensureAgentClusterInstall(
 			aci.Spec.IngressVIPs = oacp.Spec.Config.IngressVIPs
 			aci.Spec.PlatformType = hiveext.PlatformType(configv1.BareMetalPlatformType)
 		}
+
+		// Configure external platform if ExternalPlatformName is set
+		if oacp.Spec.Config.ExternalPlatformName != "" {
+			aci.Spec.PlatformType = hiveext.PlatformType("External")
+			aci.Spec.ExternalPlatformSpec = &hiveext.ExternalPlatformSpec{
+				PlatformName:           oacp.Spec.Config.ExternalPlatformName,
+				CloudControllerManager: hiveext.CloudControllerManagerTypeExternal,
+			}
+		}
+
 		installConfigOverride, err := getInstallConfigOverride(&oacp, aci)
 		if err != nil {
 			return err

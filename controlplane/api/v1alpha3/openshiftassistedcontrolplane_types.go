@@ -87,6 +87,15 @@ type OpenshiftAssistedControlPlaneConfigSpec struct {
 	// +optional
 	Proxy *hiveext.Proxy `json:"proxy,omitempty"`
 
+	// ExternalPlatformName specifies the name of the external infrastructure platform.
+	// When set, the cluster will be configured with platform type "External" and
+	// CloudControllerManager set to "External", enabling external cloud provider integration.
+	// The platform name is used for informational and reporting purposes.
+	// Common values: "OpenStack" for CAPO integration, or other infrastructure provider names.
+	// This field should be set at cluster creation time and should not be changed afterward.
+	// +optional
+	ExternalPlatformName string `json:"externalPlatformName,omitempty"`
+
 	// Set to true to allow control plane nodes to be schedulable
 	// +optional
 	MastersSchedulable bool `json:"mastersSchedulable,omitempty"`

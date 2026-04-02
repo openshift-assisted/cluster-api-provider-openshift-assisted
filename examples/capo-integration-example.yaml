@@ -1,0 +1,124 @@
+# Example: CAPO (Cluster API Provider OpenStack) Integration
+#
+# This manifest demonstrates deploying an OpenShift cluster with CAPOA
+# configured for external platform integration with CAPO. Setting
+# externalPlatformName causes the cluster to be installed with:
+#   - Platform type: External
+#   - CloudControllerManager: External
+#
+# This allows CAPO's cloud controller manager to run on the spoke cluster
+# and assign ProviderIDs to nodes, enabling full CAPI machine lifecycle
+# management on OpenStack infrastructure.
+#
+# Pre-requisites:
+# - A management cluster with CAPI, CAPOA, and Metal3 installed
+# - A pull secret in the target namespace
+# - CAPO cloud controller manager deployed to the spoke cluster post-install
+#
+# Replace placeholder values (<...>) before applying.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: capo-cluster
+---
+apiVersion: v1
+data:
+  # Replace with a valid base64-encoded dockerconfigjson
+  .dockerconfigjson: <base64-encoded-pull-secret>
+kind: Secret
+metadata:
+  name: pull-secret
+  namespace: capo-cluster
+type: kubernetes.io/dockerconfigjson
+---
+apiVersion: cluster.x-k8s.io/v1beta2
+kind: Cluster
+metadata:
+  name: capo-cluster
+  namespace: capo-cluster
+spec:
+  clusterNetwork:
+    pods:
+      cidrBlocks:
+        - 10.128.0.0/14
+    services:
+      cidrBlocks:
+        - 172.30.0.0/16
+  controlPlaneRef:
+    apiGroup: controlplane.cluster.x-k8s.io
+    kind: OpenshiftAssistedControlPlane
+    name: capo-cluster
+  infrastructureRef:
+    apiGroup: infrastructure.cluster.x-k8s.io
+    kind: Metal3Cluster
+    name: capo-cluster
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: Metal3Cluster
+metadata:
+  name: capo-cluster
+  namespace: capo-cluster
+spec:
+  controlPlaneEndpoint:
+    host: capo-cluster.example.com
+    port: 6443
+  noCloudProvider: true
+---
+apiVersion: controlplane.cluster.x-k8s.io/v1alpha3
+kind: OpenshiftAssistedControlPlane
+metadata:
+  name: capo-cluster
+  namespace: capo-cluster
+spec:
+  openshiftAssistedConfigSpec:
+    pullSecretRef:
+      name: "pull-secret"
+    sshAuthorizedKey: "<ssh-public-key>"
+    cpuArchitecture: x86_64
+    nodeRegistration:
+      name: "$METADATA_NAME"
+      kubeletExtraLabels:
+        - metal3.io/uuid=$METADATA_UUID
+  distributionVersion: "4.17.0"
+  config:
+    baseDomain: example.com
+    pullSecretRef:
+      name: "pull-secret"
+    sshAuthorizedKey: "<ssh-public-key>"
+    # externalPlatformName configures the cluster with External platform type.
+    # This is required for CAPO integration so that an external cloud controller
+    # manager can set ProviderIDs on nodes.
+    externalPlatformName: "OpenStack"
+  machineTemplate:
+    infrastructureRef:
+      apiGroup: infrastructure.cluster.x-k8s.io
+      kind: Metal3MachineTemplate
+      name: capo-cluster-controlplane
+  replicas: 3
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: Metal3MachineTemplate
+metadata:
+  name: capo-cluster-controlplane
+  namespace: capo-cluster
+spec:
+  nodeReuse: false
+  template:
+    spec:
+      automatedCleaningMode: disabled
+      dataTemplate:
+        name: capo-cluster-controlplane-template
+      image:
+        checksum: https://mirror.openshift.com/pub/openshift-v4/dependencies/rhcos/4.17/latest/sha256sum.txt
+        checksumType: sha256
+        format: qcow2
+        url: https://mirror.openshift.com/pub/openshift-v4/dependencies/rhcos/4.17/latest/rhcos-qemu.x86_64.qcow2.gz
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: Metal3DataTemplate
+metadata:
+  name: capo-cluster-controlplane-template
+  namespace: capo-cluster
+spec:
+  clusterName: capo-cluster

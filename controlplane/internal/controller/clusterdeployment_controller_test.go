@@ -651,6 +651,35 @@ var _ = Describe("ClusterDeployment Controller", func() {
 	})
 
 	Context("External Platform", func() {
+		When("ExternalPlatformName is not set", func() {
+			It("should use default platform type and not set ExternalPlatformSpec", func() {
+				cluster := utils.NewCluster(clusterName, namespace)
+				Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
+
+				oacp := utils.NewOpenshiftAssistedControlPlane(namespace, clusterName)
+				oacp.Spec.DistributionVersion = openShiftVersion
+
+				cd := utils.NewClusterDeploymentWithOwnerCluster(namespace, clusterName, clusterName, oacp)
+
+				Expect(controllerutil.SetOwnerReference(cluster, oacp, testScheme)).To(Succeed())
+				Expect(controllerutil.SetControllerReference(oacp, cd, testScheme)).To(Succeed())
+
+				Expect(k8sClient.Create(ctx, oacp)).To(Succeed())
+				Expect(k8sClient.Create(ctx, cd)).To(Succeed())
+
+				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: client.ObjectKeyFromObject(cd),
+				})
+				Expect(err).NotTo(HaveOccurred())
+
+				aci := &hiveext.AgentClusterInstall{}
+				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cd), aci)).To(Succeed())
+
+				By("Verifying the ACI has default platform type (None) and no ExternalPlatformSpec")
+				Expect(aci.Spec.PlatformType).To(Equal(hiveext.PlatformType(configv1.NonePlatformType)))
+				Expect(aci.Spec.ExternalPlatformSpec).To(BeNil())
+			})
+		})
 		When("ExternalPlatformName is set", func() {
 			It("should configure AgentClusterInstall with External platform type", func() {
 				cluster := utils.NewCluster(clusterName, namespace)

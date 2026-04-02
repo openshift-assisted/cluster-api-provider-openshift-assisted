@@ -255,6 +255,27 @@ spec:
 
 The capabilities configuration works in conjunction with the install config override - both will be applied during installation, with the capabilities automatically generating the appropriate install-config.yaml capabilities section.
 
+#### External Platform Configuration
+
+For clusters deployed on external infrastructure platforms such as OpenStack (via CAPO), you can configure the cluster to use the `External` platform type. This enables an external cloud controller manager to run on the spoke cluster and assign ProviderIDs to nodes, which is required for full CAPI machine lifecycle management.
+
+Set the `externalPlatformName` field in the `OpenshiftAssistedControlPlane` spec:
+
+```yaml
+spec:
+  config:
+    externalPlatformName: "OpenStack"
+```
+
+When `externalPlatformName` is set, the resulting `AgentClusterInstall` will be configured with:
+- `platformType: External`
+- `external.platformName`: set to the value of `externalPlatformName`
+- `external.cloudControllerManager: External`
+
+**Platform type precedence:** If both VIPs (`apiVIPs`/`ingressVIPs`) and `externalPlatformName` are configured, the platform type is set to `External` (taking precedence over `BareMetal`), while the VIPs are still preserved in the `AgentClusterInstall`.
+
+This field should be set at cluster creation time and should not be changed afterward. See [examples/capo-integration-example.yaml](../examples/capo-integration-example.yaml) for a complete manifest.
+
 #### Configure Control Plane Infrastructure
 
 

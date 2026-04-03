@@ -163,13 +163,90 @@ func getPreBootstrapUnit(commands []string, dir string) (config_types.Unit, conf
 
 func getPostBootstrapUnit(commands []string, dir string) (config_types.Unit, config_types.File) {
 	sentinelPath := sentinelDirectory(dir) + "/post-bootstrap.done"
-	return getBootstrapCommandUnit(
-		"capoa-post-bootstrap",
-		"/usr/local/bin/capoa-post-bootstrap.sh",
-		sentinelPath,
-		"Requires=kubelet.service\nAfter=kubelet.service",
-		commands,
-	)
+	scriptPath := "/usr/local/bin/capoa-post-bootstrap.sh"
+	name := "capoa-post-bootstrap"
+
+	// Build script with pre-flight checks before user commands
+	var sb strings.Builder
+	sb.WriteString("#!/bin/bash\nset -euo pipefail\n\n")
+
+	// Wait for kubelet client certificate
+	sb.WriteString(`# Wait for kubelet client certificate (max 10 minutes)
+CERT_PATH="/var/lib/kubelet/pki/kubelet-client-current.pem"
+MAX_WAIT=600
+INTERVAL=10
+ELAPSED=0
+
+echo "Waiting for kubelet client certificate at ${CERT_PATH}..."
+while [ ! -f "${CERT_PATH}" ]; do
+    if [ ${ELAPSED} -ge ${MAX_WAIT} ]; then
+        echo "ERROR: Timeout waiting for kubelet client certificate after ${MAX_WAIT}s"
+        exit 1
+    fi
+    echo "Still waiting for kubelet client certificate... (${ELAPSED}s elapsed)"
+    sleep ${INTERVAL}
+    ELAPSED=$((ELAPSED + INTERVAL))
+done
+echo "Kubelet client certificate found after ${ELAPSED}s"
+
+`)
+
+	// Wait for kube API accessibility
+	sb.WriteString(`# Wait for kube API to be accessible (max 10 minutes)
+KUBECONFIG_PATH="/var/lib/kubelet/kubeconfig"
+MAX_WAIT=600
+INTERVAL=10
+ELAPSED=0
+
+echo "Waiting for kube API accessibility via ${KUBECONFIG_PATH}..."
+while ! kubectl --kubeconfig="${KUBECONFIG_PATH}" get --raw /readyz >/dev/null 2>&1; do
+    if [ ${ELAPSED} -ge ${MAX_WAIT} ]; then
+        echo "ERROR: Timeout waiting for kube API after ${MAX_WAIT}s"
+        exit 1
+    fi
+    echo "Still waiting for kube API to be accessible... (${ELAPSED}s elapsed)"
+    sleep ${INTERVAL}
+    ELAPSED=$((ELAPSED + INTERVAL))
+done
+echo "Kube API accessible after ${ELAPSED}s"
+
+`)
+
+	// Add user commands
+	sb.WriteString("# Execute user-provided post-bootstrap commands\n")
+	for _, cmd := range commands {
+		sb.WriteString(cmd)
+		sb.WriteString("\n")
+	}
+
+	// Touch sentinel
+	sentinelDir := filepath.Dir(sentinelPath)
+	sb.WriteString("mkdir -p " + sentinelDir + "\ntouch " + sentinelPath + "\n")
+
+	unitContents := `[Unit]
+Description=CAPOA ` + name + `
+Requires=kubelet.service
+After=kubelet.service
+ConditionPathExists=!` + sentinelPath + `
+
+[Service]
+Type=oneshot
+ExecStart=` + scriptPath + `
+
+[Install]
+WantedBy=multi-user.target
+`
+	enabled := true
+	unit := config_types.Unit{
+		Contents: &unitContents,
+		Enabled:  &enabled,
+		Name:     name + ".service",
+	}
+
+	file := CreateIgnitionFile(scriptPath,
+		"root", "data:text/plain;charset=utf-8;base64,"+base64Encode(sb.String()), 0700, true)
+
+	return unit, file
 }
 
 func GetIgnitionConfigOverrides(opts IgnitionOptions, files ...config_types.File) (string, error) {

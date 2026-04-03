@@ -92,8 +92,9 @@ type OpenshiftAssistedControlPlaneConfigSpec struct {
 	// CloudControllerManager set to "External", enabling external cloud provider integration.
 	// The platform name is used for informational and reporting purposes.
 	// Common values: "OpenStack" for CAPO integration, or other infrastructure provider names.
-	// This field should be set at cluster creation time and should not be changed afterward.
+	// This field is immutable after creation.
 	// +optional
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf || oldSelf == ''",message="externalPlatformName is immutable"
 	ExternalPlatformName string `json:"externalPlatformName,omitempty"`
 
 	// Set to true to allow control plane nodes to be schedulable

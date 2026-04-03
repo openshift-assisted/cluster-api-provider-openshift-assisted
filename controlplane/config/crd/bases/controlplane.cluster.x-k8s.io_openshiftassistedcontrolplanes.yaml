@@ -829,8 +829,11 @@ spec:
                       CloudControllerManager set to "External", enabling external cloud provider integration.
                       The platform name is used for informational and reporting purposes.
                       Common values: "OpenStack" for CAPO integration, or other infrastructure provider names.
-                      This field should be set at cluster creation time and should not be changed afterward.
+                      This field is immutable after creation.
                     type: string
+                    x-kubernetes-validations:
+                    - message: externalPlatformName is immutable
+                      rule: self == oldSelf || oldSelf == ''
                   imageRegistryRef:
                     description: |-
                       ImageRegistryRef is a reference to a configmap containing both the additional

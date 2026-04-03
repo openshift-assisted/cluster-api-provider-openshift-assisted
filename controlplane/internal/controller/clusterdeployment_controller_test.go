@@ -650,6 +650,110 @@ var _ = Describe("ClusterDeployment Controller", func() {
 		})
 	})
 
+	Context("External Platform", func() {
+		When("ExternalPlatformName is not set", func() {
+			It("should use default platform type and not set ExternalPlatformSpec", func() {
+				cluster := utils.NewCluster(clusterName, namespace)
+				Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
+
+				oacp := utils.NewOpenshiftAssistedControlPlane(namespace, clusterName)
+				oacp.Spec.DistributionVersion = openShiftVersion
+
+				cd := utils.NewClusterDeploymentWithOwnerCluster(namespace, clusterName, clusterName, oacp)
+
+				Expect(controllerutil.SetOwnerReference(cluster, oacp, testScheme)).To(Succeed())
+				Expect(controllerutil.SetControllerReference(oacp, cd, testScheme)).To(Succeed())
+
+				Expect(k8sClient.Create(ctx, oacp)).To(Succeed())
+				Expect(k8sClient.Create(ctx, cd)).To(Succeed())
+
+				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: client.ObjectKeyFromObject(cd),
+				})
+				Expect(err).NotTo(HaveOccurred())
+
+				aci := &hiveext.AgentClusterInstall{}
+				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cd), aci)).To(Succeed())
+
+				By("Verifying the ACI has default platform type (None) and no ExternalPlatformSpec")
+				Expect(aci.Spec.PlatformType).To(Equal(hiveext.PlatformType(configv1.NonePlatformType)))
+				Expect(aci.Spec.ExternalPlatformSpec).To(BeNil())
+			})
+		})
+		When("ExternalPlatformName is set", func() {
+			It("should configure AgentClusterInstall with External platform type", func() {
+				cluster := utils.NewCluster(clusterName, namespace)
+				Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
+
+				oacp := utils.NewOpenshiftAssistedControlPlane(namespace, clusterName)
+				oacp.Spec.DistributionVersion = openShiftVersion
+				oacp.Spec.Config.ExternalPlatformName = "OpenStack"
+
+				cd := utils.NewClusterDeploymentWithOwnerCluster(namespace, clusterName, clusterName, oacp)
+
+				Expect(controllerutil.SetOwnerReference(cluster, oacp, testScheme)).To(Succeed())
+				Expect(controllerutil.SetControllerReference(oacp, cd, testScheme)).To(Succeed())
+
+				Expect(k8sClient.Create(ctx, oacp)).To(Succeed())
+				Expect(k8sClient.Create(ctx, cd)).To(Succeed())
+
+				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: client.ObjectKeyFromObject(cd),
+				})
+				Expect(err).NotTo(HaveOccurred())
+
+				aci := &hiveext.AgentClusterInstall{}
+				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cd), aci)).To(Succeed())
+
+				By("Verifying the ACI has External platform type configured")
+				Expect(aci.Spec.PlatformType).To(Equal(hiveext.PlatformType("External")))
+				Expect(aci.Spec.ExternalPlatformSpec).NotTo(BeNil())
+				Expect(aci.Spec.ExternalPlatformSpec.PlatformName).To(Equal("OpenStack"))
+				Expect(aci.Spec.ExternalPlatformSpec.CloudControllerManager).To(Equal(hiveext.CloudControllerManager(hiveext.CloudControllerManagerTypeExternal)))
+			})
+		})
+		When("ExternalPlatformName is set along with VIPs", func() {
+			It("should set External platform type and preserve VIPs", func() {
+				cluster := utils.NewCluster(clusterName, namespace)
+				Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
+
+				oacp := utils.NewOpenshiftAssistedControlPlane(namespace, clusterName)
+				oacp.Spec.DistributionVersion = openShiftVersion
+				apiVIPs := []string{"1.2.3.4"}
+				ingressVIPs := []string{"9.9.9.9"}
+				oacp.Spec.Config.APIVIPs = apiVIPs
+				oacp.Spec.Config.IngressVIPs = ingressVIPs
+				oacp.Spec.Config.ExternalPlatformName = "OpenStack"
+
+				cd := utils.NewClusterDeploymentWithOwnerCluster(namespace, clusterName, clusterName, oacp)
+
+				Expect(controllerutil.SetOwnerReference(cluster, oacp, testScheme)).To(Succeed())
+				Expect(controllerutil.SetControllerReference(oacp, cd, testScheme)).To(Succeed())
+
+				Expect(k8sClient.Create(ctx, oacp)).To(Succeed())
+				Expect(k8sClient.Create(ctx, cd)).To(Succeed())
+
+				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: client.ObjectKeyFromObject(cd),
+				})
+				Expect(err).NotTo(HaveOccurred())
+
+				aci := &hiveext.AgentClusterInstall{}
+				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cd), aci)).To(Succeed())
+
+				By("Verifying External platform takes precedence over BareMetal")
+				Expect(aci.Spec.PlatformType).To(Equal(hiveext.PlatformType("External")))
+				Expect(aci.Spec.ExternalPlatformSpec).NotTo(BeNil())
+				Expect(aci.Spec.ExternalPlatformSpec.PlatformName).To(Equal("OpenStack"))
+				Expect(aci.Spec.ExternalPlatformSpec.CloudControllerManager).To(Equal(hiveext.CloudControllerManager(hiveext.CloudControllerManagerTypeExternal)))
+
+				By("Verifying VIPs are still preserved")
+				Expect(aci.Spec.APIVIPs).To(Equal(apiVIPs))
+				Expect(aci.Spec.IngressVIPs).To(Equal(ingressVIPs))
+			})
+		})
+	})
+
 	AfterEach(func() {
 		k8sClient = nil
 		controllerReconciler = nil

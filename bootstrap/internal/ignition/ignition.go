@@ -3,6 +3,7 @@ package ignition
 import (
 	"encoding/base64"
 	"encoding/json"
+	"path/filepath"
 	"strings"
 
 	"github.com/coreos/ignition/v2/config/v3_1"
@@ -12,6 +13,7 @@ import (
 )
 
 const expectedIgnitionVersion = "3.1.0"
+const defaultSentinelDirectory = "/var/lib/capoa"
 
 type ignitionVersionInfo struct {
 	Ignition struct {
@@ -90,6 +92,161 @@ type IgnitionOptions struct {
 	// NodeNameEnvVar is the environment variable reference (e.g., "$METADATA_HOSTNAME")
 	// to use for setting the hostname. If empty, no hostname unit is added.
 	NodeNameEnvVar string
+
+	// PreBootstrapCommands are shell commands to run before kubelet.service on first boot.
+	PreBootstrapCommands []string
+
+	// PostBootstrapCommands are shell commands to run after kubelet.service on first boot.
+	PostBootstrapCommands []string
+
+	// SentinelDirectory is the persistent directory used for run-once sentinel files.
+	// If empty, /var/lib/capoa is used.
+	SentinelDirectory string
+}
+
+func sentinelDirectory(dir string) string {
+	if dir == "" {
+		return defaultSentinelDirectory
+	}
+	return strings.TrimRight(dir, "/")
+}
+
+func getBootstrapCommandUnit(name, scriptPath, sentinelPath, ordering string, commands []string) (config_types.Unit, config_types.File) {
+	var sb strings.Builder
+	sb.WriteString("#!/bin/bash\nset -euo pipefail\n")
+	for _, cmd := range commands {
+		sb.WriteString(cmd)
+		sb.WriteString("\n")
+	}
+	sentinelDir := filepath.Dir(sentinelPath)
+	sb.WriteString("mkdir -p " + sentinelDir + "\ntouch " + sentinelPath + "\n")
+
+	unitContents := `[Unit]
+Description=CAPOA ` + name + `
+` + ordering + `
+ConditionPathExists=!` + sentinelPath + `
+
+[Service]
+Type=oneshot
+ExecStart=` + scriptPath + `
+
+[Install]
+WantedBy=multi-user.target
+`
+	enabled := true
+	unit := config_types.Unit{
+		Contents: &unitContents,
+		Enabled:  &enabled,
+		Name:     name + ".service",
+	}
+
+	file := CreateIgnitionFile(scriptPath,
+		"root", "data:text/plain;charset=utf-8;base64,"+base64Encode(sb.String()), 0700, true)
+
+	return unit, file
+}
+
+// getPreBootstrapUnit creates a systemd oneshot unit that runs before kubelet.service.
+// The After= directive lists all CAPOA units that may exist; systemd silently ignores
+// ordering against absent units, so this is safe and ensures correct sequencing when
+// those units are present.
+func getPreBootstrapUnit(commands []string, dir string) (config_types.Unit, config_types.File) {
+	sentinelPath := sentinelDirectory(dir) + "/pre-bootstrap.done"
+	return getBootstrapCommandUnit(
+		"capoa-pre-bootstrap",
+		"/usr/local/bin/capoa-pre-bootstrap.sh",
+		sentinelPath,
+		"After=network.target ostree-finalize-staged.service configdrive-metadata.service kubelet-customlabels.service set-hostname.service\nBefore=kubelet.service",
+		commands,
+	)
+}
+
+func getPostBootstrapUnit(commands []string, dir string) (config_types.Unit, config_types.File) {
+	sentinelPath := sentinelDirectory(dir) + "/post-bootstrap.done"
+	scriptPath := "/usr/local/bin/capoa-post-bootstrap.sh"
+	name := "capoa-post-bootstrap"
+
+	// Build script with pre-flight checks before user commands
+	var sb strings.Builder
+	sb.WriteString("#!/bin/bash\nset -euo pipefail\n\n")
+
+	// Wait for kubelet client certificate
+	sb.WriteString(`# Wait for kubelet client certificate (max 10 minutes)
+CERT_PATH="/var/lib/kubelet/pki/kubelet-client-current.pem"
+MAX_WAIT=600
+INTERVAL=10
+ELAPSED=0
+
+echo "Waiting for kubelet client certificate at ${CERT_PATH}..."
+while [ ! -f "${CERT_PATH}" ]; do
+    if [ ${ELAPSED} -ge ${MAX_WAIT} ]; then
+        echo "ERROR: Timeout waiting for kubelet client certificate after ${MAX_WAIT}s"
+        exit 1
+    fi
+    echo "Still waiting for kubelet client certificate... (${ELAPSED}s elapsed)"
+    sleep ${INTERVAL}
+    ELAPSED=$((ELAPSED + INTERVAL))
+done
+echo "Kubelet client certificate found after ${ELAPSED}s"
+
+`)
+
+	// Wait for kube API accessibility
+	sb.WriteString(`# Wait for kube API to be accessible (max 10 minutes)
+KUBECONFIG_PATH="/var/lib/kubelet/kubeconfig"
+MAX_WAIT=600
+INTERVAL=10
+ELAPSED=0
+
+echo "Waiting for kube API accessibility via ${KUBECONFIG_PATH}..."
+while ! kubectl --kubeconfig="${KUBECONFIG_PATH}" get --raw /readyz >/dev/null 2>&1; do
+    if [ ${ELAPSED} -ge ${MAX_WAIT} ]; then
+        echo "ERROR: Timeout waiting for kube API after ${MAX_WAIT}s"
+        exit 1
+    fi
+    echo "Still waiting for kube API to be accessible... (${ELAPSED}s elapsed)"
+    sleep ${INTERVAL}
+    ELAPSED=$((ELAPSED + INTERVAL))
+done
+echo "Kube API accessible after ${ELAPSED}s"
+
+`)
+
+	// Add user commands
+	sb.WriteString("# Execute user-provided post-bootstrap commands\n")
+	for _, cmd := range commands {
+		sb.WriteString(cmd)
+		sb.WriteString("\n")
+	}
+
+	// Touch sentinel
+	sentinelDir := filepath.Dir(sentinelPath)
+	sb.WriteString("mkdir -p " + sentinelDir + "\ntouch " + sentinelPath + "\n")
+
+	unitContents := `[Unit]
+Description=CAPOA ` + name + `
+Requires=kubelet.service
+After=kubelet.service
+ConditionPathExists=!` + sentinelPath + `
+
+[Service]
+Type=oneshot
+ExecStart=` + scriptPath + `
+
+[Install]
+WantedBy=multi-user.target
+`
+	enabled := true
+	unit := config_types.Unit{
+		Contents: &unitContents,
+		Enabled:  &enabled,
+		Name:     name + ".service",
+	}
+
+	file := CreateIgnitionFile(scriptPath,
+		"root", "data:text/plain;charset=utf-8;base64,"+base64Encode(sb.String()), 0700, true)
+
+	return unit, file
 }
 
 func GetIgnitionConfigOverrides(opts IgnitionOptions, files ...config_types.File) (string, error) {
@@ -101,6 +258,18 @@ func GetIgnitionConfigOverrides(opts IgnitionOptions, files ...config_types.File
 		hostnameUnit, hostnameFile := getSetHostnameUnit(opts.NodeNameEnvVar)
 		units = append(units, hostnameUnit)
 		files = append(files, hostnameFile)
+	}
+
+	if len(opts.PreBootstrapCommands) > 0 {
+		unit, file := getPreBootstrapUnit(opts.PreBootstrapCommands, opts.SentinelDirectory)
+		units = append(units, unit)
+		files = append(files, file)
+	}
+
+	if len(opts.PostBootstrapCommands) > 0 {
+		unit, file := getPostBootstrapUnit(opts.PostBootstrapCommands, opts.SentinelDirectory)
+		units = append(units, unit)
+		files = append(files, file)
 	}
 
 	config := config_types.Config{
@@ -175,10 +344,14 @@ func base64Encode(s string) string {
 }
 
 // MergeIgnitionConfig merges additional units and files into an existing ignition config.
-// This is used to add the set-hostname unit to the ignition config from Assisted Installer
-// for the installed OS (reboot phase).
+// This is used to add the set-hostname unit, pre/post bootstrap commands, etc. to the
+// ignition config from Assisted Installer for the installed OS (reboot phase).
 func MergeIgnitionConfig(log logr.Logger, baseIgnition []byte, opts IgnitionOptions) ([]byte, error) {
-	if opts.NodeNameEnvVar == "" {
+	hasHostname := opts.NodeNameEnvVar != ""
+	hasPre := len(opts.PreBootstrapCommands) > 0
+	hasPost := len(opts.PostBootstrapCommands) > 0
+
+	if !hasHostname && !hasPre && !hasPost {
 		return baseIgnition, nil
 	}
 
@@ -198,14 +371,26 @@ func MergeIgnitionConfig(log logr.Logger, baseIgnition []byte, opts IgnitionOpti
 		return nil, err
 	}
 
-	// Add configdrive-metadata service and script (required to populate /etc/metadata_env)
-	config.Storage.Files = append(config.Storage.Files, getConfigdriveMetadataFile())
-	config.Systemd.Units = append(config.Systemd.Units, getConfigdriveMetadataSystemdUnit())
+	if hasHostname {
+		config.Storage.Files = append(config.Storage.Files, getConfigdriveMetadataFile())
+		config.Systemd.Units = append(config.Systemd.Units, getConfigdriveMetadataSystemdUnit())
 
-	// Add set-hostname service and script
-	hostnameUnit, hostnameFile := getSetHostnameUnit(opts.NodeNameEnvVar)
-	config.Systemd.Units = append(config.Systemd.Units, hostnameUnit)
-	config.Storage.Files = append(config.Storage.Files, hostnameFile)
+		hostnameUnit, hostnameFile := getSetHostnameUnit(opts.NodeNameEnvVar)
+		config.Systemd.Units = append(config.Systemd.Units, hostnameUnit)
+		config.Storage.Files = append(config.Storage.Files, hostnameFile)
+	}
+
+	if hasPre {
+		unit, file := getPreBootstrapUnit(opts.PreBootstrapCommands, opts.SentinelDirectory)
+		config.Systemd.Units = append(config.Systemd.Units, unit)
+		config.Storage.Files = append(config.Storage.Files, file)
+	}
+
+	if hasPost {
+		unit, file := getPostBootstrapUnit(opts.PostBootstrapCommands, opts.SentinelDirectory)
+		config.Systemd.Units = append(config.Systemd.Units, unit)
+		config.Storage.Files = append(config.Storage.Files, file)
+	}
 
 	return json.Marshal(config)
 }

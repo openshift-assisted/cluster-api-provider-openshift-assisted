@@ -182,6 +182,9 @@ func (r *ClusterDeploymentReconciler) ensureAgentClusterInstall(
 			aci.Spec.PlatformType = hiveext.PlatformType(configv1.BareMetalPlatformType)
 		}
 
+		// Clear ExternalPlatformSpec by default
+		aci.Spec.ExternalPlatformSpec = nil
+
 		// Configure external platform if ExternalPlatformName is set
 		if oacp.Spec.Config.ExternalPlatformName != "" {
 			aci.Spec.PlatformType = hiveext.PlatformType("External")

@@ -43,6 +43,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	bootstrapv1alpha2 "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/bootstrap/api/v1alpha2"
+	controlplanev1alpha3 "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/api/v1alpha3"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 )
 
 const (
@@ -464,10 +466,14 @@ func setupControlPlaneOpenshiftAssistedConfig(
 	acp := testutils.NewOpenshiftAssistedControlPlane(namespace, acpName)
 	Expect(k8sClient.Create(ctx, acp)).Should(Succeed())
 	Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(acp), acp)).To(Succeed())
+	// Restore TypeMeta after Get, as the fake client (like the real API server) clears it
+	acp.SetGroupVersionKind(controlplanev1alpha3.GroupVersion.WithKind("OpenshiftAssistedControlPlane"))
 
 	machine := testutils.NewMachineWithOwner(namespace, machineName, clusterName, acp)
 	Expect(k8sClient.Create(ctx, machine)).To(Succeed())
 	Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(machine), machine)).To(Succeed())
+	// Restore TypeMeta after Get, as the fake client (like the real API server) clears it
+	machine.SetGroupVersionKind(clusterv1.GroupVersion.WithKind("Machine"))
 
 	oac := NewOpenshiftAssistedConfigWithOwner(namespace, oacName, clusterName, machine)
 	oac.Spec.PullSecretRef = pullSecretRef

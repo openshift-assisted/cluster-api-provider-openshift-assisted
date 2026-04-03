@@ -46,6 +46,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apiserver/pkg/storage/names"
@@ -527,7 +528,8 @@ func (r *OpenshiftAssistedControlPlaneReconciler) ensureClusterDeployment(
 
 func (r *OpenshiftAssistedControlPlaneReconciler) reconcileReplicas(ctx context.Context, oacp *controlplanev1alpha3.OpenshiftAssistedControlPlane, cluster *clusterv1.Cluster) error {
 	log := ctrl.LoggerFrom(ctx)
-	machines, err := collections.GetFilteredMachinesForCluster(ctx, r.Client, cluster, collections.OwnedMachines(oacp))
+	ownerGK := schema.GroupKind{Group: controlplanev1alpha3.Group, Kind: "OpenshiftAssistedControlPlane"}
+	machines, err := collections.GetFilteredMachinesForCluster(ctx, r.Client, cluster, collections.OwnedMachines(oacp, ownerGK))
 	if err != nil {
 		return err
 	}

@@ -166,11 +166,11 @@ func getIgnitionConfig(config *bootstrapv1alpha2.OpenshiftAssistedConfig) (strin
 
 	// Resolve each dynamic variable from metadata_env
 	for varName := range dynamicVars {
-		sb.WriteString(fmt.Sprintf(`%s=""
+		fmt.Fprintf(&sb, `%s=""
 if [ -f /etc/metadata_env ]; then
     %s=$(/usr/bin/grep "^%s=" /etc/metadata_env | /usr/bin/cut -d'=' -f2-)
 fi
-`, varName, varName, varName))
+`, varName, varName, varName)
 	}
 
 	// Build labels string: static labels as-is, dynamic labels use ${VAR}
@@ -182,16 +182,16 @@ fi
 		labelParts = append(labelParts, key+"=${"+varName+"}")
 	}
 
-	sb.WriteString(fmt.Sprintf(`echo "CUSTOM_KUBELET_LABELS=%s" | tee -a /etc/kubernetes/kubelet-env >/dev/null
-`, strings.Join(labelParts, ",")))
+	fmt.Fprintf(&sb, `echo "CUSTOM_KUBELET_LABELS=%s" | tee -a /etc/kubernetes/kubelet-env >/dev/null
+`, strings.Join(labelParts, ","))
 
 	// Write KUBELET_PROVIDERID if specified
 	if providerIDVarName != "" {
-		sb.WriteString(fmt.Sprintf(`echo "KUBELET_PROVIDERID=${%s}" | tee -a /etc/kubernetes/kubelet-env >/dev/null
-`, providerIDVarName))
+		fmt.Fprintf(&sb, `echo "KUBELET_PROVIDERID=${%s}" | tee -a /etc/kubernetes/kubelet-env >/dev/null
+`, providerIDVarName)
 	} else if providerIDStatic != "" {
-		sb.WriteString(fmt.Sprintf(`echo "KUBELET_PROVIDERID=%s" | tee -a /etc/kubernetes/kubelet-env >/dev/null
-`, providerIDStatic))
+		fmt.Fprintf(&sb, `echo "KUBELET_PROVIDERID=%s" | tee -a /etc/kubernetes/kubelet-env >/dev/null
+`, providerIDStatic)
 	}
 
 	b64Content := base64.StdEncoding.EncodeToString([]byte(sb.String()))

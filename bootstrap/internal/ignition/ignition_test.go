@@ -563,6 +563,29 @@ var _ = Describe("Ignition utils", func() {
 			Expect(merged).To(Equal(base))
 		})
 	})
+
+	When("generating kubelet provider-id drop-in", func() {
+		It("should generate kubelet provider-id drop-in with correct content", func() {
+			dropinFile := GetKubeletProviderIDDropin()
+
+			Expect(dropinFile.Path).To(Equal("/etc/systemd/system/kubelet.service.d/10-provider-id.conf"))
+			Expect(*dropinFile.User.Name).To(Equal("root"))
+			Expect(*dropinFile.Mode).To(Equal(0644))
+			Expect(*dropinFile.Overwrite).To(BeTrue())
+
+			Expect(dropinFile.Contents.Source).NotTo(BeNil())
+			content, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(*dropinFile.Contents.Source, "data:text/plain;charset=utf-8;base64,"))
+			Expect(err).NotTo(HaveOccurred())
+
+			contentStr := string(content)
+			Expect(contentStr).To(ContainSubstring("[Service]"))
+			Expect(contentStr).To(ContainSubstring("ExecStart="))
+			Expect(contentStr).To(ContainSubstring("--provider-id=$(cat /run/kubelet-provider-id)"))
+			Expect(contentStr).To(ContainSubstring("--config=/etc/kubernetes/kubelet.conf"))
+			Expect(contentStr).To(ContainSubstring("--bootstrap-kubeconfig=/etc/kubernetes/kubeconfig"))
+			Expect(contentStr).To(ContainSubstring("--cloud-provider=external"))
+		})
+	})
 })
 
 func extractFileContent(cfg config_types.Config, path string) string {

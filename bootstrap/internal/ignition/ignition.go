@@ -423,6 +423,38 @@ func CreateIgnitionFile(path, user, content string, mode int, overwrite bool) co
 	}
 }
 
+// GetKubeletProviderIDDropin returns a systemd drop-in file that overrides kubelet.service
+// ExecStart to include the --provider-id flag. The value is read from /run/kubelet-provider-id
+// which is populated by the kubelet_custom_labels script during boot.
+//
+// This drop-in is based on the OpenShift kubelet.service template:
+// https://github.com/openshift/machine-config-operator/blob/main/templates/master/01-master-kubelet/on-prem/units/kubelet.service.yaml
+func GetKubeletProviderIDDropin() config_types.File {
+	dropinContent := `[Service]
+ExecStart=
+ExecStart=/usr/bin/kubelet \
+  --config=/etc/kubernetes/kubelet.conf \
+  --bootstrap-kubeconfig=/etc/kubernetes/kubeconfig \
+  --kubeconfig=/var/lib/kubelet/kubeconfig \
+  --container-runtime-endpoint=unix:///var/run/crio/crio.sock \
+  --runtime-cgroups=/system.slice/crio.service \
+  --node-labels=node-role.kubernetes.io/worker \
+  --node-ip=${KUBELET_NODE_IP} \
+  --minimum-container-ttl-duration=6m0s \
+  --cloud-provider=external \
+  --volume-plugin-dir=/etc/kubernetes/kubelet-plugins/volume/exec \
+  --provider-id=$(cat /run/kubelet-provider-id)
+`
+
+	return CreateIgnitionFile(
+		"/etc/systemd/system/kubelet.service.d/10-provider-id.conf",
+		"root",
+		"data:text/plain;charset=utf-8;base64,"+base64Encode(dropinContent),
+		0644,
+		true,
+	)
+}
+
 // MergeIgnitionConfigStrings merges overrideIgnition into baseIgnition.
 // Both arguments must be valid Ignition config JSON (e.g. v3.1.0). The result is base plus
 // override merged: the override appends or overrides fields per Ignition merge semantics.

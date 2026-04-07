@@ -586,6 +586,66 @@ var _ = Describe("Ignition utils", func() {
 			Expect(contentStr).To(ContainSubstring("--cloud-provider=external"))
 		})
 	})
+
+	When("merging ignition with providerID", func() {
+		It("should include kubelet provider-id drop-in when ProviderID is set", func() {
+			baseIgnition := `{
+				"ignition": {"version": "3.1.0"},
+				"storage": {"files": []},
+				"systemd": {"units": []}
+			}`
+
+			opts := IgnitionOptions{
+				ProviderID: "openstack://$METADATA_UUID",
+			}
+
+			mergedIgnition, err := MergeIgnitionConfig(logr.Discard(), []byte(baseIgnition), opts)
+			Expect(err).NotTo(HaveOccurred())
+
+			cfg, rep, err := config_31.Parse(mergedIgnition)
+			Expect(rep.Entries).To(BeNil())
+			Expect(err).NotTo(HaveOccurred())
+
+			var found bool
+			for _, file := range cfg.Storage.Files {
+				if file.Path == "/etc/systemd/system/kubelet.service.d/10-provider-id.conf" {
+					found = true
+					Expect(*file.User.Name).To(Equal("root"))
+					Expect(*file.Mode).To(Equal(0644))
+
+					content, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(*file.Contents.Source, "data:text/plain;charset=utf-8;base64,"))
+					Expect(err).NotTo(HaveOccurred())
+					contentStr := string(content)
+					Expect(contentStr).To(ContainSubstring("--provider-id=$(cat /run/kubelet-provider-id)"))
+					break
+				}
+			}
+			Expect(found).To(BeTrue(), "kubelet provider-id drop-in file should be present")
+		})
+
+		It("should not include kubelet provider-id drop-in when ProviderID is empty", func() {
+			baseIgnition := `{
+				"ignition": {"version": "3.1.0"},
+				"storage": {"files": []},
+				"systemd": {"units": []}
+			}`
+
+			opts := IgnitionOptions{
+				NodeNameEnvVar: "$METADATA_NAME",
+			}
+
+			mergedIgnition, err := MergeIgnitionConfig(logr.Discard(), []byte(baseIgnition), opts)
+			Expect(err).NotTo(HaveOccurred())
+
+			cfg, rep, err := config_31.Parse(mergedIgnition)
+			Expect(rep.Entries).To(BeNil())
+			Expect(err).NotTo(HaveOccurred())
+
+			for _, file := range cfg.Storage.Files {
+				Expect(file.Path).NotTo(Equal("/etc/systemd/system/kubelet.service.d/10-provider-id.conf"))
+			}
+		})
+	})
 })
 
 func extractFileContent(cfg config_types.Config, path string) string {

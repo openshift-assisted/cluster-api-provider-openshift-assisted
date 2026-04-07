@@ -213,6 +213,7 @@ fi
 		PreBootstrapCommands:  config.Spec.PreBootstrapCommands,
 		PostBootstrapCommands: config.Spec.PostBootstrapCommands,
 		SentinelDirectory:     config.Spec.BootstrapCommandSentinelDir,
+		ProviderID:            config.Spec.NodeRegistration.ProviderID,
 	}
 	baseIgnition, err := ignition.GetIgnitionConfigOverrides(opts, kubeletCustomLabels)
 	if err != nil {

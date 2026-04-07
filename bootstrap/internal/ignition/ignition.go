@@ -365,8 +365,9 @@ func MergeIgnitionConfig(log logr.Logger, baseIgnition []byte, opts IgnitionOpti
 	hasHostname := opts.NodeNameEnvVar != ""
 	hasPre := len(opts.PreBootstrapCommands) > 0
 	hasPost := len(opts.PostBootstrapCommands) > 0
+	hasProviderID := opts.ProviderID != ""
 
-	if !hasHostname && !hasPre && !hasPost {
+	if !hasHostname && !hasPre && !hasPost && !hasProviderID {
 		return baseIgnition, nil
 	}
 
@@ -405,6 +406,10 @@ func MergeIgnitionConfig(log logr.Logger, baseIgnition []byte, opts IgnitionOpti
 		unit, file := getPostBootstrapUnit(opts.PostBootstrapCommands, opts.SentinelDirectory, opts.KubeconfigPath)
 		config.Systemd.Units = append(config.Systemd.Units, unit)
 		config.Storage.Files = append(config.Storage.Files, file)
+	}
+
+	if hasProviderID {
+		config.Storage.Files = append(config.Storage.Files, GetKubeletProviderIDDropin())
 	}
 
 	return json.Marshal(config)

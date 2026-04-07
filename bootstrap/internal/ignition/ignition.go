@@ -107,6 +107,10 @@ type IgnitionOptions struct {
 	// KubeconfigPath is the kubeconfig file path for post-bootstrap readiness checks.
 	// If empty, /var/lib/kubelet/kubeconfig is used.
 	KubeconfigPath string
+
+	// ProviderID is the kubelet provider ID value (e.g., "openstack://$METADATA_UUID").
+	// If set, a kubelet systemd drop-in will be added to inject the --provider-id flag.
+	ProviderID string
 }
 
 func sentinelDirectory(dir string) string {

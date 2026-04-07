@@ -252,6 +252,7 @@ func (r *OpenshiftAssistedConfigReconciler) Reconcile(ctx context.Context, req c
 		PostBootstrapCommands: config.Spec.PostBootstrapCommands,
 		SentinelDirectory:     config.Spec.BootstrapCommandSentinelDir,
 		KubeconfigPath:        config.Spec.PostBootstrapKubeconfigPath,
+		ProviderID:            config.Spec.NodeRegistration.ProviderID,
 	}
 	ignition, err = ign.MergeIgnitionConfig(log, ignition, opts)
 	if err != nil {

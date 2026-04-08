@@ -759,6 +759,37 @@ var _ = Describe("getIgnitionConfig", func() {
 			})
 		})
 
+		Context("kubelet provider-id systemd drop-in", func() {
+			It("should include 10-provider-id.conf in agent ignition when ProviderID is set", func() {
+				config := &bootstrapv1alpha2.OpenshiftAssistedConfig{
+					Spec: bootstrapv1alpha2.OpenshiftAssistedConfigSpec{
+						NodeRegistration: bootstrapv1alpha2.NodeRegistrationOptions{
+							ProviderID: "openstack://12345",
+						},
+					},
+				}
+
+				ignitionJSON, err := getIgnitionConfig(config)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(ignitionJSON).To(ContainSubstring("10-provider-id.conf"))
+				Expect(ignitionJSON).To(ContainSubstring("kubelet.service.d"))
+			})
+
+			It("should not include 10-provider-id.conf when ProviderID is empty", func() {
+				config := &bootstrapv1alpha2.OpenshiftAssistedConfig{
+					Spec: bootstrapv1alpha2.OpenshiftAssistedConfigSpec{
+						NodeRegistration: bootstrapv1alpha2.NodeRegistrationOptions{
+							KubeletExtraLabels: []string{"zone=east"},
+						},
+					},
+				}
+
+				ignitionJSON, err := getIgnitionConfig(config)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(ignitionJSON).NotTo(ContainSubstring("10-provider-id.conf"))
+			})
+		})
+
 		Context("kubelet providerID file generation", func() {
 			It("should write /run/kubelet-provider-id with static providerID", func() {
 				config := &bootstrapv1alpha2.OpenshiftAssistedConfig{
@@ -774,7 +805,7 @@ var _ = Describe("getIgnitionConfig", func() {
 
 				scriptContent := extractKubeletCustomLabelsScript(ignitionJSON)
 				Expect(scriptContent).NotTo(BeEmpty())
-				Expect(scriptContent).To(ContainSubstring(`echo "openstack://12345" > /run/kubelet-provider-id`))
+				Expect(scriptContent).To(ContainSubstring(`echo 'openstack://12345' > /run/kubelet-provider-id`))
 			})
 
 			It("should write /run/kubelet-provider-id with dynamic providerID", func() {
@@ -810,6 +841,40 @@ var _ = Describe("getIgnitionConfig", func() {
 				scriptContent := extractKubeletCustomLabelsScript(ignitionJSON)
 				Expect(scriptContent).NotTo(BeEmpty())
 				Expect(scriptContent).NotTo(ContainSubstring("/run/kubelet-provider-id"))
+			})
+
+			It("should trim whitespace from static providerID", func() {
+				config := &bootstrapv1alpha2.OpenshiftAssistedConfig{
+					Spec: bootstrapv1alpha2.OpenshiftAssistedConfigSpec{
+						NodeRegistration: bootstrapv1alpha2.NodeRegistrationOptions{
+							ProviderID: "  openstack://12345  ",
+						},
+					},
+				}
+
+				ignitionJSON, err := getIgnitionConfig(config)
+				Expect(err).NotTo(HaveOccurred())
+
+				scriptContent := extractKubeletCustomLabelsScript(ignitionJSON)
+				Expect(scriptContent).NotTo(BeEmpty())
+				Expect(scriptContent).To(ContainSubstring(`echo 'openstack://12345' > /run/kubelet-provider-id`))
+			})
+
+			It("should escape single quotes in static providerID", func() {
+				config := &bootstrapv1alpha2.OpenshiftAssistedConfig{
+					Spec: bootstrapv1alpha2.OpenshiftAssistedConfigSpec{
+						NodeRegistration: bootstrapv1alpha2.NodeRegistrationOptions{
+							ProviderID: "provider://it's-id",
+						},
+					},
+				}
+
+				ignitionJSON, err := getIgnitionConfig(config)
+				Expect(err).NotTo(HaveOccurred())
+
+				scriptContent := extractKubeletCustomLabelsScript(ignitionJSON)
+				Expect(scriptContent).NotTo(BeEmpty())
+				Expect(scriptContent).To(ContainSubstring(`echo 'provider://it'"'"'s-id' > /run/kubelet-provider-id`))
 			})
 		})
 	})

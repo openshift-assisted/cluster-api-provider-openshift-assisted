@@ -28,3 +28,4 @@ go.work
 *~
 hack/**/__pycache__/*
 test/e2e/manifests/infrastructure-operator/kustomization.yaml
+docs/superpowers/

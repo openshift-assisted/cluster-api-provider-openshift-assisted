@@ -151,6 +151,16 @@ func (in *OpenshiftAssistedConfigSpec) DeepCopyInto(out *OpenshiftAssistedConfig
 		*out = make([]v1beta1.KernelArgument, len(*in))
 		copy(*out, *in)
 	}
+	if in.PreBootstrapCommands != nil {
+		in, out := &in.PreBootstrapCommands, &out.PreBootstrapCommands
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
+	if in.PostBootstrapCommands != nil {
+		in, out := &in.PostBootstrapCommands, &out.PostBootstrapCommands
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
 	in.NodeRegistration.DeepCopyInto(&out.NodeRegistration)
 }
 

@@ -537,6 +537,124 @@ var _ = Describe("getIgnitionConfig", func() {
 			})
 		})
 
+		Context("PreBootstrapCommands and PostBootstrapCommands", func() {
+			It("should include pre-bootstrap unit in ignition when preBootstrapCommands are set", func() {
+				config := &bootstrapv1alpha2.OpenshiftAssistedConfig{
+					Spec: bootstrapv1alpha2.OpenshiftAssistedConfigSpec{
+						PreBootstrapCommands: []string{
+							"sgdisk -n 1:0:0 /dev/sdb",
+							"mkfs.xfs /dev/sdb1",
+						},
+					},
+				}
+
+				ignitionJSON, err := getIgnitionConfig(config)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(ignitionJSON).To(ContainSubstring("capoa-pre-bootstrap.service"))
+				Expect(ignitionJSON).To(ContainSubstring("capoa-pre-bootstrap.sh"))
+			})
+
+			It("should include post-bootstrap unit in ignition when postBootstrapCommands are set", func() {
+				config := &bootstrapv1alpha2.OpenshiftAssistedConfig{
+					Spec: bootstrapv1alpha2.OpenshiftAssistedConfigSpec{
+						PostBootstrapCommands: []string{
+							"systemctl enable custom-agent",
+						},
+					},
+				}
+
+				ignitionJSON, err := getIgnitionConfig(config)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(ignitionJSON).To(ContainSubstring("capoa-post-bootstrap.service"))
+				Expect(ignitionJSON).To(ContainSubstring("capoa-post-bootstrap.sh"))
+			})
+
+			It("should not include bootstrap units when no commands are set", func() {
+				config := &bootstrapv1alpha2.OpenshiftAssistedConfig{
+					Spec: bootstrapv1alpha2.OpenshiftAssistedConfigSpec{
+						NodeRegistration: bootstrapv1alpha2.NodeRegistrationOptions{
+							KubeletExtraLabels: []string{"zone=east"},
+						},
+					},
+				}
+
+				ignitionJSON, err := getIgnitionConfig(config)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(ignitionJSON).NotTo(ContainSubstring("capoa-pre-bootstrap"))
+				Expect(ignitionJSON).NotTo(ContainSubstring("capoa-post-bootstrap"))
+			})
+
+			It("should include both pre and post bootstrap units alongside other config", func() {
+				config := &bootstrapv1alpha2.OpenshiftAssistedConfig{
+					Spec: bootstrapv1alpha2.OpenshiftAssistedConfigSpec{
+						PreBootstrapCommands:  []string{"echo pre"},
+						PostBootstrapCommands: []string{"echo post"},
+						NodeRegistration: bootstrapv1alpha2.NodeRegistrationOptions{
+							Name:               "$METADATA_NAME",
+							KubeletExtraLabels: []string{"zone=east"},
+						},
+					},
+				}
+
+				ignitionJSON, err := getIgnitionConfig(config)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(ignitionJSON).To(ContainSubstring("capoa-pre-bootstrap.service"))
+				Expect(ignitionJSON).To(ContainSubstring("capoa-post-bootstrap.service"))
+				Expect(ignitionJSON).To(ContainSubstring("set-hostname.service"))
+				Expect(ignitionJSON).To(ContainSubstring("kubelet_custom_labels"))
+			})
+
+			It("should include pre-bootstrap commands in script content", func() {
+				config := &bootstrapv1alpha2.OpenshiftAssistedConfig{
+					Spec: bootstrapv1alpha2.OpenshiftAssistedConfigSpec{
+						PreBootstrapCommands: []string{
+							"grubby --update-kernel=ALL --args='isolcpus=2-7'",
+						},
+					},
+				}
+
+				ignitionJSON, err := getIgnitionConfig(config)
+				Expect(err).NotTo(HaveOccurred())
+
+				scriptContent := extractScriptFromIgnitionJSON(ignitionJSON, "/usr/local/bin/capoa-pre-bootstrap.sh")
+				Expect(scriptContent).To(ContainSubstring("grubby --update-kernel=ALL --args='isolcpus=2-7'"))
+				Expect(scriptContent).To(ContainSubstring("set -euo pipefail"))
+				Expect(scriptContent).To(ContainSubstring("/var/lib/capoa/pre-bootstrap.done"))
+			})
+
+			It("should work with ignition-override annotation and bootstrap commands", func() {
+				validOverride := `{"ignition":{"version":"3.1.0"},"storage":{"files":[{"path":"/etc/override-file","contents":{"source":"data:,"},"mode":384}]}}`
+				config := &bootstrapv1alpha2.OpenshiftAssistedConfig{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							bootstrapv1alpha2.IgnitionOverrideAnnotation: validOverride,
+						},
+					},
+					Spec: bootstrapv1alpha2.OpenshiftAssistedConfigSpec{
+						PreBootstrapCommands: []string{"echo pre"},
+					},
+				}
+
+				ignitionJSON, err := getIgnitionConfig(config)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(ignitionJSON).To(ContainSubstring("capoa-pre-bootstrap.service"))
+				Expect(ignitionJSON).To(ContainSubstring("/etc/override-file"))
+			})
+
+			It("should use a custom sentinel directory when configured", func() {
+				config := &bootstrapv1alpha2.OpenshiftAssistedConfig{
+					Spec: bootstrapv1alpha2.OpenshiftAssistedConfigSpec{
+						BootstrapCommandSentinelDir: "/etc/capoa-state",
+						PreBootstrapCommands:        []string{"echo pre"},
+					},
+				}
+
+				ignitionJSON, err := getIgnitionConfig(config)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(ignitionJSON).To(ContainSubstring("/etc/capoa-state/pre-bootstrap.done"))
+			})
+		})
+
 		Context("ProviderID", func() {
 			It("should write KUBELET_PROVIDERID with static value", func() {
 				config := &bootstrapv1alpha2.OpenshiftAssistedConfig{
@@ -643,7 +761,7 @@ var _ = Describe("getIgnitionConfig", func() {
 	})
 })
 
-func extractKubeletCustomLabelsScript(ignitionJSON string) string {
+func extractScriptFromIgnitionJSON(ignitionJSON, scriptPath string) string {
 	var ignConfig map[string]interface{}
 	Expect(json.Unmarshal([]byte(ignitionJSON), &ignConfig)).To(Succeed())
 
@@ -652,7 +770,7 @@ func extractKubeletCustomLabelsScript(ignitionJSON string) string {
 
 	for _, f := range files {
 		file := f.(map[string]interface{})
-		if file["path"] == "/usr/local/bin/kubelet_custom_labels" {
+		if file["path"] == scriptPath {
 			contents := file["contents"].(map[string]interface{})
 			source := contents["source"].(string)
 			b64Data := strings.TrimPrefix(source, "data:text/plain;charset=utf-8;base64,")
@@ -662,4 +780,8 @@ func extractKubeletCustomLabelsScript(ignitionJSON string) string {
 		}
 	}
 	return ""
+}
+
+func extractKubeletCustomLabelsScript(ignitionJSON string) string {
+	return extractScriptFromIgnitionJSON(ignitionJSON, "/usr/local/bin/kubelet_custom_labels")
 }

@@ -197,11 +197,11 @@ fi
 	// Write provider ID to /run/kubelet-provider-id if specified
 	// This file is consumed by the kubelet systemd drop-in to set --provider-id flag
 	if providerIDVarName != "" {
-		sb.WriteString(fmt.Sprintf(`echo "${%s}" > /run/kubelet-provider-id
-`, providerIDVarName))
+		fmt.Fprintf(&sb, `echo "${%s}" > /run/kubelet-provider-id
+`, providerIDVarName)
 	} else if providerIDStatic != "" {
-		sb.WriteString(fmt.Sprintf(`echo "%s" > /run/kubelet-provider-id
-`, providerIDStatic))
+		fmt.Fprintf(&sb, `echo "%s" > /run/kubelet-provider-id
+`, providerIDStatic)
 	}
 
 	b64Content := base64.StdEncoding.EncodeToString([]byte(sb.String()))

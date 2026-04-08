@@ -579,8 +579,8 @@ var _ = Describe("Ignition utils", func() {
 
 			contentStr := string(content)
 			Expect(contentStr).To(ContainSubstring("[Service]"))
-			Expect(contentStr).To(ContainSubstring("ExecStart="))
-			Expect(contentStr).To(ContainSubstring("--provider-id=$(cat /run/kubelet-provider-id)"))
+			Expect(contentStr).To(ContainSubstring("ExecStart=/bin/sh -c"))
+			Expect(contentStr).To(ContainSubstring(`--provider-id="$(cat /run/kubelet-provider-id)"`))
 			Expect(contentStr).To(ContainSubstring("--config=/etc/kubernetes/kubelet.conf"))
 			Expect(contentStr).To(ContainSubstring("--bootstrap-kubeconfig=/etc/kubernetes/kubeconfig"))
 			Expect(contentStr).To(ContainSubstring("--cloud-provider=external"))
@@ -616,7 +616,7 @@ var _ = Describe("Ignition utils", func() {
 					content, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(*file.Contents.Source, "data:text/plain;charset=utf-8;base64,"))
 					Expect(err).NotTo(HaveOccurred())
 					contentStr := string(content)
-					Expect(contentStr).To(ContainSubstring("--provider-id=$(cat /run/kubelet-provider-id)"))
+					Expect(contentStr).To(ContainSubstring(`--provider-id="$(cat /run/kubelet-provider-id)"`))
 					break
 				}
 			}

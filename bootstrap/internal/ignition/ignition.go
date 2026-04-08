@@ -441,7 +441,7 @@ func CreateIgnitionFile(path, user, content string, mode int, overwrite bool) co
 func GetKubeletProviderIDDropin() config_types.File {
 	dropinContent := `[Service]
 ExecStart=
-ExecStart=/usr/bin/kubelet \
+ExecStart=/bin/sh -c 'exec /usr/bin/kubelet \
   --config=/etc/kubernetes/kubelet.conf \
   --bootstrap-kubeconfig=/etc/kubernetes/kubeconfig \
   --kubeconfig=/var/lib/kubelet/kubeconfig \
@@ -452,7 +452,7 @@ ExecStart=/usr/bin/kubelet \
   --minimum-container-ttl-duration=6m0s \
   --cloud-provider=external \
   --volume-plugin-dir=/etc/kubernetes/kubelet-plugins/volume/exec \
-  --provider-id=$(cat /run/kubelet-provider-id)
+  --provider-id="$(cat /run/kubelet-provider-id)"'
 `
 
 	return CreateIgnitionFile(

@@ -111,6 +111,11 @@ type IgnitionOptions struct {
 	// ProviderID is the kubelet provider ID value (e.g., "openstack://$METADATA_UUID").
 	// If set, a kubelet systemd drop-in will be added to inject the --provider-id flag.
 	ProviderID string
+
+	// KubeletCustomLabelsFile is the kubelet_custom_labels script file.
+	// If set, it will be added to the installed OS ignition along with its systemd unit.
+	// This is needed when ProviderID or KubeletExtraLabels are configured.
+	KubeletCustomLabelsFile *config_types.File
 }
 
 func sentinelDirectory(dir string) string {
@@ -366,8 +371,9 @@ func MergeIgnitionConfig(log logr.Logger, baseIgnition []byte, opts IgnitionOpti
 	hasPre := len(opts.PreBootstrapCommands) > 0
 	hasPost := len(opts.PostBootstrapCommands) > 0
 	hasProviderID := opts.ProviderID != ""
+	hasKubeletCustomLabels := opts.KubeletCustomLabelsFile != nil
 
-	if !hasHostname && !hasPre && !hasPost && !hasProviderID {
+	if !hasHostname && !hasPre && !hasPost && !hasProviderID && !hasKubeletCustomLabels {
 		return baseIgnition, nil
 	}
 
@@ -406,6 +412,13 @@ func MergeIgnitionConfig(log logr.Logger, baseIgnition []byte, opts IgnitionOpti
 		unit, file := getPostBootstrapUnit(opts.PostBootstrapCommands, opts.SentinelDirectory, opts.KubeconfigPath)
 		config.Systemd.Units = append(config.Systemd.Units, unit)
 		config.Storage.Files = append(config.Storage.Files, file)
+	}
+
+	if hasKubeletCustomLabels {
+		// Add the kubelet_custom_labels script file
+		config.Storage.Files = append(config.Storage.Files, *opts.KubeletCustomLabelsFile)
+		// Add the systemd unit that runs the script
+		config.Systemd.Units = append(config.Systemd.Units, getKubeletCustomLabelsSystemdUnit())
 	}
 
 	if hasProviderID {

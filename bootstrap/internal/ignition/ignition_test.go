@@ -14,6 +14,11 @@ import (
 
 const preBootstrapServiceName = "capoa-pre-bootstrap.service"
 const postBootstrapServiceName = "capoa-post-bootstrap.service"
+const baseIgnitionJSON = `{
+	"ignition": {"version": "3.1.0"},
+	"storage": {"files": []},
+	"systemd": {"units": []}
+}`
 
 func TestControllers(t *testing.T) {
 	RegisterFailHandler(Fail)
@@ -589,11 +594,7 @@ var _ = Describe("Ignition utils", func() {
 
 	When("merging ignition with providerID", func() {
 		It("should include kubelet provider-id drop-in when ProviderID is set", func() {
-			baseIgnition := `{
-				"ignition": {"version": "3.1.0"},
-				"storage": {"files": []},
-				"systemd": {"units": []}
-			}`
+			baseIgnition := baseIgnitionJSON
 
 			opts := IgnitionOptions{
 				ProviderID: "openstack://$METADATA_UUID",
@@ -624,11 +625,7 @@ var _ = Describe("Ignition utils", func() {
 		})
 
 		It("should not include kubelet provider-id drop-in when ProviderID is empty", func() {
-			baseIgnition := `{
-				"ignition": {"version": "3.1.0"},
-				"storage": {"files": []},
-				"systemd": {"units": []}
-			}`
+			baseIgnition := baseIgnitionJSON
 
 			opts := IgnitionOptions{
 				NodeNameEnvVar: "$METADATA_NAME",
@@ -644,6 +641,63 @@ var _ = Describe("Ignition utils", func() {
 			for _, file := range cfg.Storage.Files {
 				Expect(file.Path).NotTo(Equal("/etc/systemd/system/kubelet.service.d/10-provider-id.conf"))
 			}
+		})
+
+		It("should include kubelet_custom_labels file and unit when KubeletCustomLabelsFile is set", func() {
+			baseIgnition := baseIgnitionJSON
+
+			// Create a sample kubelet_custom_labels file
+			scriptContent := "#!/bin/bash\necho test\n"
+			b64Content := base64.StdEncoding.EncodeToString([]byte(scriptContent))
+			kubeletCustomLabelsFile := CreateIgnitionFile("/usr/local/bin/kubelet_custom_labels",
+				"root", "data:text/plain;charset=utf-8;base64,"+b64Content, 493, true)
+
+			opts := IgnitionOptions{
+				ProviderID:              "openstack://$METADATA_UUID",
+				KubeletCustomLabelsFile: &kubeletCustomLabelsFile,
+			}
+
+			mergedIgnition, err := MergeIgnitionConfig(logr.Discard(), []byte(baseIgnition), opts)
+			Expect(err).NotTo(HaveOccurred())
+
+			cfg, rep, err := config_31.Parse(mergedIgnition)
+			Expect(rep.Entries).To(BeNil())
+			Expect(err).NotTo(HaveOccurred())
+
+			// Verify kubelet_custom_labels file is present
+			var foundFile bool
+			for _, file := range cfg.Storage.Files {
+				if file.Path == "/usr/local/bin/kubelet_custom_labels" {
+					foundFile = true
+					Expect(*file.User.Name).To(Equal("root"))
+					Expect(*file.Mode).To(Equal(493))
+					break
+				}
+			}
+			Expect(foundFile).To(BeTrue(), "kubelet_custom_labels file should be present")
+
+			// Verify kubelet-customlabels.service unit is present
+			var foundUnit bool
+			for _, unit := range cfg.Systemd.Units {
+				if unit.Name == "kubelet-customlabels.service" {
+					foundUnit = true
+					Expect(*unit.Enabled).To(BeTrue())
+					Expect(*unit.Contents).To(ContainSubstring("ExecStart=/usr/local/bin/kubelet_custom_labels"))
+					Expect(*unit.Contents).To(ContainSubstring("Before=kubelet.service"))
+					break
+				}
+			}
+			Expect(foundUnit).To(BeTrue(), "kubelet-customlabels.service unit should be present")
+
+			// Verify kubelet provider-id drop-in is also present
+			var foundDropin bool
+			for _, file := range cfg.Storage.Files {
+				if file.Path == "/etc/systemd/system/kubelet.service.d/10-provider-id.conf" {
+					foundDropin = true
+					break
+				}
+			}
+			Expect(foundDropin).To(BeTrue(), "kubelet provider-id drop-in should be present")
 		})
 	})
 })

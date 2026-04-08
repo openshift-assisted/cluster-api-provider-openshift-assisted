@@ -774,7 +774,7 @@ var _ = Describe("getIgnitionConfig", func() {
 
 				scriptContent := extractKubeletCustomLabelsScript(ignitionJSON)
 				Expect(scriptContent).NotTo(BeEmpty())
-				Expect(scriptContent).To(ContainSubstring(`echo "openstack://12345" > /run/kubelet-provider-id`))
+				Expect(scriptContent).To(ContainSubstring(`echo 'openstack://12345' > /run/kubelet-provider-id`))
 			})
 
 			It("should write /run/kubelet-provider-id with dynamic providerID", func() {
@@ -810,6 +810,40 @@ var _ = Describe("getIgnitionConfig", func() {
 				scriptContent := extractKubeletCustomLabelsScript(ignitionJSON)
 				Expect(scriptContent).NotTo(BeEmpty())
 				Expect(scriptContent).NotTo(ContainSubstring("/run/kubelet-provider-id"))
+			})
+
+			It("should trim whitespace from static providerID", func() {
+				config := &bootstrapv1alpha2.OpenshiftAssistedConfig{
+					Spec: bootstrapv1alpha2.OpenshiftAssistedConfigSpec{
+						NodeRegistration: bootstrapv1alpha2.NodeRegistrationOptions{
+							ProviderID: "  openstack://12345  ",
+						},
+					},
+				}
+
+				ignitionJSON, err := getIgnitionConfig(config)
+				Expect(err).NotTo(HaveOccurred())
+
+				scriptContent := extractKubeletCustomLabelsScript(ignitionJSON)
+				Expect(scriptContent).NotTo(BeEmpty())
+				Expect(scriptContent).To(ContainSubstring(`echo 'openstack://12345' > /run/kubelet-provider-id`))
+			})
+
+			It("should escape single quotes in static providerID", func() {
+				config := &bootstrapv1alpha2.OpenshiftAssistedConfig{
+					Spec: bootstrapv1alpha2.OpenshiftAssistedConfigSpec{
+						NodeRegistration: bootstrapv1alpha2.NodeRegistrationOptions{
+							ProviderID: "provider://it's-id",
+						},
+					},
+				}
+
+				ignitionJSON, err := getIgnitionConfig(config)
+				Expect(err).NotTo(HaveOccurred())
+
+				scriptContent := extractKubeletCustomLabelsScript(ignitionJSON)
+				Expect(scriptContent).NotTo(BeEmpty())
+				Expect(scriptContent).To(ContainSubstring(`echo 'provider://it'"'"'s-id' > /run/kubelet-provider-id`))
 			})
 		})
 	})

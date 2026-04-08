@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	config_types "github.com/coreos/ignition/v2/config/v3_1/types"
 	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/bootstrap/internal/ignition"
 	logutil "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/util/log"
 
@@ -138,18 +139,26 @@ func (r *AgentReconciler) canApproveAgent(ctx context.Context, agent *aiv1beta1.
 	return true, nil
 }
 
-// getIgnitionConfig builds the install-time (post-discovery) ignition config for the agent:
-// node registration (hostname, kubelet labels, provider ID) plus any override from the
-// openshiftassistedconfig.cluster.x-k8s.io/ignition-override annotation.
-func getIgnitionConfig(config *bootstrapv1alpha2.OpenshiftAssistedConfig) (string, error) {
-	dynamic, static, err := parseLabels(config.Spec.NodeRegistration.KubeletExtraLabels)
+// CreateKubeletCustomLabelsFile generates a kubelet_custom_labels script file for ignition.
+// The script writes kubelet labels and provider ID to /etc/kubernetes/kubelet-env and
+// /run/kubelet-provider-id. Returns nil if no labels or provider ID are configured.
+func CreateKubeletCustomLabelsFile(kubeletExtraLabels []string, providerID string) (*config_types.File, error) {
+	dynamic, static, err := parseLabels(kubeletExtraLabels)
 	if err != nil {
-		return "", fmt.Errorf("invalid kubelet extra labels: %w", err)
+		return nil, fmt.Errorf("invalid kubelet extra labels: %w", err)
 	}
 
-	providerIDVarName, providerIDStatic, err := parseEnvVarRef(config.Spec.NodeRegistration.ProviderID)
+	providerIDVarName, providerIDStatic, err := parseEnvVarRef(providerID)
 	if err != nil {
-		return "", fmt.Errorf("invalid providerID: %w", err)
+		return nil, fmt.Errorf("invalid providerID: %w", err)
+	}
+
+	// Trim whitespace from static providerID
+	providerIDStatic = strings.TrimSpace(providerIDStatic)
+
+	// If no labels or provider ID, return nil
+	if len(dynamic) == 0 && len(static) == 0 && providerIDVarName == "" && providerIDStatic == "" {
+		return nil, nil
 	}
 
 	var sb strings.Builder
@@ -191,7 +200,7 @@ fi
 `, providerIDVarName)
 	} else if providerIDStatic != "" {
 		fmt.Fprintf(&sb, `echo "KUBELET_PROVIDERID=%s" | tee -a /etc/kubernetes/kubelet-env >/dev/null
-`, providerIDStatic)
+`, shellEscapeSingleQuote(providerIDStatic))
 	}
 
 	// Write provider ID to /run/kubelet-provider-id if specified
@@ -200,22 +209,46 @@ fi
 		fmt.Fprintf(&sb, `echo "${%s}" > /run/kubelet-provider-id
 `, providerIDVarName)
 	} else if providerIDStatic != "" {
-		fmt.Fprintf(&sb, `echo "%s" > /run/kubelet-provider-id
-`, providerIDStatic)
+		fmt.Fprintf(&sb, `echo '%s' > /run/kubelet-provider-id
+`, shellEscapeSingleQuote(providerIDStatic))
 	}
 
 	b64Content := base64.StdEncoding.EncodeToString([]byte(sb.String()))
-	kubeletCustomLabels := ignition.CreateIgnitionFile("/usr/local/bin/kubelet_custom_labels",
+	file := ignition.CreateIgnitionFile("/usr/local/bin/kubelet_custom_labels",
 		"root", "data:text/plain;charset=utf-8;base64,"+b64Content, 493, true)
+	return &file, nil
+}
+
+// getIgnitionConfig builds the install-time (post-discovery) ignition config for the agent:
+// node registration (hostname, kubelet labels, provider ID) plus any override from the
+// openshiftassistedconfig.cluster.x-k8s.io/ignition-override annotation.
+func getIgnitionConfig(config *bootstrapv1alpha2.OpenshiftAssistedConfig) (string, error) {
+	kubeletCustomLabels, err := CreateKubeletCustomLabelsFile(
+		config.Spec.NodeRegistration.KubeletExtraLabels,
+		config.Spec.NodeRegistration.ProviderID,
+	)
+	if err != nil {
+		return "", err
+	}
+
+	var kubeletCustomLabelsFile config_types.File
+	if kubeletCustomLabels != nil {
+		kubeletCustomLabelsFile = *kubeletCustomLabels
+	} else {
+		// If no labels or provider ID, create a minimal no-op script
+		kubeletCustomLabelsFile = ignition.CreateIgnitionFile("/usr/local/bin/kubelet_custom_labels",
+			"root", "data:text/plain;charset=utf-8;base64,"+base64.StdEncoding.EncodeToString([]byte("#!/bin/bash\n")), 493, true)
+	}
 
 	opts := ignition.IgnitionOptions{
-		NodeNameEnvVar:        config.Spec.NodeRegistration.Name,
-		PreBootstrapCommands:  config.Spec.PreBootstrapCommands,
-		PostBootstrapCommands: config.Spec.PostBootstrapCommands,
-		SentinelDirectory:     config.Spec.BootstrapCommandSentinelDir,
-		ProviderID:            config.Spec.NodeRegistration.ProviderID,
+		NodeNameEnvVar:          config.Spec.NodeRegistration.Name,
+		PreBootstrapCommands:    config.Spec.PreBootstrapCommands,
+		PostBootstrapCommands:   config.Spec.PostBootstrapCommands,
+		SentinelDirectory:       config.Spec.BootstrapCommandSentinelDir,
+		ProviderID:              config.Spec.NodeRegistration.ProviderID,
+		KubeletCustomLabelsFile: kubeletCustomLabels,
 	}
-	baseIgnition, err := ignition.GetIgnitionConfigOverrides(opts, kubeletCustomLabels)
+	baseIgnition, err := ignition.GetIgnitionConfigOverrides(opts, kubeletCustomLabelsFile)
 	if err != nil {
 		return "", err
 	}
@@ -254,6 +287,13 @@ func parseEnvVarRef(value string) (varName, staticValue string, err error) {
 	}
 
 	return varName, "", nil
+}
+
+// shellEscapeSingleQuote escapes a string for safe use within single quotes in a shell script.
+// It replaces each single quote with '"'"' which ends the current single-quoted string,
+// adds an escaped single quote, and starts a new single-quoted string.
+func shellEscapeSingleQuote(s string) string {
+	return strings.ReplaceAll(s, "'", `'"'"'`)
 }
 
 // parseLabels splits labels into dynamic (variable) and static maps.

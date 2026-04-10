@@ -107,6 +107,15 @@ type IgnitionOptions struct {
 	// KubeconfigPath is the kubeconfig file path for post-bootstrap readiness checks.
 	// If empty, /var/lib/kubelet/kubeconfig is used.
 	KubeconfigPath string
+
+	// ProviderID is the kubelet provider ID value (e.g., "openstack://$METADATA_UUID").
+	// If set, a kubelet systemd drop-in will be added to inject the --provider-id flag.
+	ProviderID string
+
+	// KubeletCustomLabelsFile is the kubelet_custom_labels script file.
+	// If set, it will be added to the installed OS ignition along with its systemd unit.
+	// This is needed when ProviderID or KubeletExtraLabels are configured.
+	KubeletCustomLabelsFile *config_types.File
 }
 
 func sentinelDirectory(dir string) string {
@@ -361,8 +370,10 @@ func MergeIgnitionConfig(log logr.Logger, baseIgnition []byte, opts IgnitionOpti
 	hasHostname := opts.NodeNameEnvVar != ""
 	hasPre := len(opts.PreBootstrapCommands) > 0
 	hasPost := len(opts.PostBootstrapCommands) > 0
+	hasProviderID := opts.ProviderID != ""
+	hasKubeletCustomLabels := opts.KubeletCustomLabelsFile != nil
 
-	if !hasHostname && !hasPre && !hasPost {
+	if !hasHostname && !hasPre && !hasPost && !hasProviderID && !hasKubeletCustomLabels {
 		return baseIgnition, nil
 	}
 
@@ -403,6 +414,17 @@ func MergeIgnitionConfig(log logr.Logger, baseIgnition []byte, opts IgnitionOpti
 		config.Storage.Files = append(config.Storage.Files, file)
 	}
 
+	if hasKubeletCustomLabels {
+		// Add the kubelet_custom_labels script file
+		config.Storage.Files = append(config.Storage.Files, *opts.KubeletCustomLabelsFile)
+		// Add the systemd unit that runs the script
+		config.Systemd.Units = append(config.Systemd.Units, getKubeletCustomLabelsSystemdUnit())
+	}
+
+	if hasProviderID {
+		config.Storage.Files = append(config.Storage.Files, GetKubeletProviderIDDropin())
+	}
+
 	return json.Marshal(config)
 }
 
@@ -421,6 +443,38 @@ func CreateIgnitionFile(path, user, content string, mode int, overwrite bool) co
 			Mode: &mode,
 		},
 	}
+}
+
+// GetKubeletProviderIDDropin returns a systemd drop-in file that overrides kubelet.service
+// ExecStart to include the --provider-id flag. The value is read from /run/kubelet-provider-id
+// which is populated by the kubelet_custom_labels script during boot.
+//
+// This drop-in is based on the OpenShift kubelet.service template:
+// https://github.com/openshift/machine-config-operator/blob/main/templates/master/01-master-kubelet/on-prem/units/kubelet.service.yaml
+func GetKubeletProviderIDDropin() config_types.File {
+	dropinContent := `[Service]
+ExecStart=
+ExecStart=/bin/sh -c 'exec /usr/bin/kubelet \
+  --config=/etc/kubernetes/kubelet.conf \
+  --bootstrap-kubeconfig=/etc/kubernetes/kubeconfig \
+  --kubeconfig=/var/lib/kubelet/kubeconfig \
+  --container-runtime-endpoint=unix:///var/run/crio/crio.sock \
+  --runtime-cgroups=/system.slice/crio.service \
+  --node-labels=node-role.kubernetes.io/worker \
+  --node-ip=${KUBELET_NODE_IP} \
+  --minimum-container-ttl-duration=6m0s \
+  --cloud-provider=external \
+  --volume-plugin-dir=/etc/kubernetes/kubelet-plugins/volume/exec \
+  --provider-id="$(cat /run/kubelet-provider-id)"'
+`
+
+	return CreateIgnitionFile(
+		"/etc/systemd/system/kubelet.service.d/10-provider-id.conf",
+		"root",
+		"data:text/plain;charset=utf-8;base64,"+base64Encode(dropinContent),
+		0644,
+		true,
+	)
 }
 
 // MergeIgnitionConfigStrings merges overrideIgnition into baseIgnition.

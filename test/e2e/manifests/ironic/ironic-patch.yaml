@@ -3,6 +3,9 @@ kind: Deployment
 metadata:
   name: ironic
 spec:
+  # Increase progressDeadlineSeconds to allow time for IPA image download
+  # Default is 600s (10 min), but IPA tarball (~458MB) can take longer on slow networks
+  progressDeadlineSeconds: 1800
   template:
     spec:
       containers:

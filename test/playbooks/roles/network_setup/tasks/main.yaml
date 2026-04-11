@@ -3,6 +3,7 @@
   ansible.builtin.command: hostname -I
   register: hostname_output
   changed_when: false
+  become: false
 - name: Set internal IP fact
   ansible.builtin.set_fact:
     internal_ip: "{{ hostname_output.stdout.split() | select('match', '^10\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}$') | first }}"
@@ -24,28 +25,86 @@
     daemon_reload: true
     name: podman
 # create libvirt network with dns server (only recursive)
-- name: Start libvirt network
+- name: Stop libvirt network
   community.libvirt.virt_net:
     state: absent
     name: bmh
+  failed_when: false
+- name: Kill any remaining dnsmasq processes for bmh network
+  ansible.builtin.shell: |
+    for pid in $(pgrep -f "dnsmasq.*bmh.conf"); do
+      kill -9 $pid 2>/dev/null || true
+    done
+  changed_when: false
+  failed_when: false
+
+- name: Clean up stale PID file
+  ansible.builtin.file:
+    path: /run/libvirt/network/bmh.pid
+    state: absent
+
+- name: Fix SELinux context on libvirt network directory
+  ansible.builtin.command: chcon -R -t dnsmasq_var_run_t /run/libvirt/network
+  changed_when: false
+
+- name: Fix permissions on libvirt network directory
+  ansible.builtin.file:
+    path: /run/libvirt/network
+    owner: root
+    group: dnsmasq
+    mode: '0775'
+
+- name: Wait a moment for cleanup
+  ansible.builtin.pause:
+    seconds: 2
+
 - name: Read libvirt network XML
   ansible.builtin.slurp:
     src: "{{ src_dir }}/test/e2e/libvirt/network-bmh-onlynameserver.xml"
   register: network_xml_slurp
+  become: false
+
 - name: Define libvirt network from XML
   community.libvirt.virt_net:
     command: define
     name: bmh
     xml: "{{ network_xml_slurp.content | b64decode }}"
+
+- name: Fix permissions on dnsmasq config file
+  ansible.builtin.file:
+    path: /var/lib/libvirt/dnsmasq/bmh.conf
+    mode: '0644'
+  when: false  # Config file created by define, but might not exist on first run
+
+- name: Temporarily set SELinux to permissive for network start
+  ansible.builtin.command: setenforce 0
+  changed_when: false
+
 - name: Start libvirt network
   community.libvirt.virt_net:
     state: active
     name: bmh
 
+- name: Fix permissions on dnsmasq config file after start
+  ansible.builtin.file:
+    path: /var/lib/libvirt/dnsmasq/bmh.conf
+    mode: '0644'
+
+- name: Restore SELinux to enforcing
+  ansible.builtin.command: setenforce 1
+  changed_when: false
+
+- name: Get DNS servers from NetworkManager
+  ansible.builtin.shell: nmcli dev show | grep 'IP4.DNS' | awk '{print $2}'
+  register: nm_dns_servers
+  changed_when: false
+  become: false
 - name: Set DNS nameservers in /etc/resolv.conf
   ansible.builtin.copy:
     mode: '0644'
     dest: /etc/resolv.conf
     content: |
+      {% for dns in nm_dns_servers.stdout_lines %}
+      nameserver {{ dns }}
+      {% endfor %}
       nameserver 192.168.222.1
-      nameserver 8.8.8.8

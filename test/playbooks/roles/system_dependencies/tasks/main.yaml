@@ -22,7 +22,9 @@
     name: libvirtd
     enabled: true
     state: started
-- name: Install kubernetes python package
+- name: Install Python packages
   ansible.builtin.pip:
     name:
       - kubernetes
+      - libvirt-python
+      - lxml

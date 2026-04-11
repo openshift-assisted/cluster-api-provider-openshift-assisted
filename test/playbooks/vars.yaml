@@ -1,0 +1,68 @@
+---
+# Variables for run_test.yaml playbook
+
+# Connection resilience settings (currently not used)
+ansible_ssh_retries: 5
+ansible_connect_timeout: 30
+
+# Version settings
+cert_manager_version: v1.14.5
+capi_version: "{{ lookup('ansible.builtin.env', 'CAPI_VERSION', default='v1.11.3') }}"
+capm3_version: "{{ lookup('ansible.builtin.env', 'CAPM3_VERSION', default='v1.11.2') }}"
+kubectl_version: "{{ lookup('ansible.builtin.env', 'KUBECTL_VERSION', default='v1.31.4') }}"
+
+# Path settings
+src_dir: "/tmp/capbcoa"
+extra_paths:
+  - /usr/local/bin
+
+# Namespace settings
+test_namespace: test-capi
+test_app_namespace: test-app-validation
+
+# Cluster settings
+number_of_nodes: "{{ lookup('ansible.builtin.env', 'NUMBER_OF_NODES', default='7') }}"
+cluster_topology: "{{ lookup('ansible.builtin.env', 'CLUSTER_TOPOLOGY', default='multinode') }}"
+example_manifest: "{{ cluster_topology }}-example.yaml.j2"
+kind_cluster_name: capi-baremetal-provider
+# kind_network_prefix: "{{ lookup('ansible.builtin.env', 'KIND_NETWORK_PREFIX', default='192.168.222') }}"  # currently not used - IPs are hardcoded
+cluster_name: "test-{{ cluster_topology }}"
+# distribution_version: "{{ lookup('ansible.builtin.env', 'DISTRIBUTION_VERSION', default='4.20.4') }}"  # currently not used
+upgrade_to_version: "{{ lookup('ansible.builtin.env', 'UPGRADE_TO_VERSION', default='') }}"
+run_scale_up_workers_test: "{{ lookup('ansible.builtin.env', 'RUN_SCALE_UP_WORKERS_TEST', default='false') | bool }}"
+run_scale_down_workers_test: "{{ lookup('ansible.builtin.env', 'RUN_SCALE_DOWN_WORKERS_TEST', default='false') | bool }}"
+
+# OpenShift/RHCOS settings 
+openshift_version: "{{ lookup('ansible.builtin.env', 'OPENSHIFT_VERSION', default='4.20.4') }}"
+rhcos_image_url: "{{ lookup('ansible.builtin.env', 'RHCOS_IMAGE_URL', default='https://mirror.openshift.com/pub/openshift-v4/amd64/dependencies/rhcos/4.20/latest/rhcos-nutanix.x86_64.qcow2') }}"
+rhcos_checksum_url: "{{ lookup('ansible.builtin.env', 'RHCOS_CHECKSUM_URL', default='https://mirror.openshift.com/pub/openshift-v4/amd64/dependencies/rhcos/4.20/latest/sha256sum.txt') }}"
+
+# Default Assisted Service images
+default_assisted_service_image: "quay.io/edge-infrastructure/assisted-service"
+default_infrastructure_operator_image: "quay.io/edge-infrastructure/assisted-service"
+default_assisted_installer_agent_image: "quay.io/edge-infrastructure/assisted-installer-agent"
+default_assisted_installer_controller_image: "quay.io/edge-infrastructure/assisted-installer-controller"
+default_assisted_installer_image: "quay.io/edge-infrastructure/assisted-installer"
+
+# Default Assisted Service image versions (SHA256)
+default_assisted_installer_agent_version: "sha256:58732e1b4c26d5d4c8c0a662c82e388c02684800925f4b4db4447dce8010bf14"
+default_assisted_installer_controller_version: "sha256:d4755a824f92c211df890ff8e65523d085dcbd393aeeb314ff5a024eb5418257"
+default_infrastructure_operator_version: "sha256:c82660f92842d99fdd12507c0c61a39bfc25f04e71b5ab69c265fb749be3518c"
+default_assisted_installer_version: "sha256:c31f3f58d0776edd6726f44858f93a95dcb8e179706297d263e32291a854df54"
+default_assisted_service_version: "sha256:c82660f92842d99fdd12507c0c61a39bfc25f04e71b5ab69c265fb749be3518c"
+
+# Container settings
+container_tag: "{{ lookup('ansible.builtin.env', 'CONTAINER_TAG', default='local') }}"
+pull_secret_path: "{{ lookup('ansible.builtin.env', 'PULL_SECRET_PATH') }}"
+
+# SSH settings - ssh_authorized_key will be set dynamically by the ssh_key_setup role
+ssh_authorized_key: "{{ lookup('ansible.builtin.env', 'SSH_AUTHORIZED_KEY', default='') }}"
+pullsecret: "{{ lookup('ansible.builtin.env', 'PULLSECRET', default='') }}"
+
+# Retry and delay settings
+medium_delay: 10
+medium_retries: 60
+high_delay: 60
+high_retries: 300
+low_delay: 1
+low_retries: 1

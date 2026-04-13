@@ -85,7 +85,7 @@
   ansible.builtin.command:
     cmd: >-
       curl -4 -fsSL -o /usr/local/bin/kubectl
-      "https://cdn.dl.k8s.io/release/{{ kubectl_version }}/bin/linux/amd64/kubectl"
+      "https://dl.k8s.io/release/{{ kubectl_version }}/bin/linux/amd64/kubectl"
   when: >
     kubectl_version_check.stdout is not defined or
     kubectl_version_check.stdout | length == 0 or

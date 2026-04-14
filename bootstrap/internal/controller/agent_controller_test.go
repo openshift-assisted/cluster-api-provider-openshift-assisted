@@ -759,8 +759,8 @@ var _ = Describe("getIgnitionConfig", func() {
 			})
 		})
 
-		Context("kubelet provider-id systemd drop-in", func() {
-			It("should include 10-provider-id.conf in agent ignition when ProviderID is set", func() {
+		Context("kubelet provider-id injection service", func() {
+			It("should include provider-id injection service in agent ignition when ProviderID is set", func() {
 				config := &bootstrapv1alpha2.OpenshiftAssistedConfig{
 					Spec: bootstrapv1alpha2.OpenshiftAssistedConfigSpec{
 						NodeRegistration: bootstrapv1alpha2.NodeRegistrationOptions{
@@ -771,11 +771,11 @@ var _ = Describe("getIgnitionConfig", func() {
 
 				ignitionJSON, err := getIgnitionConfig(config)
 				Expect(err).NotTo(HaveOccurred())
-				Expect(ignitionJSON).To(ContainSubstring("10-provider-id.conf"))
-				Expect(ignitionJSON).To(ContainSubstring("kubelet.service.d"))
+				Expect(ignitionJSON).To(ContainSubstring("inject-provider-id"))
+				Expect(ignitionJSON).To(ContainSubstring("capoa-inject-provider-id.service"))
 			})
 
-			It("should not include 10-provider-id.conf when ProviderID is empty", func() {
+			It("should not include provider-id injection service when ProviderID is empty", func() {
 				config := &bootstrapv1alpha2.OpenshiftAssistedConfig{
 					Spec: bootstrapv1alpha2.OpenshiftAssistedConfigSpec{
 						NodeRegistration: bootstrapv1alpha2.NodeRegistrationOptions{
@@ -786,7 +786,7 @@ var _ = Describe("getIgnitionConfig", func() {
 
 				ignitionJSON, err := getIgnitionConfig(config)
 				Expect(err).NotTo(HaveOccurred())
-				Expect(ignitionJSON).NotTo(ContainSubstring("10-provider-id.conf"))
+				Expect(ignitionJSON).NotTo(ContainSubstring("inject-provider-id"))
 			})
 		})
 

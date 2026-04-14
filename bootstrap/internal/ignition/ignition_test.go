@@ -14,7 +14,8 @@ import (
 
 const preBootstrapServiceName = "capoa-pre-bootstrap.service"
 const postBootstrapServiceName = "capoa-post-bootstrap.service"
-const providerIDDropinPath = "/etc/systemd/system/kubelet.service.d/10-provider-id.conf"
+const providerIDServiceName = "capoa-inject-provider-id.service"
+const providerIDScriptPath = "/usr/local/bin/inject-provider-id"
 const baseIgnitionJSON = `{
 	"ignition": {"version": "3.1.0"},
 	"storage": {"files": []},
@@ -571,7 +572,7 @@ var _ = Describe("Ignition utils", func() {
 	})
 
 	When("generating ignition with providerID via GetIgnitionConfigOverrides", func() {
-		It("should include kubelet provider-id drop-in when ProviderID is set", func() {
+		It("should include provider-id injection service and script when ProviderID is set", func() {
 			// Create a kubelet_custom_labels file (required when providerID is set)
 			scriptContent := "#!/bin/bash\necho test\n"
 			b64Content := base64.StdEncoding.EncodeToString([]byte(scriptContent))
@@ -588,22 +589,38 @@ var _ = Describe("Ignition utils", func() {
 			Expect(rep.Entries).To(BeNil())
 			Expect(err).NotTo(HaveOccurred())
 
-			var foundDropin bool
+			// Verify the injection script is present
+			var foundScript bool
 			for _, file := range cfg.Storage.Files {
-				if file.Path == providerIDDropinPath {
-					foundDropin = true
+				if file.Path == providerIDScriptPath {
+					foundScript = true
 					content, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(*file.Contents.Source, "data:text/plain;charset=utf-8;base64,"))
 					Expect(err).NotTo(HaveOccurred())
 					contentStr := string(content)
-					Expect(contentStr).To(ContainSubstring("ExecStartPre"))
 					Expect(contentStr).To(ContainSubstring("/run/kubelet-provider-id"))
+					Expect(contentStr).To(ContainSubstring("systemctl cat kubelet.service"))
+					Expect(contentStr).To(ContainSubstring("--provider-id"))
+					Expect(contentStr).To(ContainSubstring("systemctl daemon-reload"))
 					break
 				}
 			}
-			Expect(foundDropin).To(BeTrue(), "kubelet provider-id drop-in should be present in GetIgnitionConfigOverrides output")
+			Expect(foundScript).To(BeTrue(), "provider-id injection script should be present")
+
+			// Verify the service unit is present
+			var foundUnit bool
+			for _, unit := range cfg.Systemd.Units {
+				if unit.Name == providerIDServiceName {
+					foundUnit = true
+					Expect(*unit.Enabled).To(BeTrue())
+					Expect(*unit.Contents).To(ContainSubstring("Before=kubelet.service"))
+					Expect(*unit.Contents).To(ContainSubstring("After=kubelet-customlabels.service"))
+					break
+				}
+			}
+			Expect(foundUnit).To(BeTrue(), "provider-id injection service unit should be present")
 		})
 
-		It("should not include kubelet provider-id drop-in when ProviderID is empty", func() {
+		It("should not include provider-id injection when ProviderID is empty", func() {
 			opts := IgnitionOptions{
 				NodeNameEnvVar: "$METADATA_NAME",
 			}
@@ -614,7 +631,10 @@ var _ = Describe("Ignition utils", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			for _, file := range cfg.Storage.Files {
-				Expect(file.Path).NotTo(Equal(providerIDDropinPath))
+				Expect(file.Path).NotTo(Equal(providerIDScriptPath))
+			}
+			for _, unit := range cfg.Systemd.Units {
+				Expect(unit.Name).NotTo(Equal(providerIDServiceName))
 			}
 		})
 
@@ -636,30 +656,43 @@ var _ = Describe("Ignition utils", func() {
 		})
 	})
 
-	When("generating kubelet provider-id injector", func() {
-		It("should generate systemd drop-in that injects provider-id dynamically", func() {
-			dropinFile := GetKubeletProviderIDInjector()
+	When("generating provider-id injector", func() {
+		It("should generate a service unit and script for runtime provider-id injection", func() {
+			unit, file := getProviderIDInjectorUnit()
 
-			Expect(dropinFile.Path).To(Equal(providerIDDropinPath))
-			Expect(*dropinFile.User.Name).To(Equal("root"))
-			Expect(*dropinFile.Mode).To(Equal(0644))
-			Expect(*dropinFile.Overwrite).To(BeTrue())
+			// Verify service unit
+			Expect(unit.Name).To(Equal(providerIDServiceName))
+			Expect(*unit.Enabled).To(BeTrue())
+			Expect(*unit.Contents).To(ContainSubstring("Before=kubelet.service"))
+			Expect(*unit.Contents).To(ContainSubstring("After=kubelet-customlabels.service"))
+			Expect(*unit.Contents).To(ContainSubstring("Type=oneshot"))
+			Expect(*unit.Contents).To(ContainSubstring("ExecStart=/usr/local/bin/inject-provider-id"))
 
-			Expect(dropinFile.Contents.Source).NotTo(BeNil())
-			content, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(*dropinFile.Contents.Source, "data:text/plain;charset=utf-8;base64,"))
+			// Verify script file
+			Expect(file.Path).To(Equal(providerIDScriptPath))
+			Expect(*file.User.Name).To(Equal("root"))
+			Expect(*file.Mode).To(Equal(493)) // 0755
+			Expect(*file.Overwrite).To(BeTrue())
+
+			content, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(*file.Contents.Source, "data:text/plain;charset=utf-8;base64,"))
 			Expect(err).NotTo(HaveOccurred())
-
 			contentStr := string(content)
-			Expect(contentStr).To(ContainSubstring("[Service]"))
-			Expect(contentStr).To(ContainSubstring("ExecStartPre"))
+
+			// Script reads provider-id from the runtime file
 			Expect(contentStr).To(ContainSubstring("/run/kubelet-provider-id"))
-			Expect(contentStr).To(ContainSubstring("sed -i"))
-			Expect(contentStr).To(ContainSubstring("/usr/local/bin/kubelet.sh"))
+			// Script inspects actual kubelet.service ExecStart at runtime, joining continuation lines
+			Expect(contentStr).To(ContainSubstring("systemctl cat kubelet.service"))
+			Expect(contentStr).To(ContainSubstring("awk"))
+			// Script skips if --provider-id is already set (e.g. by MCO)
+			Expect(contentStr).To(ContainSubstring("already set"))
+			// Script creates a drop-in and daemon-reloads
+			Expect(contentStr).To(ContainSubstring("20-provider-id.conf"))
+			Expect(contentStr).To(ContainSubstring("systemctl daemon-reload"))
 		})
 	})
 
 	When("merging ignition with providerID", func() {
-		It("should include kubelet provider-id drop-in when ProviderID is set", func() {
+		It("should include provider-id injection service when ProviderID is set", func() {
 			baseIgnition := baseIgnitionJSON
 
 			opts := IgnitionOptions{
@@ -673,26 +706,31 @@ var _ = Describe("Ignition utils", func() {
 			Expect(rep.Entries).To(BeNil())
 			Expect(err).NotTo(HaveOccurred())
 
-			var found bool
+			// Verify injection script is present
+			var foundScript bool
 			for _, file := range cfg.Storage.Files {
-				if file.Path == providerIDDropinPath {
-					found = true
+				if file.Path == providerIDScriptPath {
+					foundScript = true
 					Expect(*file.User.Name).To(Equal("root"))
-					Expect(*file.Mode).To(Equal(0644))
-
-					content, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(*file.Contents.Source, "data:text/plain;charset=utf-8;base64,"))
-					Expect(err).NotTo(HaveOccurred())
-					contentStr := string(content)
-					Expect(contentStr).To(ContainSubstring("ExecStartPre"))
-					Expect(contentStr).To(ContainSubstring("/run/kubelet-provider-id"))
-					Expect(contentStr).To(ContainSubstring("sed -i"))
+					Expect(*file.Mode).To(Equal(493))
 					break
 				}
 			}
-			Expect(found).To(BeTrue(), "kubelet provider-id drop-in file should be present")
+			Expect(foundScript).To(BeTrue(), "provider-id injection script should be present")
+
+			// Verify service unit is present
+			var foundUnit bool
+			for _, unit := range cfg.Systemd.Units {
+				if unit.Name == providerIDServiceName {
+					foundUnit = true
+					Expect(*unit.Enabled).To(BeTrue())
+					break
+				}
+			}
+			Expect(foundUnit).To(BeTrue(), "provider-id injection service should be present")
 		})
 
-		It("should not include kubelet provider-id drop-in when ProviderID is empty", func() {
+		It("should not include provider-id injection when ProviderID is empty", func() {
 			baseIgnition := baseIgnitionJSON
 
 			opts := IgnitionOptions{
@@ -707,7 +745,10 @@ var _ = Describe("Ignition utils", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			for _, file := range cfg.Storage.Files {
-				Expect(file.Path).NotTo(Equal(providerIDDropinPath))
+				Expect(file.Path).NotTo(Equal(providerIDScriptPath))
+			}
+			for _, unit := range cfg.Systemd.Units {
+				Expect(unit.Name).NotTo(Equal(providerIDServiceName))
 			}
 		})
 
@@ -757,15 +798,15 @@ var _ = Describe("Ignition utils", func() {
 			}
 			Expect(foundUnit).To(BeTrue(), "kubelet-customlabels.service unit should be present")
 
-			// Verify kubelet provider-id drop-in is also present
-			var foundDropin bool
+			// Verify provider-id injection script is also present
+			var foundScript bool
 			for _, file := range cfg.Storage.Files {
-				if file.Path == providerIDDropinPath {
-					foundDropin = true
+				if file.Path == providerIDScriptPath {
+					foundScript = true
 					break
 				}
 			}
-			Expect(foundDropin).To(BeTrue(), "kubelet provider-id drop-in should be present")
+			Expect(foundScript).To(BeTrue(), "provider-id injection script should be present")
 		})
 	})
 })

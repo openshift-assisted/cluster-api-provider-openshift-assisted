@@ -92,7 +92,7 @@ WantedBy=multi-user.target
 //   - set-hostname.service           — sets hostname from metadata env var (when NodeNameEnvVar is set)
 //   - capoa-pre-bootstrap.service    — runs pre-bootstrap commands before kubelet (when PreBootstrapCommands is set)
 //   - capoa-post-bootstrap.service   — runs post-bootstrap commands after kubelet (when PostBootstrapCommands is set)
-//   - 10-provider-id.conf (drop-in)  — injects --provider-id flag into kubelet (when ProviderID is set)
+//   - capoa-inject-provider-id.service — injects --provider-id flag into kubelet at runtime (when ProviderID is set)
 //
 // Discovery ignition:
 //
@@ -138,9 +138,11 @@ func installedNodeComponents(opts IgnitionOptions) ([]config_types.Unit, []confi
 		files = append(files, file)
 	}
 
-	// Kubelet provider-id systemd drop-in
+	// Kubelet provider-id injection service
 	if opts.ProviderID != "" {
-		files = append(files, GetKubeletProviderIDInjector())
+		providerIDUnit, providerIDFile := getProviderIDInjectorUnit()
+		units = append(units, providerIDUnit)
+		files = append(files, providerIDFile)
 	}
 
 	return units, files
@@ -457,29 +459,90 @@ func CreateIgnitionFile(path, user, content string, mode int, overwrite bool) co
 	}
 }
 
-// GetKubeletProviderIDInjector returns a systemd drop-in that dynamically adds the --provider-id
-// flag to the existing kubelet.sh script. Instead of replacing the entire script, this modifies
-// it in-place before kubelet starts, ensuring compatibility with whatever kubelet.sh the base
-// image provides.
-func GetKubeletProviderIDInjector() config_types.File {
-	dropinContent := `[Service]
-# Before starting kubelet, inject the --provider-id flag into kubelet.sh
-ExecStartPre=/bin/bash -c 'if [ -f /run/kubelet-provider-id ]; then \
-    PROVIDER_ID=$(cat /run/kubelet-provider-id); \
-    if [ -n "$PROVIDER_ID" ]; then \
-        sed -i "/exec \/usr\/bin\/kubelet/i\\    --provider-id=\"$PROVIDER_ID\" \\\\" /usr/local/bin/kubelet.sh || \
-        sed -i "s|\\( /usr/bin/kubelet.*\\)|\\1 --provider-id=\\\"$PROVIDER_ID\\\"|" /usr/local/bin/kubelet.sh; \
-    fi; \
-fi'
+const injectProviderIDScript = `#!/bin/bash
+set -euo pipefail
+
+PROVIDER_ID_FILE=/run/kubelet-provider-id
+DROPIN_DIR=/etc/systemd/system/kubelet.service.d
+DROPIN_FILE="${DROPIN_DIR}/20-provider-id.conf"
+
+PROVIDER_ID=$(cat "$PROVIDER_ID_FILE" 2>/dev/null) || true
+if [ -z "$PROVIDER_ID" ]; then
+    echo "inject-provider-id: no provider-id found, skipping"
+    exit 0
+fi
+
+# Extract the full ExecStart command from kubelet.service, joining
+# continuation lines (backslash-newline). Filters out ExecStartPre
+# and ExecStart= (clearing) lines, keeping only the actual command.
+EXEC_START=$(systemctl cat kubelet.service | awk '
+    /^ExecStart=/ && !/^ExecStartPre=/ && !/^ExecStart=$/ {
+        sub(/^ExecStart=/, "")
+        cmd = $0
+        while (cmd ~ /\\$/) {
+            sub(/\\$/, "", cmd)
+            if (getline > 0) cmd = cmd $0
+        }
+        print cmd
+    }
+' | tail -1)
+
+if [ -z "$EXEC_START" ]; then
+    echo "inject-provider-id: WARNING: could not determine kubelet ExecStart"
+    exit 1
+fi
+
+# If --provider-id is already present, skip
+if echo "$EXEC_START" | grep -q -- "--provider-id"; then
+    echo "inject-provider-id: --provider-id already set in kubelet ExecStart, skipping"
+    exit 0
+fi
+
+# Create drop-in that overrides ExecStart with --provider-id appended
+mkdir -p "$DROPIN_DIR"
+cat > "$DROPIN_FILE" <<EOF
+[Service]
+ExecStart=
+ExecStart=${EXEC_START} --provider-id="${PROVIDER_ID}"
+EOF
+
+systemctl daemon-reload
+echo "inject-provider-id: injected --provider-id=${PROVIDER_ID}"
 `
 
-	return CreateIgnitionFile(
-		"/etc/systemd/system/kubelet.service.d/10-provider-id.conf",
-		"root",
-		"data:text/plain;charset=utf-8;base64,"+base64Encode(dropinContent),
-		0644,
-		true,
-	)
+// getProviderIDInjectorUnit returns a systemd service and script that dynamically
+// injects the --provider-id flag into kubelet.service at runtime. Unlike a static
+// drop-in, this approach inspects the actual kubelet ExecStart (which is only known
+// at runtime, as it is configured by the MachineConfigOperator) and:
+//   - skips injection if --provider-id is already present
+//   - appends --provider-id to the existing ExecStart via a generated drop-in
+//   - runs daemon-reload so kubelet picks up the change before starting
+func getProviderIDInjectorUnit() (config_types.Unit, config_types.File) {
+	unitContents := `[Unit]
+Description=Inject provider-id into kubelet
+Before=kubelet.service
+After=kubelet-customlabels.service
+Wants=kubelet-customlabels.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=true
+ExecStart=/usr/local/bin/inject-provider-id
+
+[Install]
+WantedBy=multi-user.target
+`
+	enabled := true
+	unit := config_types.Unit{
+		Contents: &unitContents,
+		Enabled:  &enabled,
+		Name:     "capoa-inject-provider-id.service",
+	}
+
+	file := CreateIgnitionFile("/usr/local/bin/inject-provider-id",
+		"root", "data:text/plain;charset=utf-8;base64,"+base64Encode(injectProviderIDScript), 493, true)
+
+	return unit, file
 }
 
 // MergeIgnitionConfigStrings merges overrideIgnition into baseIgnition.

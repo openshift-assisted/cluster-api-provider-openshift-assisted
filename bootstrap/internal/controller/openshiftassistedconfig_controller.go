@@ -245,25 +245,13 @@ func (r *OpenshiftAssistedConfigReconciler) Reconcile(ctx context.Context, req c
 	}
 	log.V(logutil.TraceLevel).Info("ignition retrieved", "bytes", len(ignition))
 
-	// Generate kubelet_custom_labels file if labels or provider ID are configured
-	kubeletCustomLabels, err := CreateKubeletCustomLabelsFile(
-		config.Spec.NodeRegistration.KubeletExtraLabels,
-		config.Spec.NodeRegistration.ProviderID,
-	)
-	if err != nil {
-		log.Error(err, "failed to create kubelet_custom_labels file")
-		return ctrl.Result{}, err
-	}
-
-	// Merge additional ignition components (e.g., set-hostname unit, pre/post bootstrap commands)
+	// Merge additional ignition components for discovery phase.
+	// Note: kubelet labels, provider ID, and pre/post bootstrap commands are
+	// only included in the install-time ignition (agent controller), not here.
 	opts := ign.IgnitionOptions{
-		NodeNameEnvVar:          config.Spec.NodeRegistration.Name,
-		PreBootstrapCommands:    config.Spec.PreBootstrapCommands,
-		PostBootstrapCommands:   config.Spec.PostBootstrapCommands,
-		SentinelDirectory:       config.Spec.BootstrapCommandSentinelDir,
-		KubeconfigPath:          config.Spec.PostBootstrapKubeconfigPath,
-		ProviderID:              config.Spec.NodeRegistration.ProviderID,
-		KubeletCustomLabelsFile: kubeletCustomLabels,
+		NodeNameEnvVar:    config.Spec.NodeRegistration.Name,
+		SentinelDirectory: config.Spec.BootstrapCommandSentinelDir,
+		KubeconfigPath:    config.Spec.PostBootstrapKubeconfigPath,
 	}
 	ignition, err = ign.MergeIgnitionConfig(log, ignition, opts)
 	if err != nil {

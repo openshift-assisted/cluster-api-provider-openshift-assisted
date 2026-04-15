@@ -11,8 +11,11 @@
 - name: Deploy test HTTP server application
   kubernetes.core.k8s:
     state: present
-    definition: "{{ lookup('template', 'test-http-server.yaml.j2') }}"
+    definition: "{{ item }}"
     namespace: "{{ test_app_namespace }}"
+  loop: "{{ lookup('template', 'test-http-server.yaml.j2') | from_yaml_all | list }}"
+  loop_control:
+    label: "{{ item.kind }}/{{ item.metadata.name }}"
   environment:
     KUBECONFIG: "/tmp/{{ cluster_name }}-kubeconfig"
 
@@ -40,6 +43,9 @@
     name: test-http-server
     namespace: "{{ test_app_namespace }}"
   register: service_info
+  until: service_info.resources | length > 0
+  retries: 10
+  delay: 5
   environment:
     KUBECONFIG: "/tmp/{{ cluster_name }}-kubeconfig"
 

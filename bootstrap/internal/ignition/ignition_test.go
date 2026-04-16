@@ -14,6 +14,13 @@ import (
 
 const preBootstrapServiceName = "capoa-pre-bootstrap.service"
 const postBootstrapServiceName = "capoa-post-bootstrap.service"
+const providerIDServiceName = "capoa-inject-provider-id.service"
+const providerIDScriptPath = "/usr/local/bin/inject-provider-id"
+const baseIgnitionJSON = `{
+	"ignition": {"version": "3.1.0"},
+	"storage": {"files": []},
+	"systemd": {"units": []}
+}`
 
 func TestControllers(t *testing.T) {
 	RegisterFailHandler(Fail)
@@ -561,6 +568,245 @@ var _ = Describe("Ignition utils", func() {
 			merged, err := MergeIgnitionConfigStrings(base, "")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(merged).To(Equal(base))
+		})
+	})
+
+	When("generating ignition with providerID via GetIgnitionConfigOverrides", func() {
+		It("should include provider-id injection service and script when ProviderID is set", func() {
+			// Create a kubelet_custom_labels file (required when providerID is set)
+			scriptContent := "#!/bin/bash\necho test\n"
+			b64Content := base64.StdEncoding.EncodeToString([]byte(scriptContent))
+			kubeletCustomLabelsFile := CreateIgnitionFile("/usr/local/bin/kubelet_custom_labels",
+				"root", "data:text/plain;charset=utf-8;base64,"+b64Content, 493, true)
+
+			opts := IgnitionOptions{
+				ProviderID:              "openstack://$METADATA_UUID",
+				KubeletCustomLabelsFile: &kubeletCustomLabelsFile,
+			}
+			i, err := GetIgnitionConfigOverrides(opts)
+			Expect(err).NotTo(HaveOccurred())
+			cfg, rep, err := config_31.Parse([]byte(i))
+			Expect(rep.Entries).To(BeNil())
+			Expect(err).NotTo(HaveOccurred())
+
+			// Verify the injection script is present
+			var foundScript bool
+			for _, file := range cfg.Storage.Files {
+				if file.Path == providerIDScriptPath {
+					foundScript = true
+					content, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(*file.Contents.Source, "data:text/plain;charset=utf-8;base64,"))
+					Expect(err).NotTo(HaveOccurred())
+					contentStr := string(content)
+					Expect(contentStr).To(ContainSubstring("/run/kubelet-provider-id"))
+					Expect(contentStr).To(ContainSubstring("systemctl cat kubelet.service"))
+					Expect(contentStr).To(ContainSubstring("--provider-id"))
+					Expect(contentStr).To(ContainSubstring("systemctl daemon-reload"))
+					break
+				}
+			}
+			Expect(foundScript).To(BeTrue(), "provider-id injection script should be present")
+
+			// Verify the service unit is present
+			var foundUnit bool
+			for _, unit := range cfg.Systemd.Units {
+				if unit.Name == providerIDServiceName {
+					foundUnit = true
+					Expect(*unit.Enabled).To(BeTrue())
+					Expect(*unit.Contents).To(ContainSubstring("Before=kubelet.service"))
+					Expect(*unit.Contents).To(ContainSubstring("After=kubelet-customlabels.service"))
+					break
+				}
+			}
+			Expect(foundUnit).To(BeTrue(), "provider-id injection service unit should be present")
+		})
+
+		It("should not include provider-id injection when ProviderID is empty", func() {
+			opts := IgnitionOptions{
+				NodeNameEnvVar: "$METADATA_NAME",
+			}
+			i, err := GetIgnitionConfigOverrides(opts)
+			Expect(err).NotTo(HaveOccurred())
+			cfg, rep, err := config_31.Parse([]byte(i))
+			Expect(rep.Entries).To(BeNil())
+			Expect(err).NotTo(HaveOccurred())
+
+			for _, file := range cfg.Storage.Files {
+				Expect(file.Path).NotTo(Equal(providerIDScriptPath))
+			}
+			for _, unit := range cfg.Systemd.Units {
+				Expect(unit.Name).NotTo(Equal(providerIDServiceName))
+			}
+		})
+
+		It("should include configdrive-metadata and kubelet-customlabels only when needed", func() {
+			opts := IgnitionOptions{}
+			i, err := GetIgnitionConfigOverrides(opts)
+			Expect(err).NotTo(HaveOccurred())
+			cfg, rep, err := config_31.Parse([]byte(i))
+			Expect(rep.Entries).To(BeNil())
+			Expect(err).NotTo(HaveOccurred())
+
+			// With empty opts, no units should be present
+			Expect(cfg.Systemd.Units).To(BeEmpty())
+			// No installed-node files should be present
+			for _, file := range cfg.Storage.Files {
+				Expect(file.Path).NotTo(Equal("/usr/local/bin/configdrive_metadata"))
+				Expect(file.Path).NotTo(Equal("/usr/local/bin/kubelet_custom_labels"))
+			}
+		})
+	})
+
+	When("generating provider-id injector", func() {
+		It("should generate a service unit and script for runtime provider-id injection", func() {
+			unit, file := getProviderIDInjectorUnit()
+
+			// Verify service unit
+			Expect(unit.Name).To(Equal(providerIDServiceName))
+			Expect(*unit.Enabled).To(BeTrue())
+			Expect(*unit.Contents).To(ContainSubstring("Before=kubelet.service"))
+			Expect(*unit.Contents).To(ContainSubstring("After=kubelet-customlabels.service"))
+			Expect(*unit.Contents).To(ContainSubstring("Type=oneshot"))
+			Expect(*unit.Contents).To(ContainSubstring("ExecStart=/usr/local/bin/inject-provider-id"))
+
+			// Verify script file
+			Expect(file.Path).To(Equal(providerIDScriptPath))
+			Expect(*file.User.Name).To(Equal("root"))
+			Expect(*file.Mode).To(Equal(493)) // 0755
+			Expect(*file.Overwrite).To(BeTrue())
+
+			content, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(*file.Contents.Source, "data:text/plain;charset=utf-8;base64,"))
+			Expect(err).NotTo(HaveOccurred())
+			contentStr := string(content)
+
+			// Script reads provider-id from the runtime file
+			Expect(contentStr).To(ContainSubstring("/run/kubelet-provider-id"))
+			// Script inspects actual kubelet.service ExecStart at runtime, joining continuation lines
+			Expect(contentStr).To(ContainSubstring("systemctl cat kubelet.service"))
+			Expect(contentStr).To(ContainSubstring("awk"))
+			// Script skips if --provider-id is already set (e.g. by MCO)
+			Expect(contentStr).To(ContainSubstring("already set"))
+			// Script creates a drop-in and daemon-reloads
+			Expect(contentStr).To(ContainSubstring("20-provider-id.conf"))
+			Expect(contentStr).To(ContainSubstring("systemctl daemon-reload"))
+		})
+	})
+
+	When("merging ignition with providerID", func() {
+		It("should include provider-id injection service when ProviderID is set", func() {
+			baseIgnition := baseIgnitionJSON
+
+			opts := IgnitionOptions{
+				ProviderID: "openstack://$METADATA_UUID",
+			}
+
+			mergedIgnition, err := MergeIgnitionConfig(logr.Discard(), []byte(baseIgnition), opts)
+			Expect(err).NotTo(HaveOccurred())
+
+			cfg, rep, err := config_31.Parse(mergedIgnition)
+			Expect(rep.Entries).To(BeNil())
+			Expect(err).NotTo(HaveOccurred())
+
+			// Verify injection script is present
+			var foundScript bool
+			for _, file := range cfg.Storage.Files {
+				if file.Path == providerIDScriptPath {
+					foundScript = true
+					Expect(*file.User.Name).To(Equal("root"))
+					Expect(*file.Mode).To(Equal(493))
+					break
+				}
+			}
+			Expect(foundScript).To(BeTrue(), "provider-id injection script should be present")
+
+			// Verify service unit is present
+			var foundUnit bool
+			for _, unit := range cfg.Systemd.Units {
+				if unit.Name == providerIDServiceName {
+					foundUnit = true
+					Expect(*unit.Enabled).To(BeTrue())
+					break
+				}
+			}
+			Expect(foundUnit).To(BeTrue(), "provider-id injection service should be present")
+		})
+
+		It("should not include provider-id injection when ProviderID is empty", func() {
+			baseIgnition := baseIgnitionJSON
+
+			opts := IgnitionOptions{
+				NodeNameEnvVar: "$METADATA_NAME",
+			}
+
+			mergedIgnition, err := MergeIgnitionConfig(logr.Discard(), []byte(baseIgnition), opts)
+			Expect(err).NotTo(HaveOccurred())
+
+			cfg, rep, err := config_31.Parse(mergedIgnition)
+			Expect(rep.Entries).To(BeNil())
+			Expect(err).NotTo(HaveOccurred())
+
+			for _, file := range cfg.Storage.Files {
+				Expect(file.Path).NotTo(Equal(providerIDScriptPath))
+			}
+			for _, unit := range cfg.Systemd.Units {
+				Expect(unit.Name).NotTo(Equal(providerIDServiceName))
+			}
+		})
+
+		It("should include kubelet_custom_labels file and unit when KubeletCustomLabelsFile is set", func() {
+			baseIgnition := baseIgnitionJSON
+
+			// Create a sample kubelet_custom_labels file
+			scriptContent := "#!/bin/bash\necho test\n"
+			b64Content := base64.StdEncoding.EncodeToString([]byte(scriptContent))
+			kubeletCustomLabelsFile := CreateIgnitionFile("/usr/local/bin/kubelet_custom_labels",
+				"root", "data:text/plain;charset=utf-8;base64,"+b64Content, 493, true)
+
+			opts := IgnitionOptions{
+				ProviderID:              "openstack://$METADATA_UUID",
+				KubeletCustomLabelsFile: &kubeletCustomLabelsFile,
+			}
+
+			mergedIgnition, err := MergeIgnitionConfig(logr.Discard(), []byte(baseIgnition), opts)
+			Expect(err).NotTo(HaveOccurred())
+
+			cfg, rep, err := config_31.Parse(mergedIgnition)
+			Expect(rep.Entries).To(BeNil())
+			Expect(err).NotTo(HaveOccurred())
+
+			// Verify kubelet_custom_labels file is present
+			var foundFile bool
+			for _, file := range cfg.Storage.Files {
+				if file.Path == "/usr/local/bin/kubelet_custom_labels" {
+					foundFile = true
+					Expect(*file.User.Name).To(Equal("root"))
+					Expect(*file.Mode).To(Equal(493))
+					break
+				}
+			}
+			Expect(foundFile).To(BeTrue(), "kubelet_custom_labels file should be present")
+
+			// Verify kubelet-customlabels.service unit is present
+			var foundUnit bool
+			for _, unit := range cfg.Systemd.Units {
+				if unit.Name == "kubelet-customlabels.service" {
+					foundUnit = true
+					Expect(*unit.Enabled).To(BeTrue())
+					Expect(*unit.Contents).To(ContainSubstring("ExecStart=/usr/local/bin/kubelet_custom_labels"))
+					Expect(*unit.Contents).To(ContainSubstring("Before=kubelet.service"))
+					break
+				}
+			}
+			Expect(foundUnit).To(BeTrue(), "kubelet-customlabels.service unit should be present")
+
+			// Verify provider-id injection script is also present
+			var foundScript bool
+			for _, file := range cfg.Storage.Files {
+				if file.Path == providerIDScriptPath {
+					foundScript = true
+					break
+				}
+			}
+			Expect(foundScript).To(BeTrue(), "provider-id injection script should be present")
 		})
 	})
 })

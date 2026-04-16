@@ -465,11 +465,23 @@ set -euo pipefail
 PROVIDER_ID_FILE=/run/kubelet-provider-id
 DROPIN_DIR=/etc/systemd/system/kubelet.service.d
 DROPIN_FILE="${DROPIN_DIR}/20-provider-id.conf"
+METADATA_ENV_FILE=/etc/metadata_env
 
 PROVIDER_ID=$(cat "$PROVIDER_ID_FILE" 2>/dev/null) || true
 if [ -z "$PROVIDER_ID" ]; then
     echo "inject-provider-id: no provider-id found, skipping"
     exit 0
+fi
+
+# Expand environment variables in the provider ID
+# Source metadata_env if it exists to resolve variables like $METADATA_UUID
+if [ -f "$METADATA_ENV_FILE" ]; then
+    # Source the metadata env file to make variables available
+    set -a
+    source "$METADATA_ENV_FILE"
+    set +a
+    # Use eval to expand variables in the provider ID string
+    PROVIDER_ID=$(eval echo "$PROVIDER_ID")
 fi
 
 # Extract the full ExecStart command from kubelet.service, joining

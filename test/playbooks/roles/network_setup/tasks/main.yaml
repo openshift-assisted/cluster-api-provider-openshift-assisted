@@ -3,36 +3,60 @@
   ansible.builtin.command: hostname -I
   register: hostname_output
   changed_when: false
+
 - name: Set internal IP fact
   ansible.builtin.set_fact:
     internal_ip: "{{ hostname_output.stdout.split() | select('match', '^10\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}$') | first }}"
+
+- name: Get host DNS servers from NetworkManager
+  ansible.builtin.command: nmcli --terse --get-values IP4.DNS device show
+  register: nm_dns_output
+  changed_when: false
+  failed_when: false
+
+- name: Set host DNS servers from NetworkManager
+  ansible.builtin.set_fact:
+    host_dns_servers: "{{ nm_dns_output.stdout.split() | select('match', '^\\d') | unique | list }}"
+  when: nm_dns_output.stdout | trim | length > 0
+
+- name: Fallback - get host DNS servers from /etc/resolv.conf
+  ansible.builtin.shell: set -o pipefail && grep '^nameserver' /etc/resolv.conf | awk '{print $2}'
+  register: resolv_conf_output
+  changed_when: false
+  when: host_dns_servers is not defined or host_dns_servers | length == 0
+
+- name: Set host DNS servers from resolv.conf
+  ansible.builtin.set_fact:
+    host_dns_servers: "{{ resolv_conf_output.stdout_lines | select('match', '^\\d') | unique | list }}"
+  when: host_dns_servers is not defined or host_dns_servers | length == 0
+
 - name: Configure containers.conf
   ansible.builtin.copy:
     dest: /etc/containers/containers.conf
     mode: '0644'
     content: |
       [containers]
-      dns_servers = ["192.168.222.1", "8.8.8.8"]
+      dns_servers = ["192.168.222.1"{% for dns in host_dns_servers %}, "{{ dns }}"{% endfor %}]
       pids_limit = -1
+
 - name: Restart podman service
   ansible.builtin.systemd_service:
     state: restarted
     daemon_reload: true
     name: podman
+
 # create libvirt network with dns server (only recursive)
 - name: Start libvirt network
   community.libvirt.virt_net:
     state: absent
     name: bmh
-- name: Read libvirt network XML
-  ansible.builtin.slurp:
-    src: "{{ src_dir }}/test/e2e/libvirt/network-bmh-onlynameserver.xml"
-  register: network_xml_slurp
+
 - name: Define libvirt network from XML
   community.libvirt.virt_net:
     command: define
     name: bmh
-    xml: "{{ network_xml_slurp.content | b64decode }}"
+    xml: "{{ lookup('template', playbook_dir ~ '/../e2e/libvirt/network-bmh-onlynameserver.xml.j2') }}"
+
 - name: Start libvirt network
   community.libvirt.virt_net:
     state: active
@@ -44,4 +68,6 @@
     dest: /etc/resolv.conf
     content: |
       nameserver 192.168.222.1
-      nameserver 8.8.8.8
+      {% for dns in host_dns_servers %}
+      nameserver {{ dns }}
+      {% endfor %}

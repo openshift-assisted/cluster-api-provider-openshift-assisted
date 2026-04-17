@@ -57,6 +57,16 @@
     name: bmh
     xml: "{{ lookup('template', playbook_dir ~ '/../e2e/libvirt/network-bmh-onlynameserver.xml.j2') }}"
 
+- name: Remove stale dnsmasq PID file
+  ansible.builtin.file:
+    path: /run/libvirt/network/bmh.pid
+    state: absent
+
+- name: Restore SELinux context on /run/libvirt
+  ansible.builtin.command: restorecon -RF /run/libvirt
+  changed_when: false
+  failed_when: false
+
 - name: Start libvirt network
   community.libvirt.virt_net:
     state: active

@@ -19,6 +19,16 @@
   vars:
     loadbalancer_ip: "{{ lookup('file', '/tmp/loadbalancer_ip') }}"
 
+- name: Remove stale dnsmasq PID file
+  ansible.builtin.file:
+    path: /run/libvirt/network/bmh.pid
+    state: absent
+
+- name: Restore SELinux context on /run/libvirt
+  ansible.builtin.command: restorecon -RF /run/libvirt
+  changed_when: false
+  failed_when: false
+
 - name: Activate network
   community.libvirt.virt_net:
     state: active

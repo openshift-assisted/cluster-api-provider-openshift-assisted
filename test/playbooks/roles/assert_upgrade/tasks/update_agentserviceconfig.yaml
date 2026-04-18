@@ -1,0 +1,103 @@
+---
+# Update AgentServiceConfig to use an OS image matching the target upgrade version
+# This ensures that any nodes added during or after upgrade use a compatible discovery ISO
+
+- name: Display AgentServiceConfig update information
+  ansible.builtin.debug:
+    msg:
+      - "================================================================================"
+      - "Updating AgentServiceConfig OS Images"
+      - "================================================================================"
+      - "Target Version:        {{ upgrade_to_version }}"
+      - "================================================================================"
+
+- name: Extract major.minor version from upgrade_to_version
+  ansible.builtin.set_fact:
+    upgrade_major_minor: "{{ upgrade_to_version | regex_replace('^(\\d+\\.\\d+).*', '\\1') }}"
+
+- name: Display extracted version
+  ansible.builtin.debug:
+    msg: "Using OpenShift version {{ upgrade_major_minor }} for OS image configuration"
+
+- name: Get current AgentServiceConfig
+  kubernetes.core.k8s_info:
+    api_version: agent-install.openshift.io/v1beta1
+    kind: AgentServiceConfig
+    name: agent
+  register: current_agentserviceconfig
+  environment:
+    KUBECONFIG: "/home/{{ ansible_user }}/.kube/config"
+
+- name: Display current osImages configuration
+  ansible.builtin.debug:
+    msg: "Current osImages: {{ current_agentserviceconfig.resources[0].spec.osImages | default([]) }}"
+  when: current_agentserviceconfig.resources | length > 0
+
+- name: Build OS image URL for target version
+  ansible.builtin.set_fact:
+    target_os_image_url: "https://mirror.openshift.com/pub/openshift-v4/x86_64/dependencies/rhcos/{{ upgrade_major_minor }}/latest/rhcos-live-iso.x86_64.iso"
+
+- name: Check if OS image for target version already exists
+  ansible.builtin.set_fact:
+    os_image_exists: "{{ current_agentserviceconfig.resources[0].spec.osImages | default([]) | selectattr('openshiftVersion', 'equalto', upgrade_major_minor) | list | length > 0 }}"
+  when: current_agentserviceconfig.resources | length > 0
+
+- name: Set os_image_exists to false if AgentServiceConfig not found
+  ansible.builtin.set_fact:
+    os_image_exists: false
+  when: current_agentserviceconfig.resources | length == 0
+
+- name: Update AgentServiceConfig with OS image for target version
+  kubernetes.core.k8s:
+    state: present
+    api_version: agent-install.openshift.io/v1beta1
+    kind: AgentServiceConfig
+    name: agent
+    merge_type: merge
+    definition:
+      spec:
+        osImages:
+          - openshiftVersion: "{{ upgrade_major_minor }}"
+            version: "{{ upgrade_major_minor | regex_replace('\\.', '') }}.86.0"
+            url: "{{ target_os_image_url }}"
+            cpuArchitecture: "x86_64"
+  environment:
+    KUBECONFIG: "/home/{{ ansible_user }}/.kube/config"
+  when: not os_image_exists
+  register: agentserviceconfig_update
+
+- name: Display update result
+  ansible.builtin.debug:
+    msg:
+      - "================================================================================"
+      - "AgentServiceConfig Update Result"
+      - "================================================================================"
+      - "OS Image Added:        {{ not os_image_exists }}"
+      - "OpenShift Version:     {{ upgrade_major_minor }}"
+      - "OS Image URL:          {{ target_os_image_url }}"
+      - "================================================================================"
+
+- name: Wait for AgentServiceConfig to be ready
+  kubernetes.core.k8s_info:
+    api_version: agent-install.openshift.io/v1beta1
+    kind: AgentServiceConfig
+    name: agent
+  register: updated_agentserviceconfig
+  until: >-
+    updated_agentserviceconfig.resources is defined and
+    updated_agentserviceconfig.resources | length > 0 and
+    updated_agentserviceconfig.resources[0].status.conditions | default([]) |
+    selectattr('type', 'equalto', 'ReconcileCompleted') |
+    selectattr('status', 'equalto', 'True') |
+    list |
+    length > 0
+  retries: 30
+  delay: 10
+  environment:
+    KUBECONFIG: "/home/{{ ansible_user }}/.kube/config"
+  when: agentserviceconfig_update.changed | default(false)
+
+- name: Display final osImages configuration
+  ansible.builtin.debug:
+    msg: "Updated osImages: {{ updated_agentserviceconfig.resources[0].spec.osImages | default([]) }}"
+  when: updated_agentserviceconfig.resources is defined and updated_agentserviceconfig.resources | length > 0

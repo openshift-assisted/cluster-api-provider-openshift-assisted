@@ -1,6 +1,7 @@
 ---
 - name: Cleanup
   hosts: test_runner
+  become: true
   vars:
     src_dir: "/tmp/capbcoa"
     kind_cluster_name: capi-baremetal-provider

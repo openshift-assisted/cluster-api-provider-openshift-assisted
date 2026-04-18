@@ -1,0 +1,79 @@
+---
+- name: Initialize precondition results
+  ansible.builtin.set_fact:
+    precondition_errors: []
+
+# Precondition 1: Cluster cannot be SNO
+- name: Check cluster topology is not SNO
+  ansible.builtin.set_fact:
+    precondition_errors: "{{ precondition_errors + ['Cluster topology is SNO - scale down workers test cannot run on single-node clusters'] }}"
+  when: cluster_topology == 'sno'
+
+# Precondition 2: Get current MachineDeployment to check replica count
+- name: Get current MachineDeployment
+  kubernetes.core.k8s_info:
+    api_version: cluster.x-k8s.io/v1beta1
+    kind: MachineDeployment
+    name: "{{ cluster_name }}-worker"
+    namespace: "{{ test_namespace }}"
+  register: machine_deployment_check
+
+- name: Check MachineDeployment exists
+  ansible.builtin.set_fact:
+    precondition_errors: "{{ precondition_errors + ['MachineDeployment ' ~ cluster_name ~ '-worker not found'] }}"
+  when: machine_deployment_check.resources | length == 0
+
+- name: Get current worker count
+  ansible.builtin.set_fact:
+    current_worker_replicas: "{{ machine_deployment_check.resources[0].spec.replicas | int }}"
+  when: machine_deployment_check.resources | length > 0
+
+- name: Check minimum worker count
+  ansible.builtin.set_fact:
+    precondition_errors: "{{ precondition_errors + ['Current worker count is ' ~ current_worker_replicas ~ ' - need at least 2 workers to scale down'] }}"
+  when:
+    - machine_deployment_check.resources | length > 0
+    - current_worker_replicas | int < 2
+
+# Display results
+- name: Display current worker status
+  ansible.builtin.debug:
+    msg:
+      - "Current worker replicas:   {{ current_worker_replicas | default('N/A') }}"
+      - "Minimum required:          2"
+  when: machine_deployment_check.resources | length > 0
+
+# Handle precondition failures
+- name: Display precondition errors
+  when: precondition_errors | length > 0
+  block:
+    - name: Show error summary
+      ansible.builtin.debug:
+        msg:
+          - "================================================================================"
+          - "PRECONDITION CHECK FAILED"
+          - "================================================================================"
+          - "The following preconditions were not met:"
+          - ""
+          - "{{ precondition_errors | join('\n') }}"
+          - ""
+          - "Current state:"
+          - "  - Cluster topology:      {{ cluster_topology }}"
+          - "  - Worker replicas:       {{ current_worker_replicas | default('N/A') }}"
+          - "================================================================================"
+
+    - name: Fail with precondition errors
+      ansible.builtin.fail:
+        msg: "Precondition check failed: {{ precondition_errors | join('; ') }}"
+
+# Success path
+- name: Display preconditions passed
+  ansible.builtin.debug:
+    msg:
+      - "================================================================================"
+      - "Preconditions Passed"
+      - "================================================================================"
+      - "Cluster topology:          {{ cluster_topology }} (not SNO)"
+      - "Current worker replicas:   {{ current_worker_replicas }}"
+      - "================================================================================"
+  when: precondition_errors | length == 0

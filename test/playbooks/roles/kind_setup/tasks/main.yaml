@@ -1,4 +1,5 @@
 ---
+# Phase 1: Install kind utility
 - name: Check if kind exists and get version
   ansible.builtin.shell: |
     set -o pipefail
@@ -6,10 +7,12 @@
   register: kind_version_check
   changed_when: false
   failed_when: false
+  become: false
 
 - name: Kind version
   ansible.builtin.debug:
-    msg: "{{ kind_version_check.stdout }}"
+    msg: "{{ kind_version_check.stdout | default('not installed') }}"
+  become: false
 
 - name: Download and install kind binary
   ansible.builtin.get_url:
@@ -21,81 +24,282 @@
     kind_version_check.stdout | length == 0 or
     kind_setup_kind_version not in kind_version_check.stdout
 
-- name: Delete existing kind cluster
-  ansible.builtin.command: kind delete cluster --name {{ kind_cluster_name }}
-  changed_when: true
+# Phase 2: Configure rootless podman for kind
+- name: Check if podman is installed
+  ansible.builtin.command: podman --version
+  register: podman_version_check
+  changed_when: false
+  failed_when: false
+  become: false
+
+- name: Fail if podman is not installed
+  ansible.builtin.fail:
+    msg: "Podman is not installed. Please install podman first."
+  when: podman_version_check.rc != 0
+
+- name: Check if podman is running in rootless mode
+  ansible.builtin.command: podman info --format '{{ '{{' }}.Host.Security.Rootless{{ '}}' }}'
+  register: podman_rootless_check
+  changed_when: false
+  failed_when: false
+  become: false
+
+- name: Display podman rootless status
+  ansible.builtin.debug:
+    msg: "Podman rootless mode: {{ podman_rootless_check.stdout }}"
+  when: podman_rootless_check.rc == 0
+
+- name: Get target user UID early
+  ansible.builtin.command: id -u {{ kind_rootless_target_user }}
+  register: target_user_uid
+  changed_when: false
+  become: false
+
+- name: Test if kind can create cluster with podman rootless
+  ansible.builtin.shell: |
+    set -o pipefail
+    KIND_EXPERIMENTAL_PROVIDER=podman kind create cluster --name {{ kind_rootless_test_cluster_name }} 2>&1
+  register: kind_test_cluster
+  changed_when: false
+  failed_when: false
+  become: false
+  environment:
+    KIND_EXPERIMENTAL_PROVIDER: podman
+
+- name: Set fact if kind rootless is already working
+  ansible.builtin.set_fact:
+    kind_rootless_working: "{{ kind_test_cluster.rc == 0 }}"
+
+- name: Display kind rootless test result
+  ansible.builtin.debug:
+    msg: "Kind with rootless podman {{ 'is already working' if kind_rootless_working | bool else 'needs configuration' }}"
+
+- name: Delete test cluster if it was created
+  ansible.builtin.command: kind delete cluster --name {{ kind_rootless_test_cluster_name }}
+  when: kind_rootless_working | bool
+  changed_when: false
+  failed_when: false
+  become: false
+  environment:
+    KIND_EXPERIMENTAL_PROVIDER: podman
+
+- name: Configure systemd delegation for rootless podman
+  when: not (kind_rootless_working | bool)
+  become: true
+  block:
+    - name: Ensure systemd user service override directory exists
+      ansible.builtin.file:
+        path: /etc/systemd/system/user@.service.d
+        state: directory
+        mode: '0755'
+        owner: root
+        group: root
+
+    - name: Create systemd delegation configuration
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/user@.service.d/delegate.conf
+        content: |
+          [Service]
+          Delegate=yes
+        mode: '0644'
+        owner: root
+        group: root
+      register: delegate_conf_result
+
+    - name: Reload systemd daemon
+      ansible.builtin.systemd:
+        daemon_reload: true
+
+    - name: Enable lingering for target user
+      ansible.builtin.command: loginctl enable-linger {{ kind_rootless_target_user }}
+      changed_when: true
+      register: linger_result
+      failed_when: false
+
+    - name: Verify lingering is enabled
+      ansible.builtin.command: loginctl show-user {{ kind_rootless_target_user }}
+      register: linger_check
+      changed_when: false
+      failed_when: "'Linger=yes' not in linger_check.stdout"
+
+    - name: Stop user systemd instance to force fresh start
+      ansible.builtin.systemd:
+        name: "user@{{ target_user_uid.stdout }}.service"
+        state: stopped
+      failed_when: false
+
+    - name: Wait for user service to stop
+      ansible.builtin.pause:
+        seconds: 2
+
+    - name: Start user systemd instance with new delegation settings
+      ansible.builtin.systemd:
+        name: "user@{{ target_user_uid.stdout }}.service"
+        state: started
+
+    - name: Wait for systemd changes to take effect
+      ansible.builtin.pause:
+        seconds: 3
+
+- name: Verify kind rootless configuration after setup using systemd-run
+  when: not (kind_rootless_working | bool)
+  become: false
+  block:
+    - name: Test kind cluster creation using systemd-run with Delegate property
+      ansible.builtin.shell: |
+        set -o pipefail
+        systemd-run --user --scope --property=Delegate=yes \
+          --setenv=KIND_EXPERIMENTAL_PROVIDER=podman \
+          kind create cluster --name {{ kind_rootless_test_cluster_name }} 2>&1
+      register: kind_verify_cluster
+      changed_when: false
+      failed_when: kind_verify_cluster.rc != 0
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ target_user_uid.stdout }}"
+        DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/{{ target_user_uid.stdout }}/bus"
+
+    - name: Display verification success
+      ansible.builtin.debug:
+        msg: "Kind with rootless podman is now working correctly!"
+
+    - name: Clean up verification cluster
+      ansible.builtin.shell: |
+        systemd-run --user --scope --property=Delegate=yes \
+          --setenv=KIND_EXPERIMENTAL_PROVIDER=podman \
+          kind delete cluster --name {{ kind_rootless_test_cluster_name }}
+      changed_when: false
+      failed_when: false
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ target_user_uid.stdout }}"
+        DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/{{ target_user_uid.stdout }}/bus"
+
+- name: Final rootless status
+  ansible.builtin.debug:
+    msg: "Kind is {{ 'already configured' if kind_rootless_working | bool else 'now configured' }} to work with rootless podman"
+
+# Phase 3: Setup kind cluster and kubectl
+- name: Allow non-root users to bind to privileged ports
+  ansible.posix.sysctl:
+    name: net.ipv4.ip_unprivileged_port_start
+    value: '80'
+    state: present
+    sysctl_set: true
+    reload: true
+
+- name: Remove stale kind podman network
+  ansible.builtin.shell: podman network rm kind || true
+  become: false
+  changed_when: false
   failed_when: false
 
-- name: Remove existing kind network
-  ansible.builtin.command: podman network rm kind
-  changed_when: true
+- name: Create kind network without IPv6
+  ansible.builtin.shell: podman network create --ipv6=false kind || true
+  become: false
+  changed_when: false
   failed_when: false
 
-- name: Create kind network with specific subnet
-  ansible.builtin.command:
-    argv:
-      - podman
-      - network
-      - create
-      - kind
-      - --subnet
-      - "{{ kind_network_prefix }}.0/24"
-      - --gateway
-      - "{{ kind_network_prefix }}.1"
-      - --opt
-      - mtu=1400
-  changed_when: true
-
-- name: Create kind cluster
+- name: Prepare kind config file
   ansible.builtin.shell: |
     set -o pipefail
     export INTERNAL_IP={{ internal_ip }} && \
     cat {{ src_dir }}/test/kind.yaml | \
-    sed "s/<DEVICE_IP>/${INTERNAL_IP}/g" > /tmp/kind_with_ip.yaml && \
-    kind create cluster --name {{ kind_cluster_name }} --config /tmp/kind_with_ip.yaml
+    sed "s/<DEVICE_IP>/${INTERNAL_IP}/g" > ~/kind_with_ip.yaml
+  become: false
   changed_when: true
 
-- name: Get latest kubectl version if not specified  # noqa: command-instead-of-module
-  ansible.builtin.command: >
-    curl -4 -sL --fail --retry 5 --retry-delay 5 --max-time 30
-    https://dl.k8s.io/release/stable.txt
-  register: stable_version
+- name: Delete existing kind cluster
+  ansible.builtin.shell: |
+    systemd-run --user --scope --property=Delegate=yes \
+      --setenv=KIND_EXPERIMENTAL_PROVIDER=podman \
+      kind delete cluster --name {{ kind_cluster_name }} || true
+  become: false
   changed_when: false
-  failed_when: stable_version.rc != 0 or not stable_version.stdout is regex('^v[0-9]+\.[0-9]+\.[0-9]+')
-  when: kubectl_version is not defined
+  failed_when: false
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ target_user_uid.stdout }}"
+    DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/{{ target_user_uid.stdout }}/bus"
 
-- name: Set kubectl version from stable release
-  ansible.builtin.set_fact:
-    kubectl_version: "{{ stable_version.stdout | trim }}"
-  when: kubectl_version is not defined
+- name: Remove stale kind podman network
+  ansible.builtin.shell: podman network rm kind || true
+  become: false
+  changed_when: false
+  failed_when: false
+
+- name: Create kind network without IPv6
+  ansible.builtin.shell: podman network create --ipv6=false kind || true
+  become: false
+  changed_when: false
+  failed_when: false
+
+- name: Prepare kind config file
+  ansible.builtin.shell: |
+    set -o pipefail
+    export INTERNAL_IP={{ internal_ip }} && \
+    cat {{ src_dir }}/test/kind.yaml | \
+    sed "s/<DEVICE_IP>/${INTERNAL_IP}/g" > ~/kind_with_ip.yaml
+  become: false
+  changed_when: true
+
+- name: Create kind cluster using systemd-run with Delegate property
+  ansible.builtin.shell: |
+    set -o pipefail
+    systemd-run --user --scope --property=Delegate=yes \
+      --setenv=KIND_EXPERIMENTAL_PROVIDER=podman \
+      kind create cluster --name {{ kind_cluster_name }} --config ~/kind_with_ip.yaml
+  become: false
+  register: kind_cluster_result
+  changed_when: true
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ target_user_uid.stdout }}"
+    DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/{{ target_user_uid.stdout }}/bus"
+
+- name: Display kind cluster creation result
+  ansible.builtin.debug:
+    msg: "{{ kind_cluster_result.stdout_lines | default([]) }}"
+  when: kind_cluster_result.stdout_lines is defined
 
 - name: Check if kubectl exists and get version
   ansible.builtin.shell: |
     set -o pipefail
-    kubectl version 2>/dev/null | grep 'Client Version:' | sed 's/Client Version: //g'
+    kubectl version --client 2>/dev/null | grep 'Client Version:' | awk '{print $3}'
   register: kubectl_version_check
   changed_when: false
   failed_when: false
+  become: false
+
+- name: Set kubectl_installed fact
+  ansible.builtin.set_fact:
+    kubectl_installed: "{{ kubectl_version_check.rc == 0 and kubectl_version_check.stdout | length > 0 }}"
 
 - name: Kubectl version
   ansible.builtin.debug:
-    msg: "{{ kubectl_version_check.stdout }}"
+    msg: "{{ kubectl_version_check.stdout | default('not installed') }}"
+
+- name: Get latest kubectl version if not specified and kubectl is not installed
+  ansible.builtin.uri:
+    url: https://dl.k8s.io/release/stable.txt
+    return_content: true
+  register: stable_version
+  changed_when: false
+  failed_when: stable_version.rc != 0 or not stable_version.stdout is regex('^v[0-9]+\.[0-9]+\.[0-9]+')
+  when: not (kubectl_installed | bool) and kubectl_version is not defined
+  become: false
+
+- name: Set kubectl version from stable release
+  ansible.builtin.set_fact:
+    kubectl_version: "{{ stable_version.stdout | trim }}"
+  when: not (kubectl_installed | bool) and kubectl_version is not defined
+
 - name: Install kubectl binary  # noqa: command-instead-of-module no-changed-when
   # Using curl with -4 to force IPv4 - get_url module doesn't support this
   ansible.builtin.command:
     cmd: >-
       curl -4 -fsSL -o /usr/local/bin/kubectl
       "https://cdn.dl.k8s.io/release/{{ kubectl_version }}/bin/linux/amd64/kubectl"
-  when: >
-    kubectl_version_check.stdout is not defined or
-    kubectl_version_check.stdout | length == 0 or
-    kubectl_version not in kubectl_version_check.stdout
+  when: not (kubectl_installed | bool)
 
 - name: Set kubectl permissions
   ansible.builtin.file:
     path: /usr/local/bin/kubectl
     mode: '0755'
-  when: >
-    kubectl_version_check.stdout is not defined or
-    kubectl_version_check.stdout | length == 0 or
-    kubectl_version not in kubectl_version_check.stdout
+  when: not (kubectl_installed | bool)

@@ -1,0 +1,201 @@
+---
+- name: Create test application namespace
+  kubernetes.core.k8s:
+    api_version: v1
+    kind: Namespace
+    name: "{{ test_app_namespace }}"
+    state: present
+  environment:
+    KUBECONFIG: "/tmp/{{ cluster_name }}-kubeconfig"
+
+- name: Deploy test HTTP server application
+  kubernetes.core.k8s:
+    state: present
+    definition: "{{ item }}"
+    namespace: "{{ test_app_namespace }}"
+  loop: "{{ lookup('template', 'test-http-server.yaml.j2') | from_yaml_all | list }}"
+  loop_control:
+    label: "{{ item.kind }}/{{ item.metadata.name }}"
+  environment:
+    KUBECONFIG: "/tmp/{{ cluster_name }}-kubeconfig"
+
+- name: Wait for deployment to be ready
+  kubernetes.core.k8s_info:
+    api_version: apps/v1
+    kind: Deployment
+    name: test-http-server
+    namespace: "{{ test_app_namespace }}"
+  register: deployment_status
+  until: >-
+    deployment_status.resources is defined and
+    deployment_status.resources | length > 0 and
+    deployment_status.resources[0].status.readyReplicas is defined and
+    deployment_status.resources[0].status.readyReplicas == deployment_status.resources[0].spec.replicas
+  retries: "{{ medium_retries | int }}"
+  delay: "{{ medium_delay | int }}"
+  environment:
+    KUBECONFIG: "/tmp/{{ cluster_name }}-kubeconfig"
+
+- name: Get service details
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Service
+    name: test-http-server
+    namespace: "{{ test_app_namespace }}"
+  register: service_info
+  until: service_info.resources | length > 0
+  retries: 10
+  delay: 5
+  environment:
+    KUBECONFIG: "/tmp/{{ cluster_name }}-kubeconfig"
+
+- name: Display service information
+  ansible.builtin.debug:
+    msg: |
+      Service ClusterIP: {{ service_info.resources[0].spec.clusterIP }}
+      Service Port: {{ service_info.resources[0].spec.ports[0].port }}
+
+- name: Get pod name for testing
+  ansible.builtin.shell: |
+    export KUBECONFIG=/tmp/{{ cluster_name }}-kubeconfig
+    kubectl get pods -n {{ test_app_namespace }} -l app=test-http-server -o jsonpath='{.items[0].metadata.name}'
+  register: test_pod_name
+  changed_when: false
+  environment:
+    PATH: "{{ ansible_env.PATH }}:/usr/local/bin"
+
+- name: Clean up any existing curl-test pod
+  ansible.builtin.shell: |
+    export KUBECONFIG=/tmp/{{ cluster_name }}-kubeconfig
+    kubectl delete pod curl-test -n {{ test_app_namespace }} --ignore-not-found --wait=true --timeout=30s
+  changed_when: false
+  failed_when: false
+  environment:
+    PATH: "{{ ansible_env.PATH }}:/usr/local/bin"
+
+- name: Verify application responds to HTTP requests
+  ansible.builtin.shell: |
+    export KUBECONFIG=/tmp/{{ cluster_name }}-kubeconfig
+    kubectl run curl-test --image=quay.io/curl/curl:latest --rm -i --restart=Never \
+      --namespace={{ test_app_namespace }} \
+      --timeout=60s \
+      --override-type=strategic \
+      --overrides='{"spec":{"securityContext":{"runAsNonRoot":true,"seccompProfile":{"type":"RuntimeDefault"}},"containers":[{"name":"curl-test","securityContext":{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]}}}]}}' \
+      -- curl -s http://test-http-server:8080/
+  register: http_response
+  changed_when: false
+  failed_when: http_response.rc != 0
+  retries: 3
+  delay: 10
+  environment:
+    PATH: "{{ ansible_env.PATH }}:/usr/local/bin"
+
+- name: Validate HTTP response content
+  ansible.builtin.assert:
+    that:
+      - http_response.stdout is defined
+      - http_response.stdout | length > 0
+      - "'Welcome' in http_response.stdout or 'nginx' in http_response.stdout.lower() or 'http' in http_response.stdout.lower()"
+    fail_msg: "HTTP server did not return expected response"
+    success_msg: "HTTP server is responding correctly"
+
+- name: Display HTTP response
+  ansible.builtin.debug:
+    msg: |
+      HTTP Response received:
+      {{ http_response.stdout }}
+
+- name: Test application health endpoint
+  ansible.builtin.shell: |
+    export KUBECONFIG=/tmp/{{ cluster_name }}-kubeconfig
+    kubectl exec -n {{ test_app_namespace }} {{ test_pod_name.stdout }} -- wget -qO- http://localhost:8080/ | head -10
+  register: health_check
+  changed_when: false
+  failed_when: health_check.rc != 0
+  environment:
+    PATH: "{{ ansible_env.PATH }}:/usr/local/bin"
+
+- name: Display application health status
+  ansible.builtin.debug:
+    msg: |
+      Application health check passed!
+      Pod: {{ test_pod_name.stdout }}
+      Response: {{ health_check.stdout }}
+
+- name: Wait before cleanup
+  ansible.builtin.pause:
+    seconds: 5
+    prompt: "Application deployment and verification successful. Cleaning up in 5 seconds..."
+
+# Cleanup section
+- name: Delete test application deployment
+  kubernetes.core.k8s:
+    api_version: apps/v1
+    kind: Deployment
+    name: test-http-server
+    namespace: "{{ test_app_namespace }}"
+    state: absent
+  environment:
+    KUBECONFIG: "/tmp/{{ cluster_name }}-kubeconfig"
+
+- name: Delete test application service
+  kubernetes.core.k8s:
+    api_version: v1
+    kind: Service
+    name: test-http-server
+    namespace: "{{ test_app_namespace }}"
+    state: absent
+  environment:
+    KUBECONFIG: "/tmp/{{ cluster_name }}-kubeconfig"
+
+- name: Wait for pods to be terminated
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Pod
+    namespace: "{{ test_app_namespace }}"
+    label_selectors:
+      - app=test-http-server
+  register: pod_cleanup
+  until: >-
+    pod_cleanup.resources is defined and
+    pod_cleanup.resources | length == 0
+  retries: 30
+  delay: 2
+  environment:
+    KUBECONFIG: "/tmp/{{ cluster_name }}-kubeconfig"
+
+- name: Delete test application namespace
+  kubernetes.core.k8s:
+    api_version: v1
+    kind: Namespace
+    name: "{{ test_app_namespace }}"
+    state: absent
+  environment:
+    KUBECONFIG: "/tmp/{{ cluster_name }}-kubeconfig"
+
+- name: Verify namespace deletion
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Namespace
+    name: "{{ test_app_namespace }}"
+  register: namespace_status
+  until: >-
+    namespace_status.resources is defined and
+    namespace_status.resources | length == 0
+  retries: 30
+  delay: 2
+  failed_when: false
+  environment:
+    KUBECONFIG: "/tmp/{{ cluster_name }}-kubeconfig"
+
+- name: Display cleanup completion message
+  ansible.builtin.debug:
+    msg:
+      - "========================================"
+      - "Application Deployment Test: PASSED"
+      - "========================================"
+      - "- Deployment created successfully"
+      - "- Service accessible"
+      - "- HTTP requests working"
+      - "- Application cleaned up"
+      - "========================================"

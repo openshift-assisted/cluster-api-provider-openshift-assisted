@@ -5,29 +5,51 @@
     name: "{{ cluster_name }}"
     namespace: "{{ test_namespace }}"
   register: aci_result
+  until: >-
+    aci_result.resources is defined and
+    aci_result.resources | length > 0
   retries: "{{ medium_retries | int }}"
   delay: "{{ medium_delay | int }}"
   failed_when: >-
     aci_result.resources is not defined or
     aci_result.resources | length == 0
 
-- name: Wait for ACI to be installing
+
+# This ensures that if the installation progresses quickly and skips a state (or you check after
+# it's already past that state), the check will still succeed and move to the next verification step.
+- name: Wait for AgentClusterInstall to progress through states
   kubernetes.core.k8s_info:
     api_version: extensions.hive.openshift.io/v1beta1
     kind: AgentClusterInstall
     name: "{{ cluster_name }}"
     namespace: "{{ test_namespace }}"
   register: aci_status
-  until: >-
-    aci_status.resources is defined and aci_status.resources | length > 0 and
-    aci_status.resources[0].status.debugInfo.state is defined and
-    (
-      aci_status.resources[0].status.debugInfo.state == "installing" or
-      aci_status.resources[0].status.debugInfo.state == "adding-hosts"
-    )
   retries: "{{ medium_retries | int }}"
   delay: "{{ high_delay | int }}"
+  until:
+    - aci_status.resources is defined
+    - aci_status.resources | length > 0
+    - aci_status.resources[0].status.debugInfo.state is defined
+    - >-
+      aci_status.resources[0].status.debugInfo.state in (installation_states | list)[ansible_loop.index0:]
+  vars:
+    installation_states:
+      - insufficient
+      - preparing-for-installation
+      - installing
+      - finalizing
+      - adding-hosts
+  loop: "{{ installation_states }}"
+  loop_control:
+    extended: true
+    loop_var: ansible_loop
 
+- name: Display current ACI state
+  ansible.builtin.debug:
+    msg: "AgentClusterInstall state: {{ aci_status.resources[0].status.debugInfo.state | default('undefined') }}"
+  when: >-
+    aci_status.resources is defined and
+    aci_status.resources | length > 0
 
 - name: Wait for controlplane to be ready
   block:
@@ -72,3 +94,78 @@
     aci_hosts_status.resources[0].status.debugInfo.state == "adding-hosts"
   retries: "{{ medium_retries | int }}"
   delay: "{{ high_delay | int }}"
+
+- name: Get deployed cluster kubeconfig from secret
+  ansible.builtin.shell: |
+    export KUBECONFIG=~/.kube/config
+    kubectl get secret {{ cluster_name }}-admin-kubeconfig -n {{ test_namespace }} -o jsonpath='{.data.kubeconfig}' | base64 -d
+  register: cluster_kubeconfig
+  changed_when: false
+  environment:
+    PATH: "{{ ansible_env.PATH }}:/usr/local/bin"
+
+- name: Save deployed cluster kubeconfig to /tmp
+  ansible.builtin.copy:
+    content: "{{ cluster_kubeconfig.stdout }}"
+    dest: "/tmp/{{ cluster_name }}-kubeconfig"
+    mode: '0600'
+  when: cluster_kubeconfig.stdout is defined and cluster_kubeconfig.stdout | length > 0
+
+- name: Extract API server hostname from kubeconfig
+  ansible.builtin.shell: |
+    export KUBECONFIG=/tmp/{{ cluster_name }}-kubeconfig
+    kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}' | sed 's|https://||' | sed 's|:.*||'
+  register: api_hostname
+  changed_when: false
+  when: cluster_kubeconfig.stdout is defined and cluster_kubeconfig.stdout | length > 0
+
+- name: Determine cluster IP based on topology
+  ansible.builtin.set_fact:
+    cluster_api_ip: "{{ '192.168.222.31' if 'sno' in cluster_topology else '192.168.222.40' }}"
+  when: cluster_kubeconfig.stdout is defined and cluster_kubeconfig.stdout | length > 0
+
+- name: Add cluster API DNS entries to /etc/hosts
+  ansible.builtin.blockinfile:
+    path: /etc/hosts
+    marker: "# {mark} ANSIBLE MANAGED BLOCK - {{ cluster_name }}"
+    block: |
+      {{ cluster_api_ip }} api.{{ cluster_name }}.lab.home api-int.{{ cluster_name }}.lab.home
+    create: false
+  become: true
+  when: cluster_kubeconfig.stdout is defined and cluster_kubeconfig.stdout | length > 0
+
+- name: Wait for all cluster operators to be available and healthy
+  ansible.builtin.shell: |
+    export KUBECONFIG=/tmp/{{ cluster_name }}-kubeconfig
+    # Get cluster operators and check if all are available and none degraded/progressing
+    kubectl get clusteroperators -o json | jq -r '
+      .items[] |
+      select(
+        (.status.conditions[] | select(.type=="Available") | .status) != "True" or
+        (.status.conditions[] | select(.type=="Degraded") | .status) == "True" or
+        (.status.conditions[] | select(.type=="Progressing") | .status) == "True"
+      ) | .metadata.name
+    '
+  register: unhealthy_operators
+  until: unhealthy_operators.stdout | length == 0
+  retries: "{{ high_retries | int }}"
+  delay: "{{ medium_delay | int }}"
+  changed_when: false
+  environment:
+    PATH: "{{ ansible_env.PATH }}:/usr/local/bin"
+  when: cluster_kubeconfig.stdout is defined and cluster_kubeconfig.stdout | length > 0
+
+- name: Display cluster operators final status
+  ansible.builtin.shell: |
+    export KUBECONFIG=/tmp/{{ cluster_name }}-kubeconfig
+    kubectl get clusteroperators
+  register: final_co_status
+  changed_when: false
+  environment:
+    PATH: "{{ ansible_env.PATH }}:/usr/local/bin"
+  when: cluster_kubeconfig.stdout is defined and cluster_kubeconfig.stdout | length > 0
+
+- name: Show final cluster operators status
+  ansible.builtin.debug:
+    var: final_co_status.stdout_lines
+  when: final_co_status.stdout is defined

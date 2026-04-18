@@ -1,4 +1,8 @@
 all:
-  hosts:
-    localhost:
-      ansible_connection: local
+  children:
+    test_runner:
+      hosts:
+        localhost:
+          ansible_connection: local
+          ansible_user: "{{ lookup('ansible.builtin.env', 'USER') }}"
+          ansible_host: localhost

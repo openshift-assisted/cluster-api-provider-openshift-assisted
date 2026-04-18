@@ -5,6 +5,7 @@ metadata:
   namespace: assisted-installer
 data:
   INSTALL_TO_EXISTING_ROOT: "true"
+  SKIP_CERT_VERIFICATION: "true"
 ---
 apiVersion: agent-install.openshift.io/v1beta1
 kind: AgentServiceConfig

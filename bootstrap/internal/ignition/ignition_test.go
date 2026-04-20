@@ -680,6 +680,10 @@ var _ = Describe("Ignition utils", func() {
 
 			// Script reads provider-id from the runtime file
 			Expect(contentStr).To(ContainSubstring("/run/kubelet-provider-id"))
+			// Script sources metadata_env to expand environment variables
+			Expect(contentStr).To(ContainSubstring("/etc/metadata_env"))
+			Expect(contentStr).To(ContainSubstring("source"))
+			Expect(contentStr).To(ContainSubstring("eval echo"))
 			// Script inspects actual kubelet.service ExecStart at runtime, joining continuation lines
 			Expect(contentStr).To(ContainSubstring("systemctl cat kubelet.service"))
 			Expect(contentStr).To(ContainSubstring("awk"))

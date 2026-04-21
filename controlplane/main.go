@@ -17,6 +17,7 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"flag"
 	"fmt"
@@ -30,6 +31,7 @@ import (
 	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/internal/version"
 
 	bootstrapv1alpha2 "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/bootstrap/api/v1alpha2"
+	configv1 "github.com/openshift/api/config/v1"
 	hiveext "github.com/openshift/assisted-service/api/hiveextension/v1beta1"
 	hivev1 "github.com/openshift/hive/apis/hive/v1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
@@ -53,6 +55,8 @@ import (
 	controlplanev1alpha2 "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/api/v1alpha2"
 	controlplanev1alpha3 "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/api/v1alpha3"
 	controlplanecontroller "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/internal/controller"
+	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/internal/openshift"
+	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/internal/setup"
 	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/util/log"
 )
 
@@ -76,7 +80,7 @@ func init() {
 	utilruntime.Must(hivev1.AddToScheme(scheme))
 	utilruntime.Must(hiveext.AddToScheme(scheme))
 	utilruntime.Must(bootstrapv1alpha2.AddToScheme(scheme))
-
+	utilruntime.Must(configv1.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
 }
 
@@ -131,6 +135,23 @@ func main() {
 		tlsOpts = append(tlsOpts, disableHTTP2)
 	}
 
+	clientConfig := ctrl.GetConfigOrDie()
+
+	isOpenShift, err := openshift.IsOpenShift(context.Background(), clientConfig)
+	if err != nil {
+		setupLog.Error(err, "unable to detect cluster type")
+		os.Exit(1)
+	}
+
+	tlsResult, err := setup.ResolveTLSConfig(context.Background(), clientConfig, isOpenShift)
+	if err != nil {
+		setupLog.Error(err, "unable to resolve TLS config")
+		os.Exit(1)
+	}
+	if tlsResult.TLSConfig != nil {
+		tlsOpts = append(tlsOpts, tlsResult.TLSConfig)
+	}
+
 	webhookServer := webhook.NewServer(webhook.Options{
 		TLSOpts: tlsOpts,
 		Port:    9443,
@@ -138,7 +159,7 @@ func main() {
 		CertDir: "/tmp/k8s-webhook-server/serving-certs",
 	})
 
-	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
+	mgr, err := ctrl.NewManager(clientConfig, ctrl.Options{
 		Scheme: scheme,
 		Metrics: metricsserver.Options{
 			BindAddress:   metricsAddr,
@@ -205,8 +226,17 @@ func main() {
 		os.Exit(1)
 	}
 
+	ctx := ctrl.SetupSignalHandler()
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	if err := setup.SetupSecurityProfileWatcher(mgr, tlsResult, isOpenShift, cancel); err != nil {
+		setupLog.Error(err, "unable to create TLS security profile watcher")
+		os.Exit(1)
+	}
+
 	setupLog.V(log.DebugLevel).Info("starting manager")
-	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
+	if err := mgr.Start(ctx); err != nil {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}

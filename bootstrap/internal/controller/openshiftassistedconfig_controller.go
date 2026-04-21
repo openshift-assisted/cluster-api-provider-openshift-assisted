@@ -104,6 +104,7 @@ type OpenshiftAssistedConfigReconciler struct {
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machines,verbs=get;watch
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusters,verbs=get;list;watch
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machinesets;machinesets/status,verbs=get;list;watch;
+// +kubebuilder:rbac:groups=config.openshift.io,resources=apiservers,verbs=get;list;watch
 
 // Reconciles OpenshiftAssistedConfig
 func (r *OpenshiftAssistedConfigReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Result, rerr error) {

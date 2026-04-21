@@ -23,7 +23,6 @@ import (
 // SetupWebhookWithManager sets up the conversion webhook for OpenshiftAssistedControlPlane.
 // This registers the /convert endpoint that handles v1alpha2 <-> v1alpha3 conversions.
 func (r *OpenshiftAssistedControlPlane) SetupWebhookWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewWebhookManagedBy(mgr).
-		For(r).
+	return ctrl.NewWebhookManagedBy(mgr, r).
 		Complete()
 }

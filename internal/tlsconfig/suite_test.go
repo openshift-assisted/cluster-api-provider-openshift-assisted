@@ -14,19 +14,16 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1alpha2
+package tlsconfig
 
 import (
-	ctrl "sigs.k8s.io/controller-runtime"
+	"testing"
+
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
 )
 
-// Hub marks v1alpha2 as the hub version (storage version) for conversion
-func (*OpenshiftAssistedConfig) Hub()         {}
-func (*OpenshiftAssistedConfigTemplate) Hub() {}
-
-// SetupWebhookWithManager sets up the conversion webhook for OpenshiftAssistedConfigTemplate.
-// This registers the /convert endpoint that handles v1alpha1 <-> v1alpha2 conversions.
-func (r *OpenshiftAssistedConfigTemplate) SetupWebhookWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewWebhookManagedBy(mgr, r).
-		Complete()
+func TestTLSConfig(t *testing.T) {
+	RegisterFailHandler(Fail)
+	RunSpecs(t, "TLSConfig Suite")
 }

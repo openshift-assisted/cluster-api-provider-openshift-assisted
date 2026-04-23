@@ -5,11 +5,11 @@
     name: "{{ cluster_name }}"
     namespace: "{{ test_namespace }}"
   register: aci_result
+  until: >-
+    aci_result.resources is defined and
+    aci_result.resources | length > 0
   retries: "{{ medium_retries | int }}"
   delay: "{{ medium_delay | int }}"
-  failed_when: >-
-    aci_result.resources is not defined or
-    aci_result.resources | length == 0
 
 - name: Wait for ACI to be installing
   kubernetes.core.k8s_info:

@@ -42,10 +42,11 @@
                 "tekton"
             ],
             "baseBranchPatterns": [
-                "master",
-                "backplane-2.9",
                 "backplane-2.10",
-                "backplane-2.11"
+                "backplane-2.11",
+                "backplane-2.17",
+                "backplane-2.9",
+                "master"
             ]
         },
         {
@@ -57,10 +58,11 @@
                 "ubi"
             ],
             "baseBranchPatterns": [
-                "master",
-                "backplane-2.9",
                 "backplane-2.10",
-                "backplane-2.11"
+                "backplane-2.11",
+                "backplane-2.17",
+                "backplane-2.9",
+                "master"
             ]
         },
         {

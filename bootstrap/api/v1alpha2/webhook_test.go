@@ -6,7 +6,6 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/runtime"
 )
 
 var _ = Describe("OpenshiftAssistedConfig Webhook", func() {
@@ -26,15 +25,6 @@ var _ = Describe("OpenshiftAssistedConfig Webhook", func() {
 			warnings, err := webhook.ValidateCreate(ctx, obj)
 			Expect(warnings).To(BeNil())
 			Expect(err).To(BeNil())
-		})
-
-		It("should return an error for invalid object type", func() {
-			obj := &runtime.Unknown{}
-			warnings, err := webhook.ValidateCreate(ctx, obj)
-			Expect(warnings).To(BeNil())
-			Expect(err).To(HaveOccurred())
-			Expect(apierrors.IsBadRequest(err)).To(BeTrue())
-			Expect(err.Error()).To(ContainSubstring("expected an OpenshiftAssistedConfig"))
 		})
 
 		It("should accept config with Name", func() {
@@ -70,15 +60,6 @@ var _ = Describe("OpenshiftAssistedConfig Webhook", func() {
 			Expect(err.Error()).To(ContainSubstring("spec is immutable"))
 		})
 
-		It("should return an error for invalid old object type", func() {
-			oldObj := &runtime.Unknown{}
-			newObj := &OpenshiftAssistedConfig{}
-			warnings, err := webhook.ValidateUpdate(ctx, oldObj, newObj)
-			Expect(warnings).To(BeNil())
-			Expect(err).To(HaveOccurred())
-			Expect(apierrors.IsBadRequest(err)).To(BeTrue())
-			Expect(err.Error()).To(ContainSubstring("expected a OpenshiftAssistedConfig"))
-		})
 	})
 
 	Describe("ValidateDelete", func() {

@@ -18,6 +18,7 @@ COPY controlplane/api/ controlplane/api/
 COPY util util
 COPY pkg pkg
 COPY assistedinstaller assistedinstaller
+COPY internal/ internal/
 COPY bootstrap/internal/ bootstrap/internal/
 
 # Build

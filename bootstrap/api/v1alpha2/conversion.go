@@ -27,7 +27,6 @@ func (*OpenshiftAssistedConfigTemplate) Hub() {}
 // SetupWebhookWithManager sets up the conversion webhook for OpenshiftAssistedConfigTemplate.
 // This registers the /convert endpoint that handles v1alpha1 <-> v1alpha2 conversions.
 func (r *OpenshiftAssistedConfigTemplate) SetupWebhookWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewWebhookManagedBy(mgr).
-		For(r).
+	return ctrl.NewWebhookManagedBy(mgr, r).
 		Complete()
 }

@@ -44,7 +44,7 @@ spec:
     nodeRegistration:
       kubeletExtraLabels:
       - 'metal3.io/uuid="${METADATA_UUID}"'
-  distributionVersion: {{ openshift_version }}
+  distributionVersion: "{{ openshift_version }}"
   config:
     apiVIPs:
     - 192.168.222.40

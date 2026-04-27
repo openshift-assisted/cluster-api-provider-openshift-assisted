@@ -46,7 +46,7 @@ spec:
       name: "$METADATA_NAME"
       kubeletExtraLabels:
       - metal3.io/uuid=$METADATA_UUID
-  distributionVersion: {{ openshift_version }}
+  distributionVersion: "{{ openshift_version }}"
   config:
     baseDomain: lab.home
     sshAuthorizedKey: "{{ ssh_authorized_key }}"

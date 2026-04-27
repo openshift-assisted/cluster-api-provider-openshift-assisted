@@ -1,21 +1,28 @@
 ---
 # Setup and run tests playbook
 #
-# Environment variables for conditional execution:
-#   SKIP_BUILD=true        - Skip building provider images
-#   SKIP_CAPI_INSTALL=true - Skip CAPI/MCE component installation (dependencies still installed)
-#   SKIP_CLUSTER=true      - Skip cluster manifest application and assertions
+# Environment variables:
+#   OPENSHIFT_VERSION=4.x.y  - OpenShift release to test (default: 4.20.0)
+#   RHCOS_IMAGE_URL=<url>    - RHCOS image location (default: 4.20.0 nutanix qcow2)
+#   SKIP_BUILD=true          - Skip building provider images
+#   SKIP_CAPI_INSTALL=true   - Skip CAPI/MCE component installation (dependencies still installed)
+#   SKIP_CLUSTER=true        - Skip cluster manifest application and assertions
 #
 # Examples:
 #   # Full test run (default)
 #   ansible-playbook -i inventories/local_host.yaml run_test.yaml
+#
+#   # Test a specific OCP version with matching RHCOS image
+#   OPENSHIFT_VERSION=4.21.9 RHCOS_IMAGE_URL=https://mirror.openshift.com/.../rhcos-4.21.3-x86_64-nutanix.x86_64.qcow2 \
+#     ansible-playbook -i inventories/local_host.yaml run_test.yaml
 #
 #   # Skip image build (use pre-built images)
 #   SKIP_BUILD=true ansible-playbook -i inventories/local_host.yaml run_test.yaml
 #
 #   # Demo mode: setup everything for manual MCE deployment and cluster provisioning
 #   # (infra, dependencies, BMH setup - but skip CAPI install and cluster provisioning)
-#   SKIP_BUILD=true SKIP_CAPI_INSTALL=true SKIP_CLUSTER=true ansible-playbook -i inventories/local_host.yaml run_test.yaml
+#   SKIP_BUILD=true SKIP_CAPI_INSTALL=true SKIP_CLUSTER=true \
+#     ansible-playbook -i inventories/local_host.yaml run_test.yaml
 #
 #   # Deploy components but skip cluster provisioning
 #   SKIP_CLUSTER=true ansible-playbook -i inventories/local_host.yaml run_test.yaml
@@ -58,9 +65,15 @@
     low_retries: 1
     extra_paths:
       - /usr/local/bin
-    openshift_version: "4.20.0"
-    rhcos_image_url: "https://mirror.openshift.com/pub/openshift-v4/dependencies/rhcos/4.20/4.20.0/rhcos-4.20.0-x86_64-nutanix.x86_64.qcow2"
-    rhcos_checksum_url: https://mirror.openshift.com/pub/openshift-v4/dependencies/rhcos/4.20/4.20.0/sha256sum.txt
+    openshift_version: >-
+      {{ lookup('ansible.builtin.env', 'OPENSHIFT_VERSION') | default('4.20.0', true) }}
+    default_rhcos_image_url: >-
+      https://mirror.openshift.com/pub/openshift-v4/dependencies/rhcos/4.20/4.20.0/rhcos-4.20.0-x86_64-nutanix.x86_64.qcow2
+    rhcos_image_url: >-
+      {{ lookup('ansible.builtin.env', 'RHCOS_IMAGE_URL') | default(default_rhcos_image_url, true) }}
+    rhcos_checksum_url: >-
+      {{ lookup('ansible.builtin.env', 'RHCOS_CHECKSUM_URL')
+         | default(rhcos_image_url | dirname ~ '/sha256sum.txt', true) }}
     # Conditional execution flags
     skip_build: "{{ lookup('ansible.builtin.env', 'SKIP_BUILD', default='false') | lower in ['true', '1', 'yes'] }}"
     skip_capi_install: "{{ lookup('ansible.builtin.env', 'SKIP_CAPI_INSTALL', default='false') | lower in ['true', '1', 'yes'] }}"

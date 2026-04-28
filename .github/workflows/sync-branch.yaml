@@ -10,7 +10,8 @@ jobs:
   fast-forward:
     runs-on: ubuntu-latest
     env:
-      TARGET_BRANCH: backplane-5.0
+      CURRENT_BRANCH: backplane-5.0
+      NEXT_BRANCH: backplane-5.1
 
     steps:
       - name: Checkout repo
@@ -22,10 +23,25 @@ jobs:
       - name: Fetch all branches
         run: git fetch --all
 
-      - name: Fast-forward master commits into  ${{ env.TARGET_BRANCH }}
+      - name: Configure Git
         run: |
           git config --global user.email "capi-openshift-assisted@redhat.com"
           git config --global user.name "CAPOA GitHub Action"
-          git checkout "${TARGET_BRANCH}"
-          git merge --ff-only origin/master
-          git push origin "${TARGET_BRANCH}"
+
+      - name: Fast-forward ${{ env.CURRENT_BRANCH }}
+        run: |
+          git checkout "${CURRENT_BRANCH}"
+          if ! git merge --ff-only origin/master; then
+            echo "::warning::${CURRENT_BRANCH} diverged from master, resetting"
+            git reset --hard origin/master
+          fi
+          git push origin "${CURRENT_BRANCH}" --force-with-lease
+
+      - name: Fast-forward ${{ env.NEXT_BRANCH }}
+        run: |
+          git checkout "${NEXT_BRANCH}"
+          if ! git merge --ff-only origin/master; then
+            echo "::warning::${NEXT_BRANCH} diverged from master, resetting"
+            git reset --hard origin/master
+          fi
+          git push origin "${NEXT_BRANCH}" --force-with-lease

@@ -120,8 +120,10 @@ fi
 
 if ! jq --indent 4 \
     --arg freeze_branch "${freeze_branch}" \
-    '(.packageRules[] | select(.groupName == "Konflux build pipeline") | .baseBranchPatterns) |= ((. // []) + [$freeze_branch] | unique) |
-     (.packageRules[] | select(.groupName == "UBI Runtime Images") | .baseBranchPatterns) |= ((. // []) + [$freeze_branch] | unique)' \
+    --arg next_branch "${next_branch}" \
+    '(.baseBranches) |= ((. // []) + [$freeze_branch] | map(select(. != $next_branch)) | unique) |
+     (.packageRules[] | select(.groupName == "Konflux build pipeline") | .baseBranchPatterns) |= ((. // []) + [$freeze_branch] | map(select(. != $next_branch)) | unique) |
+     (.packageRules[] | select(.groupName == "UBI Runtime Images") | .baseBranchPatterns) |= ((. // []) + [$freeze_branch] | map(select(. != $next_branch)) | unique)' \
     renovate.json > renovate.updated.json; then
     echo "Error: Failed to update renovate.json"
     rm -f renovate.updated.json

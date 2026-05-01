@@ -49,8 +49,8 @@ The following environment variables must be set before running the playbook:
 ### Optional Variables (with defaults)
 - `NUMBER_OF_NODES`: Number of available nodes (BMHs) in the test cluster (default: "7")
 - `CLUSTER_TOPOLOGY`: Cluster topology type - "multinode", "sno", "multinode-okd" or "sno-okd" (default: "multinode")
-- `CAPI_VERSION`: Cluster API version to use (default: "v1.9.6")
-- `CAPM3_VERSION`: Cluster API Provider Metal3 version (default: "v1.9.3")  
+- `CAPI_VERSION`: Cluster API version to use (default: "v1.11.3")
+- `CAPM3_VERSION`: Cluster API Provider Metal3 version (default: "v1.11.2")
 - `CONTAINER_TAG`: Container image tag for built images (default: "local")
 
 ### MCE Installation Variables

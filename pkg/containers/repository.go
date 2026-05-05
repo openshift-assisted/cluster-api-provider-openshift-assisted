@@ -42,3 +42,13 @@ func (e *RemoteImageRepository) GetDigest(imageRef string, keychain authn.Keycha
 	// Return the SHA256 digest as a string
 	return desc.Digest.String(), nil
 }
+
+// GetRepoImage extracts the repository part from an image reference (before the tag or digest).
+// Handles registry host:port format correctly (e.g., registry.example.com:5000/repo:tag).
+func GetRepoImage(image string) (string, error) {
+	ref, err := name.ParseReference(image)
+	if err != nil {
+		return "", fmt.Errorf("could not parse image %s: %w", image, err)
+	}
+	return ref.Context().Name(), nil
+}

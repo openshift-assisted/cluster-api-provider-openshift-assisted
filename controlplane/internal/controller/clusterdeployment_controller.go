@@ -130,29 +130,12 @@ func (r *ClusterDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	}
 
 	if needsResolution {
-		// Check if pull secret is configured
-		if acp.Spec.Config.PullSecretRef == nil {
-			err := fmt.Errorf("pull secret reference is required for digest resolution but not configured in OpenshiftAssistedControlPlane")
-			log.Error(err, "cannot resolve digest without pull secret", "release_image", releaseImage)
-			return ctrl.Result{}, err
-		}
-
-		// Retrieve pull secret for registry authentication
-		pullSecret, err := auth.GetPullSecret(r.Client, ctx, acp)
+		digestImage, err = r.resolveReleaseImageDigest(ctx, acp, releaseImage)
 		if err != nil {
-			log.Error(err, "failed to retrieve pull secret", "release_image", releaseImage)
-			return ctrl.Result{}, err
-		}
-
-		// Resolve digest-based image for IDMS compatibility
-		digestImage, err = getReleaseImageWithDigest(releaseImage, pullSecret, r.RemoteImage)
-		if err != nil {
-			log.Error(err, "failed to resolve digest for release image", "release_image", releaseImage)
+			log.Error(err, "failed to resolve release image digest", "release_image", releaseImage)
 			return ctrl.Result{}, err
 		}
 		log.Info("resolved release image digest", "tag_image", releaseImage, "digest_image", digestImage)
-	} else {
-		log.V(logutil.DebugLevel).Info("reusing cached digest", "release_image", digestImage)
 	}
 
 	// Create or update ClusterImageSet with digest-based image and source tracking
@@ -265,6 +248,33 @@ func getReleaseImage(oacp controlplanev1alpha3.OpenshiftAssistedControlPlane, ar
 	return release.GetReleaseImage(oacp.Spec.DistributionVersion, releaseImageRepository, architecture)
 }
 
+// resolveReleaseImageDigest retrieves pull secret and resolves a tag-based release image to digest-based format.
+// Returns the digest-based image reference or an error if resolution fails.
+func (r *ClusterDeploymentReconciler) resolveReleaseImageDigest(
+	ctx context.Context,
+	acp *controlplanev1alpha3.OpenshiftAssistedControlPlane,
+	releaseImage string,
+) (string, error) {
+	// Check if pull secret is configured
+	if acp.Spec.Config.PullSecretRef == nil {
+		return "", fmt.Errorf("pull secret reference is required for digest resolution but not configured in OpenshiftAssistedControlPlane")
+	}
+
+	// Retrieve pull secret for registry authentication
+	pullSecret, err := auth.GetPullSecret(r.Client, ctx, acp)
+	if err != nil {
+		return "", fmt.Errorf("failed to retrieve pull secret: %w", err)
+	}
+
+	// Resolve digest-based image for IDMS compatibility
+	digestImage, err := getReleaseImageWithDigest(releaseImage, pullSecret, r.RemoteImage)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve digest: %w", err)
+	}
+
+	return digestImage, nil
+}
+
 func (r *ClusterDeploymentReconciler) getWorkerNodesCount(ctx context.Context, cluster *clusterv1.Cluster) int {
 	log := ctrl.LoggerFrom(ctx)
 	count := 0
@@ -375,32 +385,12 @@ func getReleaseImageWithDigest(image string, pullSecret []byte, remoteImage cont
 		return "", fmt.Errorf("failed to resolve digest for image %s: %w", image, err)
 	}
 
-	repoImage, err := getRepoImage(image)
+	repoImage, err := containers.GetRepoImage(image)
 	if err != nil {
 		return "", err
 	}
 
 	return repoImage + "@" + digest, nil
-}
-
-// getRepoImage extracts the repository part from an image reference (before the tag or digest).
-// Handles registry host:port format correctly (e.g., registry.example.com:5000/repo:tag).
-func getRepoImage(image string) (string, error) {
-	// Handle digest-based references (repo@sha256:...)
-	if at := strings.LastIndex(image, "@"); at != -1 {
-		return image[:at], nil
-	}
-
-	// For tag-based references, find the tag separator (:) after the last /
-	lastSlash := strings.LastIndex(image, "/")
-	lastColon := strings.LastIndex(image, ":")
-
-	// Tag separator must come after the last slash (to avoid splitting host:port)
-	if lastColon == -1 || lastColon < lastSlash {
-		return "", fmt.Errorf("could not parse image %s", image)
-	}
-
-	return image[:lastColon], nil
 }
 
 func getClusterNetworks(cluster *clusterv1.Cluster) ([]hiveext.ClusterNetworkEntry, []string) {

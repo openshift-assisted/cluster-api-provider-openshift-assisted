@@ -130,6 +130,13 @@ func (r *ClusterDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	}
 
 	if needsResolution {
+		// Check if pull secret is configured
+		if acp.Spec.Config.PullSecretRef == nil {
+			err := fmt.Errorf("pull secret reference is required for digest resolution but not configured in OpenshiftAssistedControlPlane")
+			log.Error(err, "cannot resolve digest without pull secret", "release_image", releaseImage)
+			return ctrl.Result{}, err
+		}
+
 		// Retrieve pull secret for registry authentication
 		pullSecret, err := auth.GetPullSecret(r.Client, ctx, acp)
 		if err != nil {

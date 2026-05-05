@@ -40,5 +40,11 @@
     "type": "issue",
     "reply": "The test failures should be resolved by the fixes in this commit: added missing GetDigest mocks to ClusterInstallRef tests and added secrets RBAC permission. Will verify with `/test unit` and `/test lint` after push.",
     "resolved": true
+  },
+  {
+    "comment_id": 3191320222,
+    "type": "review",
+    "reply": "Fixed. Moved the regex to a package-level variable `baselineCapabilityRegexp` and anchored it with `^v4\\.[0-9]+$` to ensure it only matches the entire string. This prevents invalid values like 'v4.17extra' or 'xv4.17' from passing validation and eliminates regex recompilation on every call.",
+    "resolved": true
   }
 ]

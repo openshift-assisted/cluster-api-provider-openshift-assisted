@@ -35,6 +35,8 @@ const (
 )
 
 var (
+	baselineCapabilityRegexp = regexp.MustCompile(`^v4\.[0-9]+$`)
+
 	defaultBaremetalAdditionalCapabilities = []configv1.ClusterVersionCapability{
 		"baremetal", "Console", "Insights", "OperatorLifecycleManager",
 		"Ingress", "marketplace", "NodeTuning", "DeploymentConfig",
@@ -141,7 +143,6 @@ func getBaselineCapability(capability string, isBaremetalPlatform bool) (string,
 		return defaultBaselineCapability, nil
 	}
 
-	baselineCapabilityRegexp := regexp.MustCompile(`v4\.[0-9]+`)
 	if !baselineCapabilityRegexp.MatchString(capability) {
 		return "", fmt.Errorf(
 			"invalid baseline capability set, must be one of: None, vCurrent, or v4.x. Got: [%s]",

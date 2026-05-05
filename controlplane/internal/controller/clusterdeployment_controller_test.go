@@ -640,6 +640,12 @@ var _ = Describe("ClusterDeployment Controller", func() {
 				Expect(controllerutil.SetOwnerReference(oacp, cd, testScheme)).To(Succeed())
 				Expect(k8sClient.Create(ctx, cd)).To(Succeed())
 
+				// Mock digest resolution (uses anonymous auth since PullSecretRef is not set)
+				mockRemoteImage.EXPECT().
+					GetDigest(gomock.Any(), gomock.Any()).
+					Return(testDigest, nil).
+					Times(1)
+
 				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
 					NamespacedName: client.ObjectKeyFromObject(cd),
 				})
@@ -669,6 +675,12 @@ var _ = Describe("ClusterDeployment Controller", func() {
 				cd.Spec.ClusterInstallRef = nil
 				Expect(controllerutil.SetOwnerReference(oacp, cd, testScheme)).To(Succeed())
 				Expect(k8sClient.Create(ctx, cd)).To(Succeed())
+
+				// Mock digest resolution (uses anonymous auth since PullSecretRef is not set)
+				mockRemoteImage.EXPECT().
+					GetDigest(gomock.Any(), gomock.Any()).
+					Return(testDigest, nil).
+					Times(1)
 
 				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
 					NamespacedName: client.ObjectKeyFromObject(cd),
@@ -704,6 +716,12 @@ var _ = Describe("ClusterDeployment Controller", func() {
 				}
 				Expect(controllerutil.SetOwnerReference(oacp, cd, testScheme)).To(Succeed())
 				Expect(k8sClient.Create(ctx, cd)).To(Succeed())
+
+				// Mock digest resolution (uses anonymous auth since PullSecretRef is not set)
+				mockRemoteImage.EXPECT().
+					GetDigest(gomock.Any(), gomock.Any()).
+					Return(testDigest, nil).
+					Times(1)
 
 				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
 					NamespacedName: client.ObjectKeyFromObject(cd),

@@ -1,8 +1,44 @@
 [
   {
-    "comment_id": 4381502815,
+    "comment_id": 3190351421,
+    "type": "review",
+    "reply": "I reviewed the current code in clusterdeployment_controller.go and could not locate any else conditions. The code uses early returns throughout. Could you point me to the specific line? It's possible this was already addressed in previous commits.",
+    "resolved": false
+  },
+  {
+    "comment_id": 3190357286,
+    "type": "review",
+    "reply": "The digest resolution logic has been extracted to the imageset.Manager package (controlplane/internal/imageset/manager.go) as a separate struct with focused responsibilities. If you're referring to a different section, please point me to the specific lines and I'll be happy to refactor further.",
+    "resolved": true
+  },
+  {
+    "comment_id": 3190364422,
+    "type": "review",
+    "reply": "The digest resolution logic has been extracted to a separate package: controlplane/internal/imageset. The Manager struct there handles all ClusterImageSet creation and digest resolution, keeping the controller focused on orchestration. This separation aligns with Go best practices for package design.",
+    "resolved": true
+  },
+  {
+    "comment_id": 3190930653,
+    "type": "review",
+    "reply": "Fixed. Added GetDigest mock expectations to all three ClusterInstallRef test cases (lines 623-722). These tests don't configure PullSecretRef, so they use anonymous authentication, but GetDigest is still called during the digest resolution flow. The mocks now properly stub this call.",
+    "resolved": true
+  },
+  {
+    "comment_id": 3190930668,
+    "type": "review",
+    "reply": "Fixed. Added RBAC marker: `// +kubebuilder:rbac:groups=\"\",resources=secrets,verbs=get;list;watch` to clusterdeployment_controller.go. The controller needs this permission because ImageSetManager.resolveReleaseImageDigest() reads pull secrets via auth.GetPullSecret() during digest resolution.",
+    "resolved": true
+  },
+  {
+    "comment_id": 4381566965,
     "type": "issue",
-    "reply": "Hold acknowledged. Ready for review when you are. Let me know if there are specific concerns or areas you'd like me to address.",
+    "reply": "Acknowledged. For future work, I'll follow TDD principles more closely—writing test cases upfront helps clarify the API design and catch edge cases earlier. In this case, the digest resolution tests were added alongside the implementation, which led to some test gaps that were caught in review.",
+    "resolved": true
+  },
+  {
+    "comment_id": 4382152379,
+    "type": "issue",
+    "reply": "The test failures should be resolved by the fixes in this commit: added missing GetDigest mocks to ClusterInstallRef tests and added secrets RBAC permission. Will verify with `/test unit` and `/test lint` after push.",
     "resolved": true
   }
 ]

@@ -198,8 +198,9 @@ func main() {
 		os.Exit(1)
 	}
 	if err = (&controlplanecontroller.ClusterDeploymentReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:      mgr.GetClient(),
+		Scheme:      mgr.GetScheme(),
+		RemoteImage: releaseImageRepository,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ClusterDeployment")
 		os.Exit(1)

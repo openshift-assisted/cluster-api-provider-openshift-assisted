@@ -83,6 +83,54 @@ During the cluster installation, each data entry in the `ConfigMap` will be crea
 | cluster | | Image.config.openshift.io | image-config.json | References the additional certificate for the image registry |
 | additional-registry | | `ImageDigestMirrorSet` or `ImageTagMirrorSet` | `image-digest-mirror-set.json` or `image-tag-mirror-set.json` | Provides the alternative registry to pull images from |
 
+## Release Image Digest Resolution
+
+CAPOA automatically resolves OpenShift release images to digest-based references when creating `ClusterImageSet` resources. This ensures compatibility with `ImageDigestMirrorSet` (IDMS) configurations in disconnected environments.
+
+**Example**: `quay.io/openshift-release-dev/ocp-release:4.17.0-x86_64` is resolved to `quay.io/openshift-release-dev/ocp-release@sha256:a272...`
+
+### Requirements
+
+For digest resolution to work properly:
+
+- Hub cluster must have network access to the release image registry (or its mirror)
+- Pull secret must be configured in `OpenshiftAssistedControlPlane` via the `pullSecretRef` field
+- For custom registries, use the `cluster.x-k8s.io/release-image-repository-override` annotation
+
+### Troubleshooting
+
+If `ClusterDeployment` reconciliation fails with digest resolution errors:
+
+1. **Verify hub cluster can reach the release image registry:**
+   ```bash
+   curl -I https://quay.io
+   ```
+
+2. **Check pull secret is valid:**
+   ```bash
+   oc get secret <pull-secret-name> -n <namespace> -o yaml
+   ```
+
+3. **For custom registries**, ensure the override annotation points to an accessible registry:
+   ```yaml
+   apiVersion: controlplane.cluster.x-k8s.io/v1alpha3
+   kind: OpenshiftAssistedControlPlane
+   metadata:
+     name: example-cluster
+     annotations:
+       cluster.x-k8s.io/release-image-repository-override: "registry.example.com/ocp/release"
+   ```
+
+4. **Review controller logs** for detailed error messages:
+   ```bash
+   oc logs -n capoa-system deployment/capoa-controller-manager
+   ```
+   
+   Look for log entries containing "failed to resolve digest" which will include:
+   - The original release image URL
+   - The registry error details
+   - Guidance on next steps
+
 ## Pulling via Tag
 
 In the `ConfigMap` CR, ensure that the `registry.mirror` section of the `registries.conf` provided has the `pull-from-mirror` set to `"tag-only"`.

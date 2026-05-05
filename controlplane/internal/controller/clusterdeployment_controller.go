@@ -25,8 +25,10 @@ import (
 	"strings"
 
 	controlplanev1alpha3 "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/api/v1alpha3"
+	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/internal/auth"
 	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/internal/imageregistry"
 	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/internal/release"
+	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/pkg/containers"
 	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/util"
 	logutil "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/util/log"
 
@@ -61,7 +63,8 @@ var (
 // ClusterDeploymentReconciler reconciles a ClusterDeployment object
 type ClusterDeploymentReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme      *runtime.Scheme
+	RemoteImage containers.RemoteImage
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -115,7 +118,27 @@ func (r *ClusterDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	if err = ensureClusterImageSet(ctx, r.Client, clusterDeployment.Name, getReleaseImage(*acp, arch)); err != nil {
+
+	// Get tag-based release image
+	releaseImage := getReleaseImage(*acp, arch)
+
+	// Retrieve pull secret for registry authentication
+	pullSecret, err := auth.GetPullSecret(r.Client, ctx, acp)
+	if err != nil {
+		log.Error(err, "failed to retrieve pull secret", "release_image", releaseImage)
+		return ctrl.Result{}, err
+	}
+
+	// Resolve digest-based image for IDMS compatibility
+	digestImage, err := getReleaseImageWithDigest(releaseImage, pullSecret, r.RemoteImage)
+	if err != nil {
+		log.Error(err, "failed to resolve digest for release image", "release_image", releaseImage)
+		return ctrl.Result{}, err
+	}
+	log.Info("resolved release image digest", "tag_image", releaseImage, "digest_image", digestImage)
+
+	// Create ClusterImageSet with digest-based image
+	if err = ensureClusterImageSet(ctx, r.Client, clusterDeployment.Name, digestImage); err != nil {
 		log.Error(err, "failed creating ClusterImageSet")
 		return ctrl.Result{}, err
 	}
@@ -279,6 +302,36 @@ func ensureClusterImageSet(ctx context.Context, c client.Client, imageSetName st
 	})
 
 	return err
+}
+
+// getReleaseImageWithDigest resolves a tag-based release image reference to a digest-based reference.
+// This enables compatibility with ImageDigestMirrorSet (IDMS) in disconnected environments.
+func getReleaseImageWithDigest(image string, pullSecret []byte, remoteImage containers.RemoteImage) (string, error) {
+	keychain, err := containers.PullSecretKeyChainFromString(string(pullSecret))
+	if err != nil {
+		return "", fmt.Errorf("failed to create keychain from pull secret: %w", err)
+	}
+
+	digest, err := remoteImage.GetDigest(image, keychain)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve digest for image %s: %w", image, err)
+	}
+
+	repoImage, err := getRepoImage(image)
+	if err != nil {
+		return "", err
+	}
+
+	return repoImage + "@" + digest, nil
+}
+
+// getRepoImage extracts the repository part from an image reference (before the tag).
+func getRepoImage(image string) (string, error) {
+	parts := strings.Split(image, ":")
+	if len(parts) < 1 {
+		return "", fmt.Errorf("could not parse image %s", image)
+	}
+	return parts[0], nil
 }
 
 func getClusterNetworks(cluster *clusterv1.Cluster) ([]hiveext.ClusterNetworkEntry, []string) {

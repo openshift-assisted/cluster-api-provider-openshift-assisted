@@ -19,13 +19,17 @@ package controller_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
+	gomock "github.com/golang/mock/gomock"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 
 	"k8s.io/apimachinery/pkg/types"
 
+	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/assistedinstaller"
 	controlplanev1alpha3 "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/api/v1alpha3"
 	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/internal/controller"
+	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/pkg/containers"
 	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/test/utils"
 	hiveext "github.com/openshift/assisted-service/api/hiveextension/v1beta1"
 	"github.com/openshift/assisted-service/models"
@@ -48,21 +52,29 @@ const (
 	clusterName      = "test-cluster"
 	namespace        = "test"
 	openShiftVersion = "4.16.0"
+	pullSecretName   = "test-pull-secret"
+	testDigest       = "sha256:abc123def456789012345678901234567890123456789012345678901234"
 )
 
 var _ = Describe("ClusterDeployment Controller", func() {
 	ctx := context.Background()
 	var controllerReconciler *controller.ClusterDeploymentReconciler
 	var k8sClient client.Client
+	var mockCtrl *gomock.Controller
+	var mockRemoteImage *containers.MockRemoteImage
 
 	BeforeEach(func() {
+		mockCtrl = gomock.NewController(GinkgoT())
+		mockRemoteImage = containers.NewMockRemoteImage(mockCtrl)
+
 		k8sClient = fakeclient.NewClientBuilder().WithScheme(testScheme).
 			WithStatusSubresource(&hivev1.ClusterDeployment{}, &controlplanev1alpha3.OpenshiftAssistedControlPlane{}).
 			Build()
 		Expect(k8sClient).NotTo(BeNil())
 		controllerReconciler = &controller.ClusterDeploymentReconciler{
-			Client: k8sClient,
-			Scheme: k8sClient.Scheme(),
+			Client:      k8sClient,
+			Scheme:      k8sClient.Scheme(),
+			RemoteImage: mockRemoteImage,
 		}
 
 		ns := &corev1.Namespace{
@@ -72,6 +84,22 @@ var _ = Describe("ClusterDeployment Controller", func() {
 		}
 		By("creating the test namespace")
 		Expect(k8sClient.Create(ctx, ns)).To(Succeed())
+
+		// Create a pull secret for tests
+		pullSecret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      pullSecretName,
+				Namespace: namespace,
+			},
+			Data: map[string][]byte{
+				assistedinstaller.PullsecretDataKey: []byte(`{"auths":{"quay.io":{"auth":"dGVzdDp0ZXN0"}}}`),
+			},
+		}
+		Expect(k8sClient.Create(ctx, pullSecret)).To(Succeed())
+	})
+
+	AfterEach(func() {
+		mockCtrl.Finish()
 	})
 	When("A cluster deployment without cluster name label", func() {
 		It("should skip and not return error", func() {
@@ -111,6 +139,7 @@ var _ = Describe("ClusterDeployment Controller", func() {
 			}
 			oacp.Spec.DistributionVersion = openShiftVersion
 			oacp.Spec.Config.SSHAuthorizedKey = "mykey"
+			oacp.Spec.Config.PullSecretRef = &corev1.LocalObjectReference{Name: pullSecretName}
 			oacp.Spec.Config.DiskEncryption = &hiveext.DiskEncryption{
 				EnableOn:    &enableOn,
 				Mode:        &mode,
@@ -135,6 +164,12 @@ var _ = Describe("ClusterDeployment Controller", func() {
 
 			Expect(controllerutil.SetOwnerReference(cluster, oacp, testScheme)).To(Succeed())
 			Expect(controllerutil.SetOwnerReference(oacp, cd, testScheme)).To(Succeed())
+
+			// Mock digest resolution to return test digest
+			mockRemoteImage.EXPECT().
+				GetDigest(gomock.Any(), gomock.Any()).
+				Return(testDigest, nil).
+				Times(1)
 
 			Expect(k8sClient.Create(ctx, oacp)).To(Succeed())
 			Expect(k8sClient.Update(ctx, cd)).To(Succeed())
@@ -164,9 +199,10 @@ var _ = Describe("ClusterDeployment Controller", func() {
 			Expect(aci.Labels).To(HaveKey(hiveext.ClusterConsumerLabel))
 			Expect(aci.Labels[hiveext.ClusterConsumerLabel]).To(Equal("OpenshiftAssistedControlPlane"))
 
+			// Assert ClusterImageSet has digest-based release image
 			clusterImageSet := &hivev1.ClusterImageSet{}
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: cd.Name}, clusterImageSet)).To(Succeed())
-			Expect(clusterImageSet.Spec.ReleaseImage).To(Equal("quay.io/openshift-release-dev/ocp-release:4.16.0-multi"))
+			Expect(clusterImageSet.Spec.ReleaseImage).To(Equal("quay.io/openshift-release-dev/ocp-release@" + testDigest))
 		})
 		When("ACP with ingressVIPs and apiVIPs", func() {
 			It("should start a multinode cluster install", func() {
@@ -646,6 +682,189 @@ var _ = Describe("ClusterDeployment Controller", func() {
 				Expect(updatedCD.Spec.ClusterInstallRef.Version).To(Equal(hiveext.Version))
 				Expect(updatedCD.Spec.ClusterInstallRef.Kind).To(Equal("AgentClusterInstall"))
 				Expect(updatedCD.Spec.ClusterInstallRef.Name).To(Equal(cd.Name))
+			})
+		})
+	})
+
+	Context("Release Image Digest Resolution", func() {
+		When("digest resolution fails", func() {
+			It("should return error and requeue", func() {
+				cluster := utils.NewCluster(clusterName, namespace)
+				Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
+
+				oacp := utils.NewOpenshiftAssistedControlPlane(namespace, clusterName)
+				oacp.Spec.DistributionVersion = openShiftVersion
+				oacp.Spec.Config.PullSecretRef = &corev1.LocalObjectReference{Name: pullSecretName}
+
+				cd := utils.NewClusterDeploymentWithOwnerCluster(namespace, clusterName, clusterName, oacp)
+
+				Expect(controllerutil.SetOwnerReference(cluster, oacp, testScheme)).To(Succeed())
+				Expect(controllerutil.SetOwnerReference(oacp, cd, testScheme)).To(Succeed())
+
+				// Mock digest resolution to return error
+				mockRemoteImage.EXPECT().
+					GetDigest(gomock.Any(), gomock.Any()).
+					Return("", fmt.Errorf("failed to reach registry")).
+					Times(1)
+
+				Expect(k8sClient.Create(ctx, oacp)).To(Succeed())
+				Expect(k8sClient.Create(ctx, cd)).To(Succeed())
+
+				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: client.ObjectKeyFromObject(cd),
+				})
+
+				By("Verifying reconciliation returns error")
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("failed to resolve digest"))
+				Expect(err.Error()).To(ContainSubstring("failed to reach registry"))
+			})
+		})
+
+		When("pull secret is missing", func() {
+			It("should return error indicating pull secret not found", func() {
+				cluster := utils.NewCluster(clusterName, namespace)
+				Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
+
+				oacp := utils.NewOpenshiftAssistedControlPlane(namespace, clusterName)
+				oacp.Spec.DistributionVersion = openShiftVersion
+				oacp.Spec.Config.PullSecretRef = &corev1.LocalObjectReference{Name: "non-existent-secret"}
+
+				cd := utils.NewClusterDeploymentWithOwnerCluster(namespace, clusterName, clusterName, oacp)
+
+				Expect(controllerutil.SetOwnerReference(cluster, oacp, testScheme)).To(Succeed())
+				Expect(controllerutil.SetOwnerReference(oacp, cd, testScheme)).To(Succeed())
+
+				Expect(k8sClient.Create(ctx, oacp)).To(Succeed())
+				Expect(k8sClient.Create(ctx, cd)).To(Succeed())
+
+				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: client.ObjectKeyFromObject(cd),
+				})
+
+				By("Verifying reconciliation returns error for missing pull secret")
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("failed to retrieve pull secret"))
+			})
+		})
+
+		When("repository override annotation is set", func() {
+			It("should resolve digest from overridden repository", func() {
+				cluster := utils.NewCluster(clusterName, namespace)
+				Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
+
+				oacp := utils.NewOpenshiftAssistedControlPlane(namespace, clusterName)
+				oacp.Spec.DistributionVersion = openShiftVersion
+				oacp.Spec.Config.PullSecretRef = &corev1.LocalObjectReference{Name: pullSecretName}
+				if oacp.Annotations == nil {
+					oacp.Annotations = make(map[string]string)
+				}
+				oacp.Annotations["cluster.x-k8s.io/release-image-repository-override"] = "registry.example.com/custom/ocp-release"
+
+				cd := utils.NewClusterDeploymentWithOwnerCluster(namespace, clusterName, clusterName, oacp)
+
+				Expect(controllerutil.SetOwnerReference(cluster, oacp, testScheme)).To(Succeed())
+				Expect(controllerutil.SetOwnerReference(oacp, cd, testScheme)).To(Succeed())
+
+				// Mock expects digest resolution for overridden repository
+				mockRemoteImage.EXPECT().
+					GetDigest("registry.example.com/custom/ocp-release:4.16.0-multi", gomock.Any()).
+					Return(testDigest, nil).
+					Times(1)
+
+				Expect(k8sClient.Create(ctx, oacp)).To(Succeed())
+				Expect(k8sClient.Create(ctx, cd)).To(Succeed())
+
+				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: client.ObjectKeyFromObject(cd),
+				})
+				Expect(err).NotTo(HaveOccurred())
+
+				By("Verifying ClusterImageSet uses digest from overridden repository")
+				clusterImageSet := &hivev1.ClusterImageSet{}
+				Expect(k8sClient.Get(ctx, types.NamespacedName{Name: cd.Name}, clusterImageSet)).To(Succeed())
+				Expect(clusterImageSet.Spec.ReleaseImage).To(Equal("registry.example.com/custom/ocp-release@" + testDigest))
+			})
+		})
+
+		When("existing tag-based ClusterImageSet is updated", func() {
+			It("should update to digest-based reference", func() {
+				cluster := utils.NewCluster(clusterName, namespace)
+				Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
+
+				oacp := utils.NewOpenshiftAssistedControlPlane(namespace, clusterName)
+				oacp.Spec.DistributionVersion = openShiftVersion
+				oacp.Spec.Config.PullSecretRef = &corev1.LocalObjectReference{Name: pullSecretName}
+
+				cd := utils.NewClusterDeploymentWithOwnerCluster(namespace, clusterName, clusterName, oacp)
+
+				// Pre-create ClusterImageSet with tag-based image
+				existingImageSet := &hivev1.ClusterImageSet{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: cd.Name,
+					},
+					Spec: hivev1.ClusterImageSetSpec{
+						ReleaseImage: "quay.io/openshift-release-dev/ocp-release:4.16.0-multi",
+					},
+				}
+				Expect(k8sClient.Create(ctx, existingImageSet)).To(Succeed())
+
+				Expect(controllerutil.SetOwnerReference(cluster, oacp, testScheme)).To(Succeed())
+				Expect(controllerutil.SetOwnerReference(oacp, cd, testScheme)).To(Succeed())
+
+				// Mock digest resolution
+				mockRemoteImage.EXPECT().
+					GetDigest(gomock.Any(), gomock.Any()).
+					Return(testDigest, nil).
+					Times(1)
+
+				Expect(k8sClient.Create(ctx, oacp)).To(Succeed())
+				Expect(k8sClient.Create(ctx, cd)).To(Succeed())
+
+				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: client.ObjectKeyFromObject(cd),
+				})
+				Expect(err).NotTo(HaveOccurred())
+
+				By("Verifying ClusterImageSet is updated to digest-based reference")
+				updatedImageSet := &hivev1.ClusterImageSet{}
+				Expect(k8sClient.Get(ctx, types.NamespacedName{Name: cd.Name}, updatedImageSet)).To(Succeed())
+				Expect(updatedImageSet.Spec.ReleaseImage).To(Equal("quay.io/openshift-release-dev/ocp-release@" + testDigest))
+			})
+		})
+
+		When("OKD release image is used", func() {
+			It("should resolve digest for OKD release", func() {
+				cluster := utils.NewCluster(clusterName, namespace)
+				Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
+
+				oacp := utils.NewOpenshiftAssistedControlPlane(namespace, clusterName)
+				oacp.Spec.DistributionVersion = "4.18.0-okd-scos.ec.1"
+				oacp.Spec.Config.PullSecretRef = &corev1.LocalObjectReference{Name: pullSecretName}
+
+				cd := utils.NewClusterDeploymentWithOwnerCluster(namespace, clusterName, clusterName, oacp)
+
+				Expect(controllerutil.SetOwnerReference(cluster, oacp, testScheme)).To(Succeed())
+				Expect(controllerutil.SetOwnerReference(oacp, cd, testScheme)).To(Succeed())
+
+				// Mock expects OKD image URL
+				mockRemoteImage.EXPECT().
+					GetDigest("quay.io/okd/scos-release:4.18.0-okd-scos.ec.1-multi", gomock.Any()).
+					Return(testDigest, nil).
+					Times(1)
+
+				Expect(k8sClient.Create(ctx, oacp)).To(Succeed())
+				Expect(k8sClient.Create(ctx, cd)).To(Succeed())
+
+				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: client.ObjectKeyFromObject(cd),
+				})
+				Expect(err).NotTo(HaveOccurred())
+
+				By("Verifying ClusterImageSet uses OKD digest-based reference")
+				clusterImageSet := &hivev1.ClusterImageSet{}
+				Expect(k8sClient.Get(ctx, types.NamespacedName{Name: cd.Name}, clusterImageSet)).To(Succeed())
+				Expect(clusterImageSet.Spec.ReleaseImage).To(Equal("quay.io/okd/scos-release@" + testDigest))
 			})
 		})
 	})

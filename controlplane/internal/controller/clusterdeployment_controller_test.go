@@ -265,6 +265,7 @@ var _ = Describe("ClusterDeployment Controller", func() {
 
 				oacp = utils.NewOpenshiftAssistedControlPlane(namespace, clusterName)
 				oacp.Spec.DistributionVersion = openShiftVersion
+				oacp.Spec.Config.PullSecretRef = &corev1.LocalObjectReference{Name: pullSecretName}
 				apiVIPs := []string{"1.2.3.4", "2.3.4.5"}
 				ingressVIPs := []string{"9.9.9.9", "10.10.10.10"}
 				oacp.Spec.Config.APIVIPs = apiVIPs
@@ -273,6 +274,12 @@ var _ = Describe("ClusterDeployment Controller", func() {
 				cd = utils.NewClusterDeploymentWithOwnerCluster(namespace, clusterName, clusterName, oacp)
 				Expect(controllerutil.SetOwnerReference(cluster, oacp, testScheme)).To(Succeed())
 				Expect(controllerutil.SetOwnerReference(oacp, cd, testScheme)).To(Succeed())
+
+				// Mock digest resolution for all baremetal tests
+				mockRemoteImage.EXPECT().
+					GetDigest(gomock.Any(), gomock.Any()).
+					Return(testDigest, nil).
+					AnyTimes()
 
 				Expect(k8sClient.Create(ctx, oacp)).To(Succeed())
 				Expect(k8sClient.Create(ctx, cd)).To(Succeed())
@@ -412,11 +419,18 @@ var _ = Describe("ClusterDeployment Controller", func() {
 
 				oacp = utils.NewOpenshiftAssistedControlPlane(namespace, clusterName)
 				oacp.Spec.DistributionVersion = openShiftVersion
+				oacp.Spec.Config.PullSecretRef = &corev1.LocalObjectReference{Name: pullSecretName}
 
 				cd = utils.NewClusterDeploymentWithOwnerCluster(namespace, clusterName, clusterName, oacp)
 
 				Expect(controllerutil.SetOwnerReference(cluster, oacp, testScheme)).To(Succeed())
 				Expect(controllerutil.SetControllerReference(oacp, cd, testScheme)).To(Succeed())
+
+				// Mock digest resolution for all non-baremetal tests
+				mockRemoteImage.EXPECT().
+					GetDigest(gomock.Any(), gomock.Any()).
+					Return(testDigest, nil).
+					AnyTimes()
 
 				Expect(k8sClient.Create(ctx, oacp)).To(Succeed())
 				Expect(k8sClient.Create(ctx, cd)).To(Succeed())
@@ -533,6 +547,7 @@ var _ = Describe("ClusterDeployment Controller", func() {
 
 				oacp := utils.NewOpenshiftAssistedControlPlane(namespace, clusterName)
 				oacp.Spec.DistributionVersion = openShiftVersion
+				oacp.Spec.Config.PullSecretRef = &corev1.LocalObjectReference{Name: pullSecretName}
 
 				// Set the install config override annotation
 				installConfigOverride := `{"networking":{"machineNetwork":[{"cidr":"10.0.0.0/16"}]}}`
@@ -544,6 +559,12 @@ var _ = Describe("ClusterDeployment Controller", func() {
 				cd := utils.NewClusterDeploymentWithOwnerCluster(namespace, clusterName, clusterName, oacp)
 				Expect(controllerutil.SetOwnerReference(cluster, oacp, testScheme)).To(Succeed())
 				Expect(controllerutil.SetOwnerReference(oacp, cd, testScheme)).To(Succeed())
+
+				// Mock digest resolution
+				mockRemoteImage.EXPECT().
+					GetDigest(gomock.Any(), gomock.Any()).
+					Return(testDigest, nil).
+					Times(1)
 
 				Expect(k8sClient.Create(ctx, oacp)).To(Succeed())
 				Expect(k8sClient.Create(ctx, cd)).To(Succeed())
@@ -568,11 +589,18 @@ var _ = Describe("ClusterDeployment Controller", func() {
 
 				oacp := utils.NewOpenshiftAssistedControlPlane(namespace, clusterName)
 				oacp.Spec.DistributionVersion = openShiftVersion
+				oacp.Spec.Config.PullSecretRef = &corev1.LocalObjectReference{Name: pullSecretName}
 
 				cd := utils.NewClusterDeploymentWithOwnerCluster(namespace, clusterName, clusterName, oacp)
 
 				Expect(controllerutil.SetOwnerReference(cluster, oacp, testScheme)).To(Succeed())
 				Expect(controllerutil.SetControllerReference(oacp, cd, testScheme)).To(Succeed())
+
+				// Mock digest resolution
+				mockRemoteImage.EXPECT().
+					GetDigest(gomock.Any(), gomock.Any()).
+					Return(testDigest, nil).
+					Times(1)
 
 				Expect(k8sClient.Create(ctx, oacp)).To(Succeed())
 				Expect(k8sClient.Create(ctx, cd)).To(Succeed())

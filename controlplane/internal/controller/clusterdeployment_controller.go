@@ -342,10 +342,8 @@ func getInstallConfigOverride(oacp *controlplanev1alpha3.OpenshiftAssistedContro
 	if err != nil {
 		return "", err
 	}
-	// if no override and no capabilities, no need to merge install config override
-	if installConfigOverrideStr == "" && capabilitiesCfgOverride == "" {
-		return "", nil
-	}
+
+	// Return early if either is empty
 	if capabilitiesCfgOverride == "" {
 		return installConfigOverrideStr, nil
 	}
@@ -353,11 +351,8 @@ func getInstallConfigOverride(oacp *controlplanev1alpha3.OpenshiftAssistedContro
 		return capabilitiesCfgOverride, nil
 	}
 
-	installConfigOverrideStr, err = mergeJson(installConfigOverrideStr, capabilitiesCfgOverride)
-	if err != nil {
-		return "", err
-	}
-	return installConfigOverrideStr, nil
+	// Both are non-empty, merge them
+	return mergeJson(installConfigOverrideStr, capabilitiesCfgOverride)
 }
 
 // getInstallConfigOverrideForCapabilities generates install config override JSON for OpenShift capabilities configuration.

@@ -154,8 +154,7 @@ func ensureClusterImageSet(ctx context.Context, c client.Client, imageSetName st
 // This enables compatibility with ImageDigestMirrorSet (IDMS) in disconnected environments.
 // Uses anonymous authentication if pullSecret is nil/empty, enabling digest resolution for publicly readable images.
 func getReleaseImageWithDigest(image string, pullSecret []byte, remoteImage containers.RemoteImage) (string, error) {
-	// Default to anonymous authentication for publicly readable images
-	keychain := authn.Anonymous
+	var keychain authn.Keychain
 
 	// Override with pull secret credentials if provided
 	if len(pullSecret) > 0 {

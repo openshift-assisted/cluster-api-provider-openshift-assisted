@@ -122,25 +122,9 @@ func (r *ClusterDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	// Get tag-based release image
 	releaseImage := getReleaseImage(*acp, arch)
 
-	// Check if we need to resolve the digest (only if source changed or digest missing)
-	digestImage, needsResolution, err := shouldResolveDigest(ctx, r.Client, clusterDeployment.Name, releaseImage)
-	if err != nil {
-		log.Error(err, "failed to check ClusterImageSet state")
-		return ctrl.Result{}, err
-	}
-
-	if needsResolution {
-		digestImage, err = r.resolveReleaseImageDigest(ctx, acp, releaseImage)
-		if err != nil {
-			log.Error(err, "failed to resolve release image digest", "release_image", releaseImage)
-			return ctrl.Result{}, err
-		}
-		log.Info("resolved release image digest", "tag_image", releaseImage, "digest_image", digestImage)
-	}
-
-	// Create or update ClusterImageSet with digest-based image and source tracking
-	if err = ensureClusterImageSet(ctx, r.Client, clusterDeployment.Name, releaseImage, digestImage); err != nil {
-		log.Error(err, "failed creating ClusterImageSet")
+	// Ensure ClusterImageSet exists with digest-based release image
+	if err = r.ensureDigestBasedClusterImageSet(ctx, clusterDeployment.Name, releaseImage, acp); err != nil {
+		log.Error(err, "failed to ensure ClusterImageSet")
 		return ctrl.Result{}, err
 	}
 
@@ -248,33 +232,6 @@ func getReleaseImage(oacp controlplanev1alpha3.OpenshiftAssistedControlPlane, ar
 	return release.GetReleaseImage(oacp.Spec.DistributionVersion, releaseImageRepository, architecture)
 }
 
-// resolveReleaseImageDigest retrieves pull secret and resolves a tag-based release image to digest-based format.
-// Returns the digest-based image reference or an error if resolution fails.
-func (r *ClusterDeploymentReconciler) resolveReleaseImageDigest(
-	ctx context.Context,
-	acp *controlplanev1alpha3.OpenshiftAssistedControlPlane,
-	releaseImage string,
-) (string, error) {
-	// Check if pull secret is configured
-	if acp.Spec.Config.PullSecretRef == nil {
-		return "", fmt.Errorf("pull secret reference is required for digest resolution but not configured in OpenshiftAssistedControlPlane")
-	}
-
-	// Retrieve pull secret for registry authentication
-	pullSecret, err := auth.GetPullSecret(r.Client, ctx, acp)
-	if err != nil {
-		return "", fmt.Errorf("failed to retrieve pull secret: %w", err)
-	}
-
-	// Resolve digest-based image for IDMS compatibility
-	digestImage, err := getReleaseImageWithDigest(releaseImage, pullSecret, r.RemoteImage)
-	if err != nil {
-		return "", fmt.Errorf("failed to resolve digest: %w", err)
-	}
-
-	return digestImage, nil
-}
-
 func (r *ClusterDeploymentReconciler) getWorkerNodesCount(ctx context.Context, cluster *clusterv1.Cluster) int {
 	log := ctrl.LoggerFrom(ctx)
 	count := 0
@@ -315,82 +272,6 @@ func (r *ClusterDeploymentReconciler) updateClusterDeploymentRef(
 
 	cd.Spec.ClusterInstallRef = expectedRef
 	return r.Update(ctx, cd)
-}
-
-const (
-	releaseImageSourceAnnotation = "cluster.x-k8s.io/release-image-source"
-)
-
-// shouldResolveDigest checks if digest resolution is needed.
-// Returns: (existingDigest, needsResolution, error)
-// needsResolution is true if the source tag changed or no digest exists.
-func shouldResolveDigest(ctx context.Context, c client.Client, imageSetName string, currentSource string) (string, bool, error) {
-	imageSet := &hivev1.ClusterImageSet{}
-	err := c.Get(ctx, client.ObjectKey{Name: imageSetName}, imageSet)
-	if err != nil {
-		if client.IgnoreNotFound(err) == nil {
-			// ClusterImageSet doesn't exist yet - needs resolution
-			return "", true, nil
-		}
-		return "", false, err
-	}
-
-	// Check if source tag has changed
-	storedSource := imageSet.Annotations[releaseImageSourceAnnotation]
-	if storedSource != currentSource {
-		// Source changed - needs re-resolution
-		return "", true, nil
-	}
-
-	// Check if we have a digest-based image (contains @)
-	if !strings.Contains(imageSet.Spec.ReleaseImage, "@") {
-		// Tag-based image - needs resolution
-		return "", true, nil
-	}
-
-	// Source hasn't changed and we have a digest - reuse it
-	return imageSet.Spec.ReleaseImage, false, nil
-}
-
-func ensureClusterImageSet(ctx context.Context, c client.Client, imageSetName string, sourceImage string, digestImage string) error {
-	imageSet := &hivev1.ClusterImageSet{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: imageSetName,
-		},
-	}
-
-	_, err := controllerutil.CreateOrPatch(ctx, c, imageSet, func() error {
-		if imageSet.Annotations == nil {
-			imageSet.Annotations = make(map[string]string)
-		}
-		// Store the source tag for future comparison
-		imageSet.Annotations[releaseImageSourceAnnotation] = sourceImage
-		imageSet.Spec.ReleaseImage = digestImage
-		return nil
-	})
-
-	return err
-}
-
-// getReleaseImageWithDigest resolves a tag-based release image reference to a digest-based reference.
-// This enables compatibility with ImageDigestMirrorSet (IDMS) in disconnected environments.
-func getReleaseImageWithDigest(image string, pullSecret []byte, remoteImage containers.RemoteImage) (string, error) {
-	keychain, err := containers.PullSecretKeyChainFromString(string(pullSecret))
-	if err != nil {
-		return "", fmt.Errorf("failed to create keychain from pull secret: %w", err)
-	}
-
-	digest, err := remoteImage.GetDigest(image, keychain)
-	if err != nil {
-		return "", fmt.Errorf("failed to resolve digest for image %s: %w", image, err)
-	}
-
-	repoImage, err := containers.GetRepoImage(image)
-	if err != nil {
-		return "", err
-	}
-
-	return repoImage + "@" + digest, nil
 }
 
 func getClusterNetworks(cluster *clusterv1.Cluster) ([]hiveext.ClusterNetworkEntry, []string) {
@@ -531,11 +412,10 @@ func getBaselineCapability(capability string, isBaremetalPlatform bool) (string,
 	}
 
 	if baselineCapability == "" {
-		baselineCapability = defaultBaselineCapability
 		if isBaremetalPlatform {
-			baselineCapability = defaultBaremetalBaselineCapability
+			return defaultBaremetalBaselineCapability, nil
 		}
-		return baselineCapability, nil
+		return defaultBaselineCapability, nil
 	}
 
 	var baselineCapabilityRegexp = regexp.MustCompile(`v4\.[0-9]+`)

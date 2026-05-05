@@ -62,8 +62,8 @@ var (
 // ClusterDeploymentReconciler reconciles a ClusterDeployment object
 type ClusterDeploymentReconciler struct {
 	client.Client
-	Scheme      *runtime.Scheme
-	RemoteImage containers.RemoteImage
+	Scheme          *runtime.Scheme
+	ImageSetManager *imageset.Manager
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -122,7 +122,7 @@ func (r *ClusterDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	releaseImage := getReleaseImage(*acp, arch)
 
 	// Ensure ClusterImageSet exists with digest-based release image
-	if err = r.ensureDigestBasedClusterImageSet(ctx, clusterDeployment.Name, releaseImage, acp); err != nil {
+	if err = r.ImageSetManager.EnsureDigestBasedClusterImageSet(ctx, clusterDeployment.Name, releaseImage, acp); err != nil {
 		log.Error(err, "failed to ensure ClusterImageSet")
 		return ctrl.Result{}, err
 	}

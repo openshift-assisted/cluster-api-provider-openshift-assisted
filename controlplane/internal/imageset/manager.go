@@ -118,7 +118,7 @@ func (m *Manager) shouldResolveDigest(ctx context.Context, imageSetName string, 
 	imageSet := &hivev1.ClusterImageSet{}
 	err := m.client.Get(ctx, client.ObjectKey{Name: imageSetName}, imageSet)
 	if err != nil {
-		if err = client.IgnoreNotFound(err); err != nil {
+		if client.IgnoreNotFound(err) != nil {
 			return "", false, err
 		}
 		// ClusterImageSet doesn't exist yet - needs resolution

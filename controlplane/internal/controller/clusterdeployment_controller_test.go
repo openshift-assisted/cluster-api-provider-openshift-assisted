@@ -29,6 +29,7 @@ import (
 	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/assistedinstaller"
 	controlplanev1alpha3 "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/api/v1alpha3"
 	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/internal/controller"
+	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/internal/imageset"
 	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/pkg/containers"
 	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/test/utils"
 	hiveext "github.com/openshift/assisted-service/api/hiveextension/v1beta1"
@@ -72,9 +73,9 @@ var _ = Describe("ClusterDeployment Controller", func() {
 			Build()
 		Expect(k8sClient).NotTo(BeNil())
 		controllerReconciler = &controller.ClusterDeploymentReconciler{
-			Client:      k8sClient,
-			Scheme:      k8sClient.Scheme(),
-			RemoteImage: mockRemoteImage,
+			Client:          k8sClient,
+			Scheme:          k8sClient.Scheme(),
+			ImageSetManager: imageset.NewManager(k8sClient, mockRemoteImage),
 		}
 
 		ns := &corev1.Namespace{

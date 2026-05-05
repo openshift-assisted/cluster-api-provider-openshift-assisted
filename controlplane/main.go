@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/internal/imageset"
 	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/internal/upgrade"
 	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/internal/workloadclient"
 
@@ -198,9 +199,9 @@ func main() {
 		os.Exit(1)
 	}
 	if err = (&controlplanecontroller.ClusterDeploymentReconciler{
-		Client:      mgr.GetClient(),
-		Scheme:      mgr.GetScheme(),
-		RemoteImage: releaseImageRepository,
+		Client:          mgr.GetClient(),
+		Scheme:          mgr.GetScheme(),
+		ImageSetManager: imageset.NewManager(mgr.GetClient(), releaseImageRepository),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ClusterDeployment")
 		os.Exit(1)

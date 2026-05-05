@@ -902,9 +902,9 @@ var _ = Describe("ClusterDeployment Controller", func() {
 				Expect(controllerutil.SetOwnerReference(cluster, oacp, testScheme)).To(Succeed())
 				Expect(controllerutil.SetOwnerReference(oacp, cd, testScheme)).To(Succeed())
 
-				// Mock expects OKD image URL
+				// Mock expects OKD image URL (OKD format doesn't include architecture suffix)
 				mockRemoteImage.EXPECT().
-					GetDigest("quay.io/okd/scos-release:4.18.0-okd-scos.ec.1-multi", gomock.Any()).
+					GetDigest("quay.io/okd/scos-release:4.18.0-okd-scos.ec.1", gomock.Any()).
 					Return(testDigest, nil).
 					Times(1)
 

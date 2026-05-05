@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/google/go-containerregistry/pkg/authn"
 	controlplanev1alpha3 "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/api/v1alpha3"
 	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/internal/auth"
 	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/pkg/containers"
@@ -67,23 +68,25 @@ func (r *ClusterDeploymentReconciler) ensureDigestBasedClusterImageSet(
 	return nil
 }
 
-// resolveReleaseImageDigest retrieves pull secret and resolves a tag-based release image to digest-based format.
+// resolveReleaseImageDigest retrieves pull secret (if configured) and resolves a tag-based release image to digest-based format.
+// Falls back to anonymous authentication when PullSecretRef is not configured, enabling digest resolution for publicly readable images.
 // Returns the digest-based image reference or an error if resolution fails.
 func (r *ClusterDeploymentReconciler) resolveReleaseImageDigest(
 	ctx context.Context,
 	acp *controlplanev1alpha3.OpenshiftAssistedControlPlane,
 	releaseImage string,
 ) (string, error) {
-	// Check if pull secret is configured
-	if acp.Spec.Config.PullSecretRef == nil {
-		return "", fmt.Errorf("pull secret reference is required for digest resolution but not configured in OpenshiftAssistedControlPlane")
-	}
+	var pullSecret []byte
+	var err error
 
-	// Retrieve pull secret for registry authentication
-	pullSecret, err := auth.GetPullSecret(r.Client, ctx, acp)
-	if err != nil {
-		return "", fmt.Errorf("failed to retrieve pull secret: %w", err)
+	// Use pull secret for authentication if configured, otherwise fall back to anonymous auth
+	if acp.Spec.Config.PullSecretRef != nil {
+		pullSecret, err = auth.GetPullSecret(r.Client, ctx, acp)
+		if err != nil {
+			return "", fmt.Errorf("failed to retrieve pull secret: %w", err)
+		}
 	}
+	// If pullSecret is nil (empty byte slice), getReleaseImageWithDigest will use anonymous auth
 
 	// Resolve digest-based image for IDMS compatibility
 	digestImage, err := getReleaseImageWithDigest(releaseImage, pullSecret, r.RemoteImage)
@@ -149,10 +152,18 @@ func ensureClusterImageSet(ctx context.Context, c client.Client, imageSetName st
 
 // getReleaseImageWithDigest resolves a tag-based release image reference to a digest-based reference.
 // This enables compatibility with ImageDigestMirrorSet (IDMS) in disconnected environments.
+// Uses anonymous authentication if pullSecret is nil/empty, enabling digest resolution for publicly readable images.
 func getReleaseImageWithDigest(image string, pullSecret []byte, remoteImage containers.RemoteImage) (string, error) {
-	keychain, err := containers.PullSecretKeyChainFromString(string(pullSecret))
-	if err != nil {
-		return "", fmt.Errorf("failed to create keychain from pull secret: %w", err)
+	// Default to anonymous authentication for publicly readable images
+	keychain := authn.Anonymous
+
+	// Override with pull secret credentials if provided
+	if len(pullSecret) > 0 {
+		var err error
+		keychain, err = containers.PullSecretKeyChainFromString(string(pullSecret))
+		if err != nil {
+			return "", fmt.Errorf("failed to create keychain from pull secret: %w", err)
+		}
 	}
 
 	digest, err := remoteImage.GetDigest(image, keychain)

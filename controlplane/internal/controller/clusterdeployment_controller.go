@@ -18,13 +18,9 @@ package controller
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
-	"regexp"
-	"slices"
-	"strings"
 
 	controlplanev1alpha3 "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/api/v1alpha3"
+	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/internal/capabilities"
 	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/internal/imageset"
 	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/internal/imageregistry"
 	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/internal/release"
@@ -37,7 +33,6 @@ import (
 	hivev1 "github.com/openshift/hive/apis/hive/v1"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
@@ -50,13 +45,7 @@ import (
 )
 
 const (
-	InstallConfigOverrides             = aiv1beta1.Group + "/install-config-overrides"
-	defaultBaremetalBaselineCapability = "None"
-	defaultBaselineCapability          = "vCurrent"
-)
-
-var (
-	defaultBaremetalAdditionalCapabilities = []configv1.ClusterVersionCapability{"baremetal", "Console", "Insights", "OperatorLifecycleManager", "Ingress", "marketplace", "NodeTuning", "DeploymentConfig"}
+	InstallConfigOverrides = aiv1beta1.Group + "/install-config-overrides"
 )
 
 // ClusterDeploymentReconciler reconciles a ClusterDeployment object

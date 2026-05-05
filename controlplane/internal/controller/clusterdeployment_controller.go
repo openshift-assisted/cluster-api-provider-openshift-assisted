@@ -122,23 +122,34 @@ func (r *ClusterDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	// Get tag-based release image
 	releaseImage := getReleaseImage(*acp, arch)
 
-	// Retrieve pull secret for registry authentication
-	pullSecret, err := auth.GetPullSecret(r.Client, ctx, acp)
+	// Check if we need to resolve the digest (only if source changed or digest missing)
+	digestImage, needsResolution, err := shouldResolveDigest(ctx, r.Client, clusterDeployment.Name, releaseImage)
 	if err != nil {
-		log.Error(err, "failed to retrieve pull secret", "release_image", releaseImage)
+		log.Error(err, "failed to check ClusterImageSet state")
 		return ctrl.Result{}, err
 	}
 
-	// Resolve digest-based image for IDMS compatibility
-	digestImage, err := getReleaseImageWithDigest(releaseImage, pullSecret, r.RemoteImage)
-	if err != nil {
-		log.Error(err, "failed to resolve digest for release image", "release_image", releaseImage)
-		return ctrl.Result{}, err
-	}
-	log.Info("resolved release image digest", "tag_image", releaseImage, "digest_image", digestImage)
+	if needsResolution {
+		// Retrieve pull secret for registry authentication
+		pullSecret, err := auth.GetPullSecret(r.Client, ctx, acp)
+		if err != nil {
+			log.Error(err, "failed to retrieve pull secret", "release_image", releaseImage)
+			return ctrl.Result{}, err
+		}
 
-	// Create ClusterImageSet with digest-based image
-	if err = ensureClusterImageSet(ctx, r.Client, clusterDeployment.Name, digestImage); err != nil {
+		// Resolve digest-based image for IDMS compatibility
+		digestImage, err = getReleaseImageWithDigest(releaseImage, pullSecret, r.RemoteImage)
+		if err != nil {
+			log.Error(err, "failed to resolve digest for release image", "release_image", releaseImage)
+			return ctrl.Result{}, err
+		}
+		log.Info("resolved release image digest", "tag_image", releaseImage, "digest_image", digestImage)
+	} else {
+		log.V(logutil.DebugLevel).Info("reusing cached digest", "release_image", digestImage)
+	}
+
+	// Create or update ClusterImageSet with digest-based image and source tracking
+	if err = ensureClusterImageSet(ctx, r.Client, clusterDeployment.Name, releaseImage, digestImage); err != nil {
 		log.Error(err, "failed creating ClusterImageSet")
 		return ctrl.Result{}, err
 	}
@@ -289,7 +300,42 @@ func (r *ClusterDeploymentReconciler) updateClusterDeploymentRef(
 	return r.Update(ctx, cd)
 }
 
-func ensureClusterImageSet(ctx context.Context, c client.Client, imageSetName string, releaseImage string) error {
+const (
+	releaseImageSourceAnnotation = "cluster.x-k8s.io/release-image-source"
+)
+
+// shouldResolveDigest checks if digest resolution is needed.
+// Returns: (existingDigest, needsResolution, error)
+// needsResolution is true if the source tag changed or no digest exists.
+func shouldResolveDigest(ctx context.Context, c client.Client, imageSetName string, currentSource string) (string, bool, error) {
+	imageSet := &hivev1.ClusterImageSet{}
+	err := c.Get(ctx, client.ObjectKey{Name: imageSetName}, imageSet)
+	if err != nil {
+		if client.IgnoreNotFound(err) == nil {
+			// ClusterImageSet doesn't exist yet - needs resolution
+			return "", true, nil
+		}
+		return "", false, err
+	}
+
+	// Check if source tag has changed
+	storedSource := imageSet.Annotations[releaseImageSourceAnnotation]
+	if storedSource != currentSource {
+		// Source changed - needs re-resolution
+		return "", true, nil
+	}
+
+	// Check if we have a digest-based image (contains @)
+	if !strings.Contains(imageSet.Spec.ReleaseImage, "@") {
+		// Tag-based image - needs resolution
+		return "", true, nil
+	}
+
+	// Source hasn't changed and we have a digest - reuse it
+	return imageSet.Spec.ReleaseImage, false, nil
+}
+
+func ensureClusterImageSet(ctx context.Context, c client.Client, imageSetName string, sourceImage string, digestImage string) error {
 	imageSet := &hivev1.ClusterImageSet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: imageSetName,
@@ -297,7 +343,12 @@ func ensureClusterImageSet(ctx context.Context, c client.Client, imageSetName st
 	}
 
 	_, err := controllerutil.CreateOrPatch(ctx, c, imageSet, func() error {
-		imageSet.Spec.ReleaseImage = releaseImage
+		if imageSet.Annotations == nil {
+			imageSet.Annotations = make(map[string]string)
+		}
+		// Store the source tag for future comparison
+		imageSet.Annotations[releaseImageSourceAnnotation] = sourceImage
+		imageSet.Spec.ReleaseImage = digestImage
 		return nil
 	})
 
@@ -325,13 +376,24 @@ func getReleaseImageWithDigest(image string, pullSecret []byte, remoteImage cont
 	return repoImage + "@" + digest, nil
 }
 
-// getRepoImage extracts the repository part from an image reference (before the tag).
+// getRepoImage extracts the repository part from an image reference (before the tag or digest).
+// Handles registry host:port format correctly (e.g., registry.example.com:5000/repo:tag).
 func getRepoImage(image string) (string, error) {
-	parts := strings.Split(image, ":")
-	if len(parts) < 1 {
+	// Handle digest-based references (repo@sha256:...)
+	if at := strings.LastIndex(image, "@"); at != -1 {
+		return image[:at], nil
+	}
+
+	// For tag-based references, find the tag separator (:) after the last /
+	lastSlash := strings.LastIndex(image, "/")
+	lastColon := strings.LastIndex(image, ":")
+
+	// Tag separator must come after the last slash (to avoid splitting host:port)
+	if lastColon == -1 || lastColon < lastSlash {
 		return "", fmt.Errorf("could not parse image %s", image)
 	}
-	return parts[0], nil
+
+	return image[:lastColon], nil
 }
 
 func getClusterNetworks(cluster *clusterv1.Cluster) ([]hiveext.ClusterNetworkEntry, []string) {

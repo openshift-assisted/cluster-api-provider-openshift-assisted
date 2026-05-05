@@ -1,5 +1,0 @@
-{
-  "flake": false,
-  "fixed": true,
-  "summary": "Removed unused 'auth' import causing lint, unit test, and Docker build failures"
-}

@@ -45,8 +45,7 @@ import (
 )
 
 const (
-	InstallConfigOverrides            = aiv1beta1.Group + "/install-config-overrides"
-	openshiftAssistedControlPlaneKind = "OpenshiftAssistedControlPlane"
+	InstallConfigOverrides = aiv1beta1.Group + "/install-config-overrides"
 )
 
 // ClusterDeploymentReconciler reconciles a ClusterDeployment object

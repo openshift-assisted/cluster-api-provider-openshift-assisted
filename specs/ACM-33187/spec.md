@@ -29,7 +29,7 @@ The cluster-api-provider-openshift-assisted (CAPOA) controlplane controller curr
 
 2. The system MUST resolve the digest for a given release version and architecture combination before creating or updating a ClusterImageSet.
 
-3. If digest resolution fails (e.g., network issues, image not found, registry unavailable), the system MUST provide clear error messaging indicating why the ClusterImageSet could not be created or updated.
+3. If digest resolution fails (e.g., network issues, image not found, registry unavailable), the system MUST fail the reconciliation and requeue for retry, providing clear error messaging indicating why digest resolution failed and what actions the user can take.
 
 4. The system MUST support digest resolution for both OCP (OpenShift Container Platform) and OKD release images.
 
@@ -41,7 +41,7 @@ The cluster-api-provider-openshift-assisted (CAPOA) controlplane controller curr
 
 8. The solution MUST be compatible with existing IDMS and ImageTagMirrorSet configurations in spoke clusters.
 
-9. [ASSUMPTION] The hub cluster (where CAPOA runs) MUST have network access to the source registry (or its mirror) to resolve image digests at the time of ClusterImageSet creation. [NEEDS CLARIFICATION: Should the system support offline digest resolution using a local cache or pre-populated digest mapping?]
+9. The hub cluster (where CAPOA runs) MUST have network access to the source registry (or its mirror) to resolve image digests at the time of ClusterImageSet creation.
 
 10. The system SHOULD log the resolved digest and source registry used when creating or updating ClusterImageSet resources for troubleshooting purposes.
 
@@ -115,27 +115,22 @@ The cluster-api-provider-openshift-assisted (CAPOA) controlplane controller curr
 
 1. **Digest Resolution Mechanism**: Should the system use the `oc` CLI tool, the OpenShift release API, container registry API calls, or a Go library (e.g., `github.com/google/go-containerregistry`) to resolve digests? What are the trade-offs in terms of dependencies, performance, and maintainability?
 
-2. **Offline Environments**: In truly air-gapped environments where the hub cluster cannot reach any external registry, should the system support an alternative mechanism such as:
+2. **Future: Offline Environments**: This spec currently treats hub cluster connectivity to a registry as a prerequisite (see Out of Scope, line 104). For future iterations, should the system support truly air-gapped environments where the hub cluster cannot reach any external registry? Possible mechanisms:
    - A pre-populated ConfigMap or custom resource mapping versions to digests?
    - An annotation on OpenshiftAssistedControlPlane to explicitly specify the digest?
-   - A local registry mirror accessible from the hub?
+   - Validation that ensures a local registry mirror is accessible from the hub?
 
 3. **Digest Caching Strategy**: Should digests be cached in-memory per controller session, persisted to a ConfigMap, or re-resolved on every reconciliation? What is the appropriate cache TTL?
 
-4. **Fallback Behavior**: If digest resolution fails for a specific version, should the system:
-   - Fail the reconciliation and requeue (blocking ClusterImageSet creation)?
-   - Fall back to tag-based reference and log a warning (current behavior)?
-   - Use a user-provided digest override annotation if available?
+4. **Multi-Architecture Support**: When resolving digests, should the system handle multi-arch manifest lists and select the architecture-specific digest, or use the manifest list digest? What is the expected behavior for the assisted-service?
 
-5. **Multi-Architecture Support**: When resolving digests, should the system handle multi-arch manifest lists and select the architecture-specific digest, or use the manifest list digest? What is the expected behavior for the assisted-service?
+5. **Version Format Ambiguity**: The current code uses `DistributionVersion` from the OpenshiftAssistedControlPlane spec (e.g., "4.21.11"). Should the system validate this format before attempting digest resolution, and what error handling is appropriate for malformed versions?
 
-6. **Version Format Ambiguity**: The current code uses `DistributionVersion` from the OpenshiftAssistedControlPlane spec (e.g., "4.21.11"). Should the system validate this format before attempting digest resolution, and what error handling is appropriate for malformed versions?
-
-7. **Repository Override Scope**: When `cluster.x-k8s.io/release-image-repository-override` is used, should the system assume:
+6. **Repository Override Scope**: When `cluster.x-k8s.io/release-image-repository-override` is used, should the system assume:
    - The overridden repository contains the same tags and digests as the upstream repository (mirrored)?
    - The overridden repository may have different digests for the same version (requires resolution from that specific repository)?
 
-8. **Upgrade Path**: For existing CAPI deployments with tag-based ClusterImageSets, what is the expected behavior when they are updated to digest-based references? Should this trigger any validation or reconciliation in related resources like AgentClusterInstall?
+7. **Upgrade Path**: For existing CAPI deployments with tag-based ClusterImageSets, what is the expected behavior when they are updated to digest-based references? Should this trigger any validation or reconciliation in related resources like AgentClusterInstall?
 
 ---
 

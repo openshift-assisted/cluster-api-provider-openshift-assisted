@@ -159,7 +159,7 @@ func (r *ClusterDeploymentReconciler) ensureAgentClusterInstall(
 			&oacp,
 			clusterDeployment.Labels[clusterv1.ClusterNameLabel],
 		)
-		aci.Labels[hiveext.ClusterConsumerLabel] = openshiftAssistedControlPlaneKind
+		aci.Labels[hiveext.ClusterConsumerLabel] = "OpenshiftAssistedControlPlane"
 
 		if err := controllerutil.SetOwnerReference(&oacp, aci, r.Scheme); err != nil {
 			log.V(logutil.WarningLevel).Info("failed to set owner reference on AgentClusterInstall", "error", err.Error())

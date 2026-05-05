@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package controller
+package imageset
 
 import (
 	"context"
@@ -36,9 +36,23 @@ const (
 	releaseImageSourceAnnotation = "cluster.x-k8s.io/release-image-source"
 )
 
-// ensureDigestBasedClusterImageSet orchestrates digest resolution and ClusterImageSet creation/update.
+// Manager handles ClusterImageSet creation and digest resolution.
+type Manager struct {
+	client      client.Client
+	remoteImage containers.RemoteImage
+}
+
+// NewManager creates a new imageset Manager.
+func NewManager(client client.Client, remoteImage containers.RemoteImage) *Manager {
+	return &Manager{
+		client:      client,
+		remoteImage: remoteImage,
+	}
+}
+
+// EnsureDigestBasedClusterImageSet orchestrates digest resolution and ClusterImageSet creation/update.
 // It checks if digest resolution is needed, resolves it if necessary, and ensures the ClusterImageSet exists.
-func (r *ClusterDeploymentReconciler) ensureDigestBasedClusterImageSet(
+func (m *Manager) EnsureDigestBasedClusterImageSet(
 	ctx context.Context,
 	imageSetName string,
 	releaseImage string,
@@ -47,13 +61,13 @@ func (r *ClusterDeploymentReconciler) ensureDigestBasedClusterImageSet(
 	log := ctrl.LoggerFrom(ctx)
 
 	// Check if we need to resolve the digest (only if source changed or digest missing)
-	digestImage, needsResolution, err := shouldResolveDigest(ctx, r.Client, imageSetName, releaseImage)
+	digestImage, needsResolution, err := m.shouldResolveDigest(ctx, imageSetName, releaseImage)
 	if err != nil {
 		return fmt.Errorf("failed to check ClusterImageSet state: %w", err)
 	}
 
 	if needsResolution {
-		digestImage, err = r.resolveReleaseImageDigest(ctx, acp, releaseImage)
+		digestImage, err = m.resolveReleaseImageDigest(ctx, acp, releaseImage)
 		if err != nil {
 			return fmt.Errorf("failed to resolve release image digest for %s: %w", releaseImage, err)
 		}
@@ -61,7 +75,7 @@ func (r *ClusterDeploymentReconciler) ensureDigestBasedClusterImageSet(
 	}
 
 	// Create or update ClusterImageSet with digest-based image and source tracking
-	if err = ensureClusterImageSet(ctx, r.Client, imageSetName, releaseImage, digestImage); err != nil {
+	if err = m.ensureClusterImageSet(ctx, imageSetName, releaseImage, digestImage); err != nil {
 		return fmt.Errorf("failed to create/update ClusterImageSet: %w", err)
 	}
 
@@ -71,7 +85,7 @@ func (r *ClusterDeploymentReconciler) ensureDigestBasedClusterImageSet(
 // resolveReleaseImageDigest retrieves pull secret (if configured) and resolves a tag-based release image to digest-based format.
 // Falls back to anonymous authentication when PullSecretRef is not configured, enabling digest resolution for publicly readable images.
 // Returns the digest-based image reference or an error if resolution fails.
-func (r *ClusterDeploymentReconciler) resolveReleaseImageDigest(
+func (m *Manager) resolveReleaseImageDigest(
 	ctx context.Context,
 	acp *controlplanev1alpha3.OpenshiftAssistedControlPlane,
 	releaseImage string,
@@ -81,7 +95,7 @@ func (r *ClusterDeploymentReconciler) resolveReleaseImageDigest(
 
 	// Use pull secret for authentication if configured, otherwise fall back to anonymous auth
 	if acp.Spec.Config.PullSecretRef != nil {
-		pullSecret, err = auth.GetPullSecret(r.Client, ctx, acp)
+		pullSecret, err = auth.GetPullSecret(m.client, ctx, acp)
 		if err != nil {
 			return "", fmt.Errorf("failed to retrieve pull secret: %w", err)
 		}
@@ -89,7 +103,7 @@ func (r *ClusterDeploymentReconciler) resolveReleaseImageDigest(
 	// If pullSecret is nil (empty byte slice), getReleaseImageWithDigest will use anonymous auth
 
 	// Resolve digest-based image for IDMS compatibility
-	digestImage, err := getReleaseImageWithDigest(releaseImage, pullSecret, r.RemoteImage)
+	digestImage, err := getReleaseImageWithDigest(releaseImage, pullSecret, m.remoteImage)
 	if err != nil {
 		return "", fmt.Errorf("failed to resolve digest: %w", err)
 	}
@@ -100,9 +114,9 @@ func (r *ClusterDeploymentReconciler) resolveReleaseImageDigest(
 // shouldResolveDigest checks if digest resolution is needed.
 // Returns: (existingDigest, needsResolution, error)
 // needsResolution is true if the source tag changed or no digest exists.
-func shouldResolveDigest(ctx context.Context, c client.Client, imageSetName string, currentSource string) (string, bool, error) {
+func (m *Manager) shouldResolveDigest(ctx context.Context, imageSetName string, currentSource string) (string, bool, error) {
 	imageSet := &hivev1.ClusterImageSet{}
-	err := c.Get(ctx, client.ObjectKey{Name: imageSetName}, imageSet)
+	err := m.client.Get(ctx, client.ObjectKey{Name: imageSetName}, imageSet)
 	if err != nil {
 		if err = client.IgnoreNotFound(err); err != nil {
 			return "", false, err
@@ -130,14 +144,14 @@ func shouldResolveDigest(ctx context.Context, c client.Client, imageSetName stri
 
 // ensureClusterImageSet creates or updates a ClusterImageSet with the given digest-based release image.
 // It also stores the source tag in annotations for future comparison.
-func ensureClusterImageSet(ctx context.Context, c client.Client, imageSetName string, sourceImage string, digestImage string) error {
+func (m *Manager) ensureClusterImageSet(ctx context.Context, imageSetName string, sourceImage string, digestImage string) error {
 	imageSet := &hivev1.ClusterImageSet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: imageSetName,
 		},
 	}
 
-	_, err := controllerutil.CreateOrPatch(ctx, c, imageSet, func() error {
+	_, err := controllerutil.CreateOrPatch(ctx, m.client, imageSet, func() error {
 		if imageSet.Annotations == nil {
 			imageSet.Annotations = make(map[string]string)
 		}

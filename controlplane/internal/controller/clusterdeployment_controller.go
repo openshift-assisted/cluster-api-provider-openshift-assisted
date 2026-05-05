@@ -45,7 +45,8 @@ import (
 )
 
 const (
-	InstallConfigOverrides = aiv1beta1.Group + "/install-config-overrides"
+	InstallConfigOverrides            = aiv1beta1.Group + "/install-config-overrides"
+	openshiftAssistedControlPlaneKind = "OpenshiftAssistedControlPlane"
 )
 
 // ClusterDeploymentReconciler reconciles a ClusterDeployment object
@@ -184,7 +185,7 @@ func (r *ClusterDeploymentReconciler) ensureAgentClusterInstall(
 			aci.Spec.IngressVIPs = oacp.Spec.Config.IngressVIPs
 			aci.Spec.PlatformType = hiveext.PlatformType(configv1.BareMetalPlatformType)
 		}
-		installConfigOverride, err := getInstallConfigOverride(&oacp, aci)
+		installConfigOverride, err := capabilities.GetInstallConfigOverride(&oacp, aci)
 		if err != nil {
 			return err
 		}
@@ -307,129 +308,4 @@ func (r *ClusterDeploymentReconciler) createImageRegistry(ctx context.Context, r
 	})
 
 	return err
-}
-
-type InstallConfigOverride struct {
-	Capability configv1.ClusterVersionCapabilitiesSpec `json:"capabilities,omitempty"`
-}
-
-// isBaremetalPlatform checks if the AgentClusterInstall is configured for a baremetal platform.
-// Returns true if the platform type is BareMetalPlatformType, false otherwise.
-func isBaremetalPlatform(aci *hiveext.AgentClusterInstall) bool {
-	return aci.Spec.PlatformType == hiveext.BareMetalPlatformType
-}
-
-// getInstallConfigOverride merges install config override from annotations with capabilities-based overrides.
-// It returns the final merged install config override as a JSON string, or empty string if no overrides are needed.
-// The function combines user-provided install config overrides from annotations with automatically
-// generated capabilities configuration based on the cluster platform type.
-func getInstallConfigOverride(oacp *controlplanev1alpha3.OpenshiftAssistedControlPlane, aci *hiveext.AgentClusterInstall) (string, error) {
-	installConfigOverrideStr := oacp.Annotations[controlplanev1alpha3.InstallConfigOverrideAnnotation]
-
-	capabilitiesCfgOverride, err := getInstallConfigOverrideForCapabilities(oacp, aci)
-	if err != nil {
-		return "", err
-	}
-
-	// Return early if either is empty
-	if capabilitiesCfgOverride == "" {
-		return installConfigOverrideStr, nil
-	}
-	if installConfigOverrideStr == "" {
-		return capabilitiesCfgOverride, nil
-	}
-
-	// Both are non-empty, merge them
-	return mergeJson(installConfigOverrideStr, capabilitiesCfgOverride)
-}
-
-// getInstallConfigOverrideForCapabilities generates install config override JSON for OpenShift capabilities configuration.
-// It automatically sets appropriate capabilities based on the platform type:
-// - Baremetal platforms: Sets baseline to "None" and includes default baremetal capabilities
-// - Non-baremetal platforms: Sets baseline to "vCurrent" and only includes user-specified capabilities
-// Returns empty string if no capabilities configuration is needed (non-baremetal with empty capabilities).
-func getInstallConfigOverrideForCapabilities(oacp *controlplanev1alpha3.OpenshiftAssistedControlPlane, aci *hiveext.AgentClusterInstall) (string, error) {
-	var installCfgOverride InstallConfigOverride
-	if isCapabilitiesEmpty(oacp.Spec.Config.Capabilities) && !isBaremetalPlatform(aci) {
-		return "", nil
-	}
-	baselineCapability, err := getBaselineCapability(oacp.Spec.Config.Capabilities.BaselineCapability, isBaremetalPlatform(aci))
-	if err != nil {
-		return "", err
-	}
-	installCfgOverride.Capability.BaselineCapabilitySet = configv1.ClusterVersionCapabilitySet(baselineCapability)
-
-	additionalEnabledCapabilities := getAdditionalCapabilities(oacp.Spec.Config.Capabilities.AdditionalEnabledCapabilities, isBaremetalPlatform(aci))
-	installCfgOverride.Capability.AdditionalEnabledCapabilities = additionalEnabledCapabilities
-
-	installCfgOverrideBytes, err := json.Marshal(installCfgOverride)
-	if err != nil {
-		return "", err
-	}
-	installCfgOverrideStr := string(installCfgOverrideBytes)
-	return installCfgOverrideStr, nil
-}
-
-// mergeJson merges two JSON strings by unmarshaling them into maps and combining them.
-// The second JSON takes precedence over the first in case of key conflicts.
-// Returns the merged JSON as a string, error if unmarshalling or marshalling fails.
-func mergeJson(json1, json2 string) (string, error) {
-	var merged map[string]interface{}
-	if err := json.Unmarshal([]byte(json1), &merged); err != nil {
-		return "", fmt.Errorf("failed to unmarshal json1: %w", err)
-	}
-	if err := json.Unmarshal([]byte(json2), &merged); err != nil {
-		return "", fmt.Errorf("failed to unmarshal json2: %w", err)
-	}
-	mergedJson, err := json.Marshal(merged)
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal merged json: %w", err)
-	}
-	return string(mergedJson), nil
-}
-
-func getBaselineCapability(capability string, isBaremetalPlatform bool) (string, error) {
-	baselineCapability := capability
-	if baselineCapability == "None" || baselineCapability == "vCurrent" {
-		return baselineCapability, nil
-	}
-
-	if baselineCapability == "" {
-		if isBaremetalPlatform {
-			return defaultBaremetalBaselineCapability, nil
-		}
-		return defaultBaselineCapability, nil
-	}
-
-	var baselineCapabilityRegexp = regexp.MustCompile(`v4\.[0-9]+`)
-	if !baselineCapabilityRegexp.MatchString(baselineCapability) {
-		return "",
-			fmt.Errorf("invalid baseline capability set, must be one of: None, vCurrent, or v4.x. Got: [%s]", baselineCapability)
-	}
-	return baselineCapability, nil
-}
-
-func getAdditionalCapabilities(specifiedAdditionalCapabilities []string, isBaremetalPlatform bool) []configv1.ClusterVersionCapability {
-	additionalCapabilitiesList := []configv1.ClusterVersionCapability{}
-	if isBaremetalPlatform {
-		additionalCapabilitiesList = append([]configv1.ClusterVersionCapability{}, defaultBaremetalAdditionalCapabilities...)
-	}
-
-	for _, capability := range specifiedAdditionalCapabilities {
-		// Ignore MAPI for baremetal MNO clusters and ignore duplicates
-		if (strings.EqualFold(capability, "MachineAPI") && isBaremetalPlatform) || slices.Contains(additionalCapabilitiesList, configv1.ClusterVersionCapability(capability)) {
-			continue
-		}
-		additionalCapabilitiesList = append(additionalCapabilitiesList, configv1.ClusterVersionCapability(capability))
-	}
-
-	if len(additionalCapabilitiesList) < 1 {
-		return nil
-	}
-
-	return additionalCapabilitiesList
-}
-
-func isCapabilitiesEmpty(capabilities controlplanev1alpha3.Capabilities) bool {
-	return equality.Semantic.DeepEqual(capabilities, controlplanev1alpha3.Capabilities{})
 }

@@ -28,6 +28,7 @@ import (
 
 	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/assistedinstaller"
 	controlplanev1alpha3 "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/api/v1alpha3"
+	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/internal/capabilities"
 	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/internal/controller"
 	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/internal/imageset"
 	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/pkg/containers"
@@ -246,7 +247,7 @@ var _ = Describe("ClusterDeployment Controller", func() {
 				Expect(aci.Spec.APIVIPs).To(Equal(apiVIPs))
 				Expect(aci.Annotations).To(HaveKey(controller.InstallConfigOverrides))
 
-				cfgOverride := controller.InstallConfigOverride{}
+				cfgOverride := capabilities.InstallConfigOverride{}
 				Expect(json.Unmarshal([]byte(aci.Annotations[controller.InstallConfigOverrides]), &cfgOverride)).NotTo(HaveOccurred())
 				Expect(cfgOverride.Capability.AdditionalEnabledCapabilities).To(Equal([]configv1.ClusterVersionCapability{"baremetal", "Console", "Insights", "OperatorLifecycleManager", "Ingress", "marketplace", "NodeTuning", "DeploymentConfig"}))
 				Expect(cfgOverride.Capability.BaselineCapabilitySet).To(Equal(configv1.ClusterVersionCapabilitySet("None")))
@@ -398,7 +399,7 @@ var _ = Describe("ClusterDeployment Controller", func() {
 
 					// The annotation should contain both the install config override and the capabilities
 					// but MAPI should still be excluded for baremetal platforms
-					cfgOverride := controller.InstallConfigOverride{}
+					cfgOverride := capabilities.InstallConfigOverride{}
 					Expect(json.Unmarshal([]byte(aci.Annotations[controller.InstallConfigOverrides]), &cfgOverride)).NotTo(HaveOccurred())
 
 					Expect(cfgOverride.Capability.AdditionalEnabledCapabilities).To(Equal([]configv1.ClusterVersionCapability{"baremetal", "Console", "Insights", "OperatorLifecycleManager", "Ingress", "marketplace", "NodeTuning", "DeploymentConfig", "CloudControllerManager"}))

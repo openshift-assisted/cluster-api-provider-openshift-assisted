@@ -3,58 +3,66 @@ on:
   push:
     branches:
       - master
-  pull_request:
+  pull_request_target:
+
 jobs:
-  build:
-    name: Security scan
+  image-scan:
+    name: Image scan (${{ matrix.provider }})
     runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        # Must match Makefile targets: <provider>-docker-build
+        provider: [controlplane, bootstrap]
     env:
       CONTAINER_TAG: ${{ github.sha }}
       CONTAINER_TOOL: docker
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.x'
       - name: Install Jinja2 CLI
         run: pip install jinja2-cli
-      - name: Build images from Dockerfile
-        run: make docker-build-all
+      - name: Build ${{ matrix.provider }} image
+        run: make ${{ matrix.provider }}-docker-build
       - name: Create scans folder
-        run: |
-          mkdir -p scans/
-      - name: Run Trivy vulnerability scanner for controlplane
-        uses: aquasecurity/trivy-action@v0.36.0
+        run: mkdir -p scans/
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          image-ref: 'quay.io/edge-infrastructure/cluster-api-controlplane-provider-openshift-assisted:${{ github.sha }}'
+          image-ref: 'quay.io/edge-infrastructure/cluster-api-${{ matrix.provider }}-provider-openshift-assisted:${{ github.sha }}'
           trivy-config: .trivy.yaml
-          output: 'scans/trivy-results-controlplane.sarif'
-      - name: Upload Trivy scan results for controlplane to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v3
+          output: 'scans/trivy-results-${{ matrix.provider }}.sarif'
+      - name: Upload Trivy scan results to GitHub Security tab
+        if: always()
+        uses: github/codeql-action/upload-sarif@e46ed2cbd01164d986452f91f178727624ae40d7 # v4.35.3
         with:
-          sarif_file: 'scans/trivy-results-controlplane.sarif'
-          category: 'controlplane'
-      - name: Run Trivy vulnerability scanner for bootstrap
-        uses: aquasecurity/trivy-action@v0.36.0
+          sarif_file: 'scans/trivy-results-${{ matrix.provider }}.sarif'
+          category: ${{ matrix.provider }}
+
+  repo-scan:
+    name: Repository scan
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
         with:
-          image-ref: 'quay.io/edge-infrastructure/cluster-api-bootstrap-provider-openshift-assisted:${{ github.sha }}'
-          trivy-config: .trivy.yaml
-          output: 'scans/trivy-results-bootstrap.sarif'
-      - name: Upload Trivy scan results for bootstrap to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: 'scans/trivy-results-bootstrap.sarif'
-          category: 'bootstrap'
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Create scans folder
+        run: mkdir -p scans/
       - name: Run Trivy vulnerability scanner in repo mode
-        uses: aquasecurity/trivy-action@v0.36.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: 'fs'
           trivy-config: .trivy.yaml
           output: 'scans/trivy-results-repo.sarif'
       - name: Upload Trivy scan results for repo to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        uses: github/codeql-action/upload-sarif@e46ed2cbd01164d986452f91f178727624ae40d7 # v4.35.3
         with:
           sarif_file: 'scans/trivy-results-repo.sarif'
           category: 'repo'

@@ -119,16 +119,7 @@ var _ = Describe("ClusterDeployment Controller", func() {
 			Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
 
 			// Create pull secret
-			pullSecret := &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "pull-secret",
-					Namespace: namespace,
-				},
-				Data: map[string][]byte{
-					assistedinstaller.PullsecretDataKey: []byte(`{"auths":{"registry.example.com":{"auth":"dGVzdDp0ZXN0"}}}`),
-				},
-			}
-			Expect(k8sClient.Create(ctx, pullSecret)).To(Succeed())
+			Expect(k8sClient.Create(ctx, newPullSecret("pull-secret", namespace))).To(Succeed())
 
 			enableOn := models.DiskEncryptionEnableOnAll
 			mode := models.DiskEncryptionModeTang

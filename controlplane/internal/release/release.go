@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/blang/semver/v4"
-	"github.com/openshift/cluster-api-provider-openshift-assisted/pkg/containers"
+	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/pkg/containers"
 )
 
 func IsOKD(version string) bool {

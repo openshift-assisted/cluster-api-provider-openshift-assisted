@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/blang/semver/v4"
+	"github.com/openshift/cluster-api-provider-openshift-assisted/pkg/containers"
 )
 
 func IsOKD(version string) bool {
@@ -59,4 +60,36 @@ func GetReleaseImage(desiredVersion, repositoryOverride string, architecture str
 		return fmt.Sprintf("%s:%s", OKDRepository, desiredVersion)
 	}
 	return fmt.Sprintf("%s:%s-%s", OCPRepository, desiredVersion, architecture)
+}
+
+// GetReleaseImageWithDigest resolves a tag-based release image reference to a digest-based reference.
+// It uses the provided pull secret for authentication and the RemoteImage interface for digest resolution.
+// Returns the digest-based image reference in the format "repository@sha256:digest" or an error.
+func GetReleaseImageWithDigest(image string, pullSecret []byte, remoteImage containers.RemoteImage) (string, error) {
+	keychain, err := containers.PullSecretKeyChainFromString(string(pullSecret))
+	if err != nil {
+		return "", err
+	}
+
+	digest, err := remoteImage.GetDigest(image, keychain)
+	if err != nil {
+		return "", err
+	}
+
+	repoImage, err := GetRepoImage(image)
+	if err != nil {
+		return "", err
+	}
+
+	return repoImage + "@" + digest, nil
+}
+
+// GetRepoImage extracts the repository portion from an image reference.
+// For example, "quay.io/openshift-release-dev/ocp-release:4.16.0-x86_64" returns "quay.io/openshift-release-dev/ocp-release".
+func GetRepoImage(image string) (string, error) {
+	parts := strings.Split(image, ":")
+	if len(parts) < 1 {
+		return "", fmt.Errorf("could not parse image %s", image)
+	}
+	return parts[0], nil
 }

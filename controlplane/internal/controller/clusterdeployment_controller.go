@@ -130,7 +130,7 @@ func (r *ClusterDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	}
 
 	// Resolve the release image digest
-	releaseImageWithDigest, err := getReleaseImageWithDigest(releaseImage, pullSecret, r.RemoteImage)
+	releaseImageWithDigest, err := release.GetReleaseImageWithDigest(releaseImage, pullSecret, r.RemoteImage)
 	if err != nil {
 		log.Error(err, "failed to resolve release image digest", "releaseImage", releaseImage)
 		return ctrl.Result{}, fmt.Errorf("failed to resolve release image digest for %s: %w", releaseImage, err)
@@ -304,32 +304,6 @@ func ensureClusterImageSet(ctx context.Context, c client.Client, imageSetName st
 	return err
 }
 
-func getReleaseImageWithDigest(image string, pullSecret []byte, remoteImage containers.RemoteImage) (string, error) {
-	keychain, err := containers.PullSecretKeyChainFromString(string(pullSecret))
-	if err != nil {
-		return "", err
-	}
-
-	digest, err := remoteImage.GetDigest(image, keychain)
-	if err != nil {
-		return "", err
-	}
-
-	repoImage, err := getRepoImage(image)
-	if err != nil {
-		return "", err
-	}
-
-	return repoImage + "@" + digest, nil
-}
-
-func getRepoImage(image string) (string, error) {
-	parts := strings.Split(image, ":")
-	if len(parts) < 1 {
-		return "", fmt.Errorf("could not parse image %s", image)
-	}
-	return parts[0], nil
-}
 
 func getClusterNetworks(cluster *clusterv1.Cluster) ([]hiveext.ClusterNetworkEntry, []string) {
 	clusterNetwork := make([]hiveext.ClusterNetworkEntry, 0, len(cluster.Spec.ClusterNetwork.Pods.CIDRBlocks))

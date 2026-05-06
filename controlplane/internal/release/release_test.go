@@ -1,9 +1,13 @@
 package release_test
 
 import (
+	"errors"
+
+	"github.com/golang/mock/gomock"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/internal/release"
+	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/pkg/containers"
 )
 
 var _ = Describe("Version Validation Functions", func() {
@@ -65,6 +69,88 @@ var _ = Describe("Version Validation Functions", func() {
 			It("should handle versions with both pre-release and build metadata", func() {
 				Expect(release.IsGA("4.12.0-rc.1+build.123")).To(BeFalse())
 			})
+		})
+	})
+
+	Describe("GetRepoImage", func() {
+		DescribeTable("extracts repository from image reference",
+			func(image string, expectedRepo string, shouldError bool) {
+				repo, err := release.GetRepoImage(image)
+				if shouldError {
+					Expect(err).To(HaveOccurred())
+				} else {
+					Expect(err).NotTo(HaveOccurred())
+					Expect(repo).To(Equal(expectedRepo))
+				}
+			},
+			Entry("OCP release image with tag",
+				"quay.io/openshift-release-dev/ocp-release:4.16.0-x86_64",
+				"quay.io/openshift-release-dev/ocp-release",
+				false),
+			Entry("OKD release image with tag",
+				"quay.io/okd/scos-release:4.18.0-okd-scos.2",
+				"quay.io/okd/scos-release",
+				false),
+			Entry("image with digest",
+				"quay.io/openshift-release-dev/ocp-release@sha256:abc123",
+				"quay.io/openshift-release-dev/ocp-release@sha256",
+				false),
+			Entry("image with multiple colons",
+				"registry.example.com:5000/repo/image:tag",
+				"registry.example.com:5000/repo/image",
+				false),
+		)
+	})
+
+	Describe("GetReleaseImageWithDigest", func() {
+		var (
+			mockCtrl        *gomock.Controller
+			mockRemoteImage *containers.MockRemoteImage
+			testPullSecret  []byte
+		)
+
+		BeforeEach(func() {
+			mockCtrl = gomock.NewController(GinkgoT())
+			mockRemoteImage = containers.NewMockRemoteImage(mockCtrl)
+			testPullSecret = []byte(`{"auths":{"quay.io":{"auth":"dGVzdDp0ZXN0"}}}`)
+		})
+
+		AfterEach(func() {
+			mockCtrl.Finish()
+		})
+
+		It("should resolve digest for tag-based image", func() {
+			image := "quay.io/openshift-release-dev/ocp-release:4.16.0-x86_64"
+			expectedDigest := "sha256:abc123def456"
+
+			mockRemoteImage.EXPECT().
+				GetDigest(image, gomock.Any()).
+				Return(expectedDigest, nil)
+
+			result, err := release.GetReleaseImageWithDigest(image, testPullSecret, mockRemoteImage)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal("quay.io/openshift-release-dev/ocp-release@" + expectedDigest))
+		})
+
+		It("should return error when digest resolution fails", func() {
+			image := "quay.io/openshift-release-dev/ocp-release:4.16.0-x86_64"
+			expectedError := errors.New("registry unavailable")
+
+			mockRemoteImage.EXPECT().
+				GetDigest(image, gomock.Any()).
+				Return("", expectedError)
+
+			_, err := release.GetReleaseImageWithDigest(image, testPullSecret, mockRemoteImage)
+			Expect(err).To(HaveOccurred())
+			Expect(err).To(Equal(expectedError))
+		})
+
+		It("should return error when pull secret is invalid", func() {
+			image := "quay.io/openshift-release-dev/ocp-release:4.16.0-x86_64"
+			invalidPullSecret := []byte(`invalid json`)
+
+			_, err := release.GetReleaseImageWithDigest(image, invalidPullSecret, mockRemoteImage)
+			Expect(err).To(HaveOccurred())
 		})
 	})
 })

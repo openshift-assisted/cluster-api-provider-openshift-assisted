@@ -197,26 +197,5 @@ func isGARelease(desiredVersion, repositoryOverride string) bool {
 }
 
 func (u *OpenshiftUpgrader) getReleaseImageWithDigest(image string, pullsecret []byte) (string, error) {
-	keychain, err := containers.PullSecretKeyChainFromString(string(pullsecret))
-	if err != nil {
-		return "", err
-	}
-
-	digest, err := u.remoteImage.GetDigest(image, keychain)
-	if err != nil {
-		return "", err
-	}
-	repoImage, err := getRepoImage(image)
-	if err != nil {
-		return "", err
-	}
-	return repoImage + "@" + digest, nil
-}
-
-func getRepoImage(image string) (string, error) {
-	parts := strings.Split(image, ":")
-	if len(parts) < 1 {
-		return "", fmt.Errorf("could not parse image %s", image)
-	}
-	return parts[0], nil
+	return release.GetReleaseImageWithDigest(image, pullsecret, u.remoteImage)
 }

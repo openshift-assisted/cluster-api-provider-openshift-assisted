@@ -48,7 +48,7 @@ var _ = Describe("GetInstallConfigOverride", func() {
 				Annotations: map[string]string{},
 			},
 			Spec: controlplanev1alpha3.OpenshiftAssistedControlPlaneSpec{
-				Config: controlplanev1alpha3.OpenshiftAssistedControlPlaneConfig{
+				Config: controlplanev1alpha3.OpenshiftAssistedControlPlaneConfigSpec{
 					Capabilities: controlplanev1alpha3.Capabilities{},
 				},
 			},

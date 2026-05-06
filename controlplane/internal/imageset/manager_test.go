@@ -21,7 +21,6 @@ import (
 	"fmt"
 
 	"github.com/golang/mock/gomock"
-	"github.com/google/go-containerregistry/pkg/authn"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	controlplanev1alpha3 "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/api/v1alpha3"
@@ -69,7 +68,7 @@ var _ = Describe("ImageSet Manager", func() {
 				Namespace: testNamespace,
 			},
 			Spec: controlplanev1alpha3.OpenshiftAssistedControlPlaneSpec{
-				Config: controlplanev1alpha3.OpenshiftAssistedControlPlaneConfig{
+				Config: controlplanev1alpha3.OpenshiftAssistedControlPlaneConfigSpec{
 					PullSecretRef: &corev1.LocalObjectReference{
 						Name: testPullSecretName,
 					},

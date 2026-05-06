@@ -53,6 +53,7 @@ const (
 	namespace        = "test"
 	openShiftVersion = "4.16.0"
 	testDigest       = "sha256:abc123def456789abc123def456789abc123def456789abc123def456789abcd"
+	testArchX86      = "x86_64"
 )
 
 var _ = Describe("ClusterDeployment Controller", func() {
@@ -155,7 +156,7 @@ var _ = Describe("ClusterDeployment Controller", func() {
 
 			// create config associated with this cluster
 			config := utils.NewOpenshiftAssistedConfig(namespace, "myconfig", clusterName)
-			config.Spec.CpuArchitecture = "x86_64"
+			config.Spec.CpuArchitecture = testArchX86
 			Expect(k8sClient.Create(ctx, config)).To(Succeed())
 
 			config = utils.NewOpenshiftAssistedConfig(namespace, "myconfig-arm", clusterName)
@@ -725,7 +726,7 @@ var _ = Describe("ClusterDeployment Controller", func() {
 
 			// create config associated with this cluster
 			config := utils.NewOpenshiftAssistedConfig(namespace, "myconfig-fail", clusterName)
-			config.Spec.CpuArchitecture = "x86_64"
+			config.Spec.CpuArchitecture = testArchX86
 			Expect(k8sClient.Create(ctx, config)).To(Succeed())
 
 			Expect(controllerutil.SetOwnerReference(cluster, oacp, testScheme)).To(Succeed())
@@ -764,7 +765,7 @@ var _ = Describe("ClusterDeployment Controller", func() {
 
 			// create config associated with this cluster
 			config := utils.NewOpenshiftAssistedConfig(namespace, "myconfig-no-ps", clusterName)
-			config.Spec.CpuArchitecture = "x86_64"
+			config.Spec.CpuArchitecture = testArchX86
 			Expect(k8sClient.Create(ctx, config)).To(Succeed())
 
 			Expect(controllerutil.SetOwnerReference(cluster, oacp, testScheme)).To(Succeed())
@@ -789,7 +790,7 @@ var _ = Describe("ClusterDeployment Controller", func() {
 			localMockRemoteImage := containers.NewMockRemoteImage(localCtrl)
 
 			overrideRepo := "quay.io/custom/custom-release"
-			expectedImage := overrideRepo + ":4.16.0-multi"
+			expectedImage := overrideRepo + ":4.16.0-" + testArchX86
 
 			// Configure mock to expect the overridden repository
 			localMockRemoteImage.EXPECT().GetDigest(expectedImage, gomock.Any()).
@@ -834,7 +835,7 @@ var _ = Describe("ClusterDeployment Controller", func() {
 
 			// create config associated with this cluster
 			config := utils.NewOpenshiftAssistedConfig(namespace, "myconfig-override", clusterName)
-			config.Spec.CpuArchitecture = "x86_64"
+			config.Spec.CpuArchitecture = testArchX86
 			Expect(k8sClient.Create(ctx, config)).To(Succeed())
 
 			Expect(controllerutil.SetOwnerReference(cluster, oacp, testScheme)).To(Succeed())
@@ -898,7 +899,7 @@ var _ = Describe("ClusterDeployment Controller", func() {
 
 			// create config associated with this cluster
 			config := utils.NewOpenshiftAssistedConfig(namespace, "myconfig-update", clusterName)
-			config.Spec.CpuArchitecture = "x86_64"
+			config.Spec.CpuArchitecture = testArchX86
 			Expect(k8sClient.Create(ctx, config)).To(Succeed())
 
 			Expect(controllerutil.SetOwnerReference(cluster, oacp, testScheme)).To(Succeed())
@@ -952,7 +953,7 @@ var _ = Describe("ClusterDeployment Controller", func() {
 
 			// create config associated with this cluster
 			config := utils.NewOpenshiftAssistedConfig(namespace, "myconfig-okd", clusterName)
-			config.Spec.CpuArchitecture = "x86_64"
+			config.Spec.CpuArchitecture = testArchX86
 			Expect(k8sClient.Create(ctx, config)).To(Succeed())
 
 			Expect(controllerutil.SetOwnerReference(cluster, oacp, testScheme)).To(Succeed())

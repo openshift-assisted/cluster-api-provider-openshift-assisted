@@ -10,6 +10,10 @@ import (
 	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/pkg/containers"
 )
 
+const (
+	testOCPReleaseImage = "quay.io/openshift-release-dev/ocp-release:4.16.0-x86_64"
+)
+
 var _ = Describe("Version Validation Functions", func() {
 	Describe("IsOKD", func() {
 		DescribeTable("is OKD",
@@ -84,7 +88,7 @@ var _ = Describe("Version Validation Functions", func() {
 				}
 			},
 			Entry("OCP release image with tag",
-				"quay.io/openshift-release-dev/ocp-release:4.16.0-x86_64",
+				testOCPReleaseImage,
 				"quay.io/openshift-release-dev/ocp-release",
 				false),
 			Entry("OKD release image with tag",
@@ -120,7 +124,7 @@ var _ = Describe("Version Validation Functions", func() {
 		})
 
 		It("should resolve digest for tag-based image", func() {
-			image := "quay.io/openshift-release-dev/ocp-release:4.16.0-x86_64"
+			image := testOCPReleaseImage
 			expectedDigest := "sha256:abc123def456"
 
 			mockRemoteImage.EXPECT().
@@ -133,7 +137,7 @@ var _ = Describe("Version Validation Functions", func() {
 		})
 
 		It("should return error when digest resolution fails", func() {
-			image := "quay.io/openshift-release-dev/ocp-release:4.16.0-x86_64"
+			image := testOCPReleaseImage
 			expectedError := errors.New("registry unavailable")
 
 			mockRemoteImage.EXPECT().
@@ -146,7 +150,7 @@ var _ = Describe("Version Validation Functions", func() {
 		})
 
 		It("should return error when pull secret is invalid", func() {
-			image := "quay.io/openshift-release-dev/ocp-release:4.16.0-x86_64"
+			image := testOCPReleaseImage
 			invalidPullSecret := []byte(`invalid json`)
 
 			_, err := release.GetReleaseImageWithDigest(image, invalidPullSecret, mockRemoteImage)

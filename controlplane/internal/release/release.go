@@ -87,9 +87,10 @@ func GetReleaseImageWithDigest(image string, pullSecret []byte, remoteImage cont
 // GetRepoImage extracts the repository portion from an image reference.
 // For example, "quay.io/openshift-release-dev/ocp-release:4.16.0-x86_64" returns "quay.io/openshift-release-dev/ocp-release".
 func GetRepoImage(image string) (string, error) {
-	parts := strings.Split(image, ":")
-	if len(parts) < 1 {
+	// Find the last occurrence of ":" to handle registry ports (e.g., registry.example.com:5000/repo:tag)
+	lastColonIndex := strings.LastIndex(image, ":")
+	if lastColonIndex == -1 {
 		return "", fmt.Errorf("could not parse image %s", image)
 	}
-	return parts[0], nil
+	return image[:lastColonIndex], nil
 }

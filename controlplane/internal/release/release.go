@@ -65,7 +65,13 @@ func GetReleaseImage(desiredVersion, repositoryOverride string, architecture str
 // GetReleaseImageWithDigest resolves a tag-based release image reference to a digest-based reference.
 // It uses the provided pull secret for authentication and the RemoteImage interface for digest resolution.
 // Returns the digest-based image reference in the format "repository@sha256:digest" or an error.
+// If the image is already digest-based (contains "@sha"), it is returned as-is without a remote call.
 func GetReleaseImageWithDigest(image string, pullSecret []byte, remoteImage containers.RemoteImage) (string, error) {
+	// If the image is already digest-based, return it as-is
+	if strings.Contains(image, "@sha") {
+		return image, nil
+	}
+
 	keychain, err := containers.PullSecretKeyChainFromString(string(pullSecret))
 	if err != nil {
 		return "", err

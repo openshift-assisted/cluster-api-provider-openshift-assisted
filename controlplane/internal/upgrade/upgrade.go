@@ -159,7 +159,7 @@ func (u *OpenshiftUpgrader) UpdateClusterVersionDesiredUpdate(ctx context.Contex
 		return nil
 	}
 	pullSecret := getOption(ReleaseImagePullSecretOption, options...)
-	releaseImageWithDigest, err := u.getReleaseImageWithDigest(release.GetReleaseImage(desiredVersion, repositoryOverride, architecture), []byte(pullSecret))
+	releaseImageWithDigest, err := release.GetReleaseImageWithDigest(release.GetReleaseImage(desiredVersion, repositoryOverride, architecture), []byte(pullSecret), u.remoteImage)
 	if err != nil {
 		return err
 	}
@@ -196,6 +196,3 @@ func isGARelease(desiredVersion, repositoryOverride string) bool {
 	return release.IsGA(desiredVersion)
 }
 
-func (u *OpenshiftUpgrader) getReleaseImageWithDigest(image string, pullsecret []byte) (string, error) {
-	return release.GetReleaseImageWithDigest(image, pullsecret, u.remoteImage)
-}

@@ -119,17 +119,14 @@ func (r *ClusterDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		return ctrl.Result{}, err
 	}
 
-	// Get the tag-based release image
 	releaseImage := getReleaseImage(*acp, arch)
 
-	// Get the pull secret for digest resolution
 	pullSecret, err := auth.GetPullSecret(r.Client, ctx, acp)
 	if err != nil {
 		log.Error(err, "failed to get pull secret for digest resolution", "releaseImage", releaseImage)
 		return ctrl.Result{}, fmt.Errorf("failed to get pull secret for digest resolution: %w", err)
 	}
 
-	// Resolve the release image digest
 	releaseImageWithDigest, err := release.GetReleaseImageWithDigest(releaseImage, pullSecret, r.RemoteImage)
 	if err != nil {
 		log.Error(err, "failed to resolve release image digest", "releaseImage", releaseImage)

@@ -203,8 +203,23 @@ var _ = Describe("ClusterDeployment Controller", func() {
 				cluster := utils.NewCluster(clusterName, namespace)
 				Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
 
+				// Create pull secret for digest resolution
+				pullSecret := &corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pull-secret",
+						Namespace: namespace,
+					},
+					Data: map[string][]byte{
+						assistedinstaller.PullsecretDataKey: []byte(`{"auths":{"registry.example.com":{"auth":"dGVzdDp0ZXN0"}}}`),
+					},
+				}
+				Expect(k8sClient.Create(ctx, pullSecret)).To(Succeed())
+
 				oacp := utils.NewOpenshiftAssistedControlPlane(namespace, clusterName)
 				oacp.Spec.DistributionVersion = openShiftVersion
+				oacp.Spec.Config.PullSecretRef = &corev1.LocalObjectReference{
+					Name: "pull-secret",
+				}
 				apiVIPs := []string{"1.2.3.4", "2.3.4.5"}
 				ingressVIPs := []string{"9.9.9.9", "10.10.10.10"}
 				oacp.Spec.Config.APIVIPs = apiVIPs
@@ -250,8 +265,23 @@ var _ = Describe("ClusterDeployment Controller", func() {
 				cluster := utils.NewCluster(clusterName, namespace)
 				Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
 
+				// Create pull secret for digest resolution
+				pullSecret := &corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pull-secret",
+						Namespace: namespace,
+					},
+					Data: map[string][]byte{
+						assistedinstaller.PullsecretDataKey: []byte(`{"auths":{"registry.example.com":{"auth":"dGVzdDp0ZXN0"}}}`),
+					},
+				}
+				Expect(k8sClient.Create(ctx, pullSecret)).To(Succeed())
+
 				oacp = utils.NewOpenshiftAssistedControlPlane(namespace, clusterName)
 				oacp.Spec.DistributionVersion = openShiftVersion
+				oacp.Spec.Config.PullSecretRef = &corev1.LocalObjectReference{
+					Name: "pull-secret",
+				}
 				apiVIPs := []string{"1.2.3.4", "2.3.4.5"}
 				ingressVIPs := []string{"9.9.9.9", "10.10.10.10"}
 				oacp.Spec.Config.APIVIPs = apiVIPs
@@ -397,8 +427,23 @@ var _ = Describe("ClusterDeployment Controller", func() {
 				cluster := utils.NewCluster(clusterName, namespace)
 				Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
 
+				// Create pull secret for digest resolution
+				pullSecret := &corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pull-secret",
+						Namespace: namespace,
+					},
+					Data: map[string][]byte{
+						assistedinstaller.PullsecretDataKey: []byte(`{"auths":{"registry.example.com":{"auth":"dGVzdDp0ZXN0"}}}`),
+					},
+				}
+				Expect(k8sClient.Create(ctx, pullSecret)).To(Succeed())
+
 				oacp = utils.NewOpenshiftAssistedControlPlane(namespace, clusterName)
 				oacp.Spec.DistributionVersion = openShiftVersion
+				oacp.Spec.Config.PullSecretRef = &corev1.LocalObjectReference{
+					Name: "pull-secret",
+				}
 
 				cd = utils.NewClusterDeploymentWithOwnerCluster(namespace, clusterName, clusterName, oacp)
 
@@ -518,8 +563,23 @@ var _ = Describe("ClusterDeployment Controller", func() {
 				cluster := utils.NewCluster(clusterName, namespace)
 				Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
 
+				// Create pull secret for digest resolution
+				pullSecret := &corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pull-secret",
+						Namespace: namespace,
+					},
+					Data: map[string][]byte{
+						assistedinstaller.PullsecretDataKey: []byte(`{"auths":{"registry.example.com":{"auth":"dGVzdDp0ZXN0"}}}`),
+					},
+				}
+				Expect(k8sClient.Create(ctx, pullSecret)).To(Succeed())
+
 				oacp := utils.NewOpenshiftAssistedControlPlane(namespace, clusterName)
 				oacp.Spec.DistributionVersion = openShiftVersion
+				oacp.Spec.Config.PullSecretRef = &corev1.LocalObjectReference{
+					Name: "pull-secret",
+				}
 
 				// Set the install config override annotation
 				installConfigOverride := `{"networking":{"machineNetwork":[{"cidr":"10.0.0.0/16"}]}}`
@@ -553,8 +613,23 @@ var _ = Describe("ClusterDeployment Controller", func() {
 				cluster := utils.NewCluster(clusterName, namespace)
 				Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
 
+				// Create pull secret for digest resolution
+				pullSecret := &corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pull-secret",
+						Namespace: namespace,
+					},
+					Data: map[string][]byte{
+						assistedinstaller.PullsecretDataKey: []byte(`{"auths":{"registry.example.com":{"auth":"dGVzdDp0ZXN0"}}}`),
+					},
+				}
+				Expect(k8sClient.Create(ctx, pullSecret)).To(Succeed())
+
 				oacp := utils.NewOpenshiftAssistedControlPlane(namespace, clusterName)
 				oacp.Spec.DistributionVersion = openShiftVersion
+				oacp.Spec.Config.PullSecretRef = &corev1.LocalObjectReference{
+					Name: "pull-secret",
+				}
 
 				cd := utils.NewClusterDeploymentWithOwnerCluster(namespace, clusterName, clusterName, oacp)
 
@@ -583,8 +658,23 @@ var _ = Describe("ClusterDeployment Controller", func() {
 				cluster := utils.NewCluster(clusterName, namespace)
 				Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
 
+				// Create pull secret for digest resolution
+				pullSecret := &corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pull-secret",
+						Namespace: namespace,
+					},
+					Data: map[string][]byte{
+						assistedinstaller.PullsecretDataKey: []byte(`{"auths":{"registry.example.com":{"auth":"dGVzdDp0ZXN0"}}}`),
+					},
+				}
+				Expect(k8sClient.Create(ctx, pullSecret)).To(Succeed())
+
 				oacp := utils.NewOpenshiftAssistedControlPlane(namespace, clusterName)
 				oacp.Spec.DistributionVersion = openShiftVersion
+				oacp.Spec.Config.PullSecretRef = &corev1.LocalObjectReference{
+					Name: "pull-secret",
+				}
 				Expect(controllerutil.SetOwnerReference(cluster, oacp, testScheme)).To(Succeed())
 				Expect(k8sClient.Create(ctx, oacp)).To(Succeed())
 
@@ -618,8 +708,23 @@ var _ = Describe("ClusterDeployment Controller", func() {
 				cluster := utils.NewCluster(clusterName, namespace)
 				Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
 
+				// Create pull secret for digest resolution
+				pullSecret := &corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pull-secret",
+						Namespace: namespace,
+					},
+					Data: map[string][]byte{
+						assistedinstaller.PullsecretDataKey: []byte(`{"auths":{"registry.example.com":{"auth":"dGVzdDp0ZXN0"}}}`),
+					},
+				}
+				Expect(k8sClient.Create(ctx, pullSecret)).To(Succeed())
+
 				oacp := utils.NewOpenshiftAssistedControlPlane(namespace, clusterName)
 				oacp.Spec.DistributionVersion = openShiftVersion
+				oacp.Spec.Config.PullSecretRef = &corev1.LocalObjectReference{
+					Name: "pull-secret",
+				}
 				Expect(controllerutil.SetOwnerReference(cluster, oacp, testScheme)).To(Succeed())
 				Expect(k8sClient.Create(ctx, oacp)).To(Succeed())
 
@@ -648,8 +753,23 @@ var _ = Describe("ClusterDeployment Controller", func() {
 				cluster := utils.NewCluster(clusterName, namespace)
 				Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
 
+				// Create pull secret for digest resolution
+				pullSecret := &corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pull-secret",
+						Namespace: namespace,
+					},
+					Data: map[string][]byte{
+						assistedinstaller.PullsecretDataKey: []byte(`{"auths":{"registry.example.com":{"auth":"dGVzdDp0ZXN0"}}}`),
+					},
+				}
+				Expect(k8sClient.Create(ctx, pullSecret)).To(Succeed())
+
 				oacp := utils.NewOpenshiftAssistedControlPlane(namespace, clusterName)
 				oacp.Spec.DistributionVersion = openShiftVersion
+				oacp.Spec.Config.PullSecretRef = &corev1.LocalObjectReference{
+					Name: "pull-secret",
+				}
 				Expect(controllerutil.SetOwnerReference(cluster, oacp, testScheme)).To(Succeed())
 				Expect(k8sClient.Create(ctx, oacp)).To(Succeed())
 

@@ -103,6 +103,14 @@ var _ = Describe("Version Validation Functions", func() {
 				"registry.example.com:5000/repo/image:tag",
 				"registry.example.com:5000/repo/image",
 				false),
+			Entry("invalid image without colon",
+				"invalidimage",
+				"",
+				true),
+			Entry("empty image string",
+				"",
+				"",
+				true),
 		)
 	})
 
@@ -155,6 +163,19 @@ var _ = Describe("Version Validation Functions", func() {
 
 			_, err := release.GetReleaseImageWithDigest(image, invalidPullSecret, mockRemoteImage)
 			Expect(err).To(HaveOccurred())
+		})
+
+		It("should return digest-based image as-is without remote call", func() {
+			digestImage := "quay.io/openshift-release-dev/ocp-release@sha256:abc123def456"
+
+			// Mock should NOT be called since image already has digest
+			mockRemoteImage.EXPECT().
+				GetDigest(gomock.Any(), gomock.Any()).
+				Times(0)
+
+			result, err := release.GetReleaseImageWithDigest(digestImage, testPullSecret, mockRemoteImage)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(digestImage))
 		})
 	})
 })

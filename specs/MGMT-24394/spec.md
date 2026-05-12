@@ -26,7 +26,7 @@ The CAPI Provider OpenShift Assisted container images must include a `vcs-ref` l
 
 5. The label **MUST** be populated during the container image build process, not manually or in a separate step.
 
-6. For CI/CD builds (Tekton pipelines), the commit hash **MUST** be obtained from the pipeline's revision parameter.
+6. For CI/CD builds (Tekton pipelines), the commit hash **MUST** be obtained from the pipeline's revision parameter. Note: Tekton pipelines already provide this information; the actual implementation work is needed in the GitHub workflows that build upstream images.
 
 7. For local developer builds, the commit hash **MUST** be obtained from the current git repository state.
 

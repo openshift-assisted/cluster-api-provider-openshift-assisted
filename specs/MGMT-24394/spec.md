@@ -16,9 +16,12 @@ The CAPI Provider OpenShift Assisted container images must include a `vcs-ref` l
 
 ## Requirements
 
-1. All CAPI Provider container images (bootstrap-provider and controlplane-provider) **MUST** include a label with the git commit hash ID.
+1. All CAPI Provider container images (bootstrap-provider and controlplane-provider) **MUST** include OCI standard labels for git commit information.
 
-2. The label key **MUST** be named `vcs-ref` [ASSUMPTION: using literal "vcs-ref" as the label name, though OCI standard `org.opencontainers.image.revision` may also be appropriate].
+2. The following labels **MUST** be included in the container images:
+   - `org.opencontainers.image.revision` - the full git commit hash (OCI standard)
+   - `org.opencontainers.image.source` - the git repository URL (if not already present)
+   - `org.opencontainers.image.vcs-type: git` - hardcoded to indicate git as the VCS (OCI extension)
 
 3. The git commit hash **MUST** be the full-length SHA-1 hash (40 characters), not an abbreviated version.
 
@@ -36,21 +39,23 @@ The CAPI Provider OpenShift Assisted container images must include a `vcs-ref` l
 
 ## Acceptance Criteria
 
-- [ ] Bootstrap provider container images include a `vcs-ref` label with the full git commit hash.
+- [ ] Bootstrap provider container images include `org.opencontainers.image.revision` with the full git commit hash.
 
-- [ ] Controlplane provider container images include a `vcs-ref` label with the full git commit hash.
+- [ ] Controlplane provider container images include `org.opencontainers.image.revision` with the full git commit hash.
 
-- [ ] The vcs-ref label value is exactly 40 characters long (full SHA-1 hash format).
+- [ ] Container images include `org.opencontainers.image.vcs-type: git` label.
+
+- [ ] The `org.opencontainers.image.revision` label value is exactly 40 characters long (full SHA-1 hash format), or `unknown` if git information is unavailable.
 
 - [ ] Images built via Tekton CI/CD pipelines contain the correct commit hash matching the `{{revision}}` parameter.
 
 - [ ] Images built locally via `make docker-build` contain the commit hash of the current HEAD.
 
-- [ ] The vcs-ref label can be inspected using standard container tools (e.g., `podman inspect`, `docker inspect`, `skopeo inspect`).
+- [ ] The labels can be inspected using standard container tools (e.g., `podman inspect`, `docker inspect`, `skopeo inspect`).
 
 - [ ] All existing container labels (name, version, release, vendor, etc.) remain present and unchanged.
 
-- [ ] Documentation or comments explain how the vcs-ref label is populated.
+- [ ] Documentation or comments explain how the labels are populated.
 
 ## Non-Functional Requirements
 
@@ -62,7 +67,7 @@ The CAPI Provider OpenShift Assisted container images must include a `vcs-ref` l
 - The addition of git commit metadata must not introduce significant build time overhead (acceptable: < 1 second additional build time).
 
 ### Reliability
-- If git commit information cannot be obtained (e.g., building from a non-git context), the build should either fail with a clear error message or use a well-documented fallback value (e.g., "unknown").
+- If git commit information cannot be obtained (e.g., building from a non-git context, shallow clone, missing .git directory), the label value **MUST** be set to `unknown`.
 
 ## Out of Scope
 
@@ -76,10 +81,4 @@ The CAPI Provider OpenShift Assisted container images must include a `vcs-ref` l
 
 ## Open Questions
 
-1. **Label naming convention**: Should we use the literal label name `vcs-ref`, or should we follow a standard like `org.label-schema.vcs-ref` (Label Schema standard) or `org.opencontainers.image.revision` (OCI standard)? [NEEDS CLARIFICATION]
-
-2. **Fallback behavior**: What should happen if the git commit cannot be determined (e.g., shallow clone, .git directory missing)? Should the build fail, use "unknown", or use an empty string? [NEEDS CLARIFICATION]
-
-3. **Dirty workspace handling**: Should images built from a workspace with uncommitted changes include any indication in the label (e.g., appending "-dirty"), or should the commit hash always be clean? [NEEDS CLARIFICATION]
-
-4. **Multi-platform builds**: Does each platform-specific image need to verify it has the same vcs-ref, or is this handled automatically by the build process? [ASSUMPTION: handled automatically by build process]
+1. **Dirty workspace handling**: Should images built from a workspace with uncommitted changes include any indication in the label (e.g., appending "-dirty"), or should the commit hash always be clean? [NEEDS CLARIFICATION]

@@ -74,12 +74,38 @@ CAPOA (Cluster API Provider OpenShift Assisted) bootstrap and controlplane contr
 
 - Adding configuration options for administrators to override the default TLS profile for CAPOA.
 
-## Open Questions
+## Solution Approach
 
-None. The JIRA issue provides two clear solution approaches:
+The fix will use **Option B**: implement a guard in CAPOA's `OnProfileChange` callback to skip profile change handling when the adherence policy does not require honoring the cluster TLS profile.
 
-- **Option A**: Initialize the SecurityProfileWatcher with the actual APIServer TLS profile (not defaults) when `ShouldHonorClusterTLSProfile()` returns false. This prevents the watcher from detecting a mismatch while the controller still uses Intermediate defaults for its own TLS.
+### Why Option B
 
-- **Option B**: Modify the SecurityProfileWatcher's Reconcile method to skip TLS profile comparison when the current adherence policy does not require honoring the cluster profile.
+**Option A** (initialize the watcher with the actual APIServer profile instead of defaults) prevents the infinite loop but still causes one spurious restart when an admin applies a new TLS profile under a non-honoring adherence policy:
 
-The implementation plan will evaluate both approaches and select the most robust solution.
+1. Controller starts with `LegacyAdheringComponentsOnly`, no TLS profile configured. Watcher initialized with Intermediate (actual = default = Intermediate).
+2. Admin applies Modern profile on the APIServer CR.
+3. Watcher reconciles: Modern != Intermediate → `OnProfileChange` fires → one unnecessary restart.
+4. After restart, watcher initialized with Modern → stable.
+
+**Option B** fully satisfies Requirement 1 (no spurious restarts) and can be implemented entirely within CAPOA's `OnProfileChange` callback in `internal/setup/setup.go` without requiring upstream controller-runtime-common changes:
+
+```go
+OnProfileChange: func(ctx context.Context, oldProfile, newProfile configv1.TLSProfileSpec) {
+    if !libgocrypto.ShouldHonorClusterTLSProfile(result.TLSAdherencePolicy) {
+        tlsLog.V(1).Info("TLS profile changed but adherence policy does not require honoring, ignoring",
+            "policy", result.TLSAdherencePolicy)
+        return
+    }
+    tlsLog.Info("TLS profile changed, shutting down to reload",
+        "oldProfile", oldProfile, "newProfile", newProfile)
+    cancel()
+},
+```
+
+This is safe because:
+
+- If adherence is non-honoring at startup, profile changes are ignored (no restart).
+- If adherence later changes to `StrictAllComponents`, the `OnAdherencePolicyChange` callback fires first and triggers a restart. The new manager starts with `StrictAllComponents`, and subsequent profile changes will correctly call `cancel()`.
+- The watcher stays registered in all cases (needed for adherence policy change detection), but profile changes become a no-op when they don't matter.
+
+This approach requires only ~5 lines of code change and directly addresses the root cause.

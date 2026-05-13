@@ -16,5 +16,11 @@
     "type": "review",
     "reply": "We haven't discarded the `vcs-ref` and `vcs-type` labels - they are already included in the plan. The plan adds **four** labels total: two OCI-standard labels (`org.opencontainers.image.revision`, `org.opencontainers.image.source`) and two plain backward-compatible labels (`vcs-ref`, `vcs-type`). See:\n\n- **Spec Summary** (line 15): explicitly lists both plain labels\n- **Label Design section** (lines 29-35): documents all four labels with rationale\n- **Task 1, Step 2** (lines 47-50): shows the LABEL block implementation with `vcs-ref=\"${git_commit}\"` and `vcs-type=\"git\"`\n- **Verification tests** (Task 9, Steps 2-8): verify all four labels are present\n\nBoth label sets will be present in the final images to ensure compatibility with tools that expect either the OCI standard or the plain vcs-* convention.",
     "resolved": true
+  },
+  {
+    "comment_id": 4439563455,
+    "type": "issue",
+    "reply": "Thank you for the approval! The plan covers all three build contexts (local Makefile, GitHub workflows, Tekton pipelines) and includes comprehensive verification steps to ensure the OCI labels are correctly applied to both provider images.",
+    "resolved": true
   }
 ]

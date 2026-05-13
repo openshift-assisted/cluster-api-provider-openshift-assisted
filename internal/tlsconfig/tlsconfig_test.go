@@ -173,4 +173,38 @@ var _ = Describe("NoOpinion adherence with configured TLS profile", func() {
 		Expect(cfg.MinVersion).To(Equal(uint16(tls.VersionTLS12)),
 			"NoOpinion should use Intermediate defaults (TLS 1.2), not the configured Modern profile (TLS 1.3)")
 	})
+
+	// ACM-34017: SecurityProfileWatcher restart loop.
+	// When adherence is NoOpinion, resolveOpenShiftTLSConfig returns
+	// Intermediate as TLSProfileSpec (from DefaultTLSConfig) instead of the
+	// actual APIServer profile. The SecurityProfileWatcher is initialized
+	// with this Intermediate spec, but on reconcile it reads the real
+	// APIServer profile (Modern). The mismatch triggers OnProfileChange →
+	// cancel → restart → same mismatch → infinite loop.
+	// ACM-34017: Enable this test once the fix is implemented.
+	PIt("should store the actual APIServer profile in TLSProfileSpec when adherence is NoOpinion", func() {
+		modernProfile := configv1.TLSProfiles[configv1.TLSProfileModernType]
+		apiServer := &configv1.APIServer{
+			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+			Spec: configv1.APIServerSpec{
+				TLSSecurityProfile: &configv1.TLSSecurityProfile{
+					Type:   configv1.TLSProfileModernType,
+					Modern: &configv1.ModernTLSProfile{},
+				},
+			},
+		}
+		k8sClient := newFakeControllerClient(apiServer)
+
+		result, err := resolveOpenShiftTLSConfig(context.Background(), k8sClient)
+		Expect(err).NotTo(HaveOccurred())
+
+		cfg := &tls.Config{}
+		result.TLSConfig(cfg)
+		Expect(cfg.MinVersion).To(Equal(uint16(tls.VersionTLS12)),
+			"TLS config applied to the server should use Intermediate defaults")
+
+		Expect(result.TLSProfileSpec.MinTLSVersion).To(Equal(modernProfile.MinTLSVersion),
+			"TLSProfileSpec should reflect the actual APIServer profile, not defaults — "+
+				"otherwise SecurityProfileWatcher detects a spurious mismatch on startup (ACM-34017)")
+	})
 })

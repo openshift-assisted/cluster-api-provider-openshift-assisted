@@ -12,7 +12,7 @@
 
 ## Spec Summary
 
-Add `org.opencontainers.image.revision` (full git commit hash), `org.opencontainers.image.source` (repository URL), and `org.opencontainers.image.vcs-type: git` labels to bootstrap-provider and controlplane-provider container images. The commit hash must be obtained from the git repository state during builds, supporting three build contexts: local developer builds (via Makefile), upstream CI/CD (GitHub workflows), and downstream CI/CD (Tekton pipelines). All existing labels must remain unchanged.
+Add both OCI-standard labels (`org.opencontainers.image.revision`, `org.opencontainers.image.source`) and plain backward-compatible labels (`vcs-ref`, `vcs-type`) to bootstrap-provider and controlplane-provider container images. The commit hash must be obtained from the git repository state during builds, supporting three build contexts: local developer builds (via Makefile), upstream CI/CD (GitHub workflows), and downstream CI/CD (Tekton pipelines). All existing labels must remain unchanged.
 
 ## Approach
 
@@ -27,12 +27,13 @@ The commit hash will be injected at build time via `--build-arg git_commit=<hash
 
 ### Label Design
 
-Add three new labels in the LABEL section of Dockerfile.j2:
-- `org.opencontainers.image.revision="${git_commit}"` - the commit hash
-- `org.opencontainers.image.source="https://github.com/openshift-assisted/cluster-api-provider-openshift-assisted"` - hardcoded repo URL
-- `org.opencontainers.image.vcs-type="git"` - hardcoded to "git"
+Add four new labels in the LABEL section of Dockerfile.j2:
+- `org.opencontainers.image.revision="${git_commit}"` - OCI-standard commit hash label
+- `org.opencontainers.image.source="https://github.com/openshift-assisted/cluster-api-provider-openshift-assisted"` - OCI-standard repo URL
+- `vcs-ref="${git_commit}"` - plain label for backward compatibility with older tooling
+- `vcs-type="git"` - plain label for backward compatibility
 
-These follow OCI image-spec annotations standard and will appear alongside existing labels without disrupting them.
+The OCI-prefixed labels follow the official OCI image-spec annotations standard. The plain labels ensure compatibility with tools that predate the OCI standard. All labels will appear alongside existing labels without disrupting them.
 
 ### Template-Driven Generation
 
@@ -49,10 +50,11 @@ Since both Dockerfile.bootstrap-provider and Dockerfile.controlplane-provider ar
 
 **Changes:**
 1. Add `ARG git_commit=unknown` after line 33 (`ARG version=latest`)
-2. Add three new labels to the LABEL block (after line 54):
-   - `org.opencontainers.image.revision="${git_commit}"`
-   - `org.opencontainers.image.source="https://github.com/openshift-assisted/cluster-api-provider-openshift-assisted"`
-   - `org.opencontainers.image.vcs-type="git"`
+2. Add four new labels to the LABEL block (after line 54):
+   - `org.opencontainers.image.revision="${git_commit}"` (OCI standard)
+   - `org.opencontainers.image.source="https://github.com/openshift-assisted/cluster-api-provider-openshift-assisted"` (OCI standard)
+   - `vcs-ref="${git_commit}"` (backward compatibility)
+   - `vcs-type="git"` (backward compatibility)
 
 ### Makefile
 **File:** `Makefile:164-166`
@@ -164,8 +166,9 @@ Since this feature adds metadata to container images without changing runtime be
 2. Inspect image: `podman inspect quay.io/edge-infrastructure/cluster-api-bootstrap-provider-openshift-assisted:test-local`
 3. Verify `org.opencontainers.image.revision` equals `$(git rev-parse HEAD)`
 4. Verify `org.opencontainers.image.source` equals the repo URL
-5. Verify `org.opencontainers.image.vcs-type` equals "git"
-6. Repeat for controlplane: `make controlplane-docker-build CONTAINER_TAG=test-local`
+5. Verify `vcs-ref` equals `$(git rev-parse HEAD)` (same as revision)
+6. Verify `vcs-type` equals "git"
+7. Repeat for controlplane: `make controlplane-docker-build CONTAINER_TAG=test-local`
 
 #### Test 2: GitHub Actions Build Verification
 **Maps to acceptance criteria:** "Images built via Tekton CI/CD pipelines contain the correct commit hash"
@@ -218,7 +221,10 @@ skopeo inspect docker://<image> | jq '.Labels'
 # Verify specific OCI labels
 podman inspect <image> | jq '.[0].Config.Labels."org.opencontainers.image.revision"'
 podman inspect <image> | jq '.[0].Config.Labels."org.opencontainers.image.source"'
-podman inspect <image> | jq '.[0].Config.Labels."org.opencontainers.image.vcs-type"'
+
+# Verify plain backward-compatible labels
+podman inspect <image> | jq '.[0].Config.Labels."vcs-ref"'
+podman inspect <image> | jq '.[0].Config.Labels."vcs-type"'
 
 # Get current git commit (for comparison)
 git rev-parse HEAD

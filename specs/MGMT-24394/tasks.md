@@ -26,9 +26,9 @@ ARG version=latest
 ARG git_commit=unknown
 ```
 
-- [ ] **Step 2: Add OCI labels to LABEL block**
+- [ ] **Step 2: Add OCI and backward-compatible labels to LABEL block**
 
-Add three new labels to the LABEL block (after line 54, before the closing quote):
+Add four new labels to the LABEL block (after line 54, before the closing quote):
 
 ```dockerfile
 LABEL name="multicluster-engine/capoa-{{ provider }}-rhel9" \
@@ -46,7 +46,8 @@ LABEL name="multicluster-engine/capoa-{{ provider }}-rhel9" \
       vendor="Red Hat, Inc." \
       org.opencontainers.image.revision="${git_commit}" \
       org.opencontainers.image.source="https://github.com/openshift-assisted/cluster-api-provider-openshift-assisted" \
-      org.opencontainers.image.vcs-type="git"
+      vcs-ref="${git_commit}" \
+      vcs-type="git"
 ```
 
 - [ ] **Step 3: Verify template syntax**
@@ -59,11 +60,12 @@ Expected: Valid Dockerfile output with the new ARG and labels visible
 
 ```bash
 git add Dockerfile.j2
-git commit -m "feat(build): add git commit OCI labels to Dockerfile template
+git commit -m "feat(build): add git commit labels to Dockerfile template
 
-Add org.opencontainers.image.revision, org.opencontainers.image.source,
-and org.opencontainers.image.vcs-type labels to container images for
-traceability. Introduce git_commit build arg with 'unknown' default.
+Add OCI-standard labels (org.opencontainers.image.revision, 
+org.opencontainers.image.source) and backward-compatible plain labels
+(vcs-ref, vcs-type) to container images for traceability. Introduce
+git_commit build arg with 'unknown' default.
 
 MGMT-24394
 
@@ -96,15 +98,15 @@ Expected: Dockerfile.controlplane-provider updated with new ARG and labels
 
 - [ ] **Step 3: Verify bootstrap Dockerfile contains new labels**
 
-Run: `grep -A 3 "org.opencontainers.image.revision" Dockerfile.bootstrap-provider`
+Run: `grep -A 4 "org.opencontainers.image.revision" Dockerfile.bootstrap-provider`
 
-Expected: Three OCI labels present
+Expected: Four labels present (two OCI-prefixed, two plain)
 
 - [ ] **Step 4: Verify controlplane Dockerfile contains new labels**
 
-Run: `grep -A 3 "org.opencontainers.image.revision" Dockerfile.controlplane-provider`
+Run: `grep -A 4 "org.opencontainers.image.revision" Dockerfile.controlplane-provider`
 
-Expected: Three OCI labels present
+Expected: Four labels present (two OCI-prefixed, two plain)
 
 - [ ] **Step 5: Commit generated Dockerfiles**
 
@@ -429,7 +431,8 @@ Run: `podman inspect quay.io/edge-infrastructure/cluster-api-bootstrap-provider-
 Expected: JSON output showing all labels including:
 - `org.opencontainers.image.revision`: equals output of `git rev-parse HEAD`
 - `org.opencontainers.image.source`: equals "https://github.com/openshift-assisted/cluster-api-provider-openshift-assisted"
-- `org.opencontainers.image.vcs-type`: equals "git"
+- `vcs-ref`: equals output of `git rev-parse HEAD` (same as revision)
+- `vcs-type`: equals "git"
 
 - [ ] **Step 3: Verify bootstrap revision label matches current commit**
 
@@ -454,7 +457,7 @@ Expected: Build succeeds
 
 Run: `podman inspect quay.io/edge-infrastructure/cluster-api-controlplane-provider-openshift-assisted:test-verify | jq '.[0].Config.Labels'`
 
-Expected: Same three OCI labels present with correct values
+Expected: Same four labels present with correct values (two OCI-prefixed, two plain)
 
 - [ ] **Step 6: Verify controlplane revision label matches current commit**
 
@@ -489,18 +492,22 @@ Expected: All four labels present with expected values:
 - `io.k8s.display-name`: "CAPI Bootstrap Provider OpenShift Assisted"
 - `com.redhat.component`: "cluster-api-bootstrap-provider-openshift-assisted"
 
-- [ ] **Step 8: Verify label count increased by exactly 3**
+- [ ] **Step 8: Verify new labels added correctly**
 
-Compare label count before/after. Since we're testing post-implementation:
+Verify the count of new labels added:
 
 Run:
 ```bash
-# Count OCI image labels (should be exactly 3)
+# Count OCI image labels with org.opencontainers.image prefix (should be exactly 2)
 podman inspect quay.io/edge-infrastructure/cluster-api-bootstrap-provider-openshift-assisted:test-verify | \
   jq -r '.[0].Config.Labels | to_entries | map(select(.key | startswith("org.opencontainers.image"))) | length'
+
+# Verify vcs-ref and vcs-type plain labels exist
+podman inspect quay.io/edge-infrastructure/cluster-api-bootstrap-provider-openshift-assisted:test-verify | \
+  jq -r '.[0].Config.Labels | to_entries | map(select(.key == "vcs-ref" or .key == "vcs-type")) | length'
 ```
 
-Expected: Output is `3`
+Expected: First command outputs `2`, second command outputs `2` (4 new labels total)
 
 - [ ] **Step 9: Test fallback behavior (optional - for completeness)**
 
@@ -523,9 +530,9 @@ Expected: Output is `unknown`
 - [ ] **Step 10: Document verification results**
 
 Create a summary comment in the commit or PR description confirming:
-- ✓ Bootstrap image has all 3 OCI labels
-- ✓ Controlplane image has all 3 OCI labels
-- ✓ Revision label contains correct 40-char commit hash
+- ✓ Bootstrap image has all 4 new labels (2 OCI-prefixed + 2 plain)
+- ✓ Controlplane image has all 4 new labels (2 OCI-prefixed + 2 plain)
+- ✓ Revision labels (org.opencontainers.image.revision and vcs-ref) contain correct 40-char commit hash
 - ✓ Existing labels unchanged
 - ✓ Fallback to "unknown" works (if Step 9 executed)
 

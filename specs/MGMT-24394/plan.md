@@ -4,7 +4,7 @@
 
 **Goal:** Add OCI-compliant labels to both bootstrap and controlplane provider container images to include git commit hash for traceability.
 
-**Architecture:** Modify the Dockerfile.j2 template to accept a git commit build arg and add OCI standard labels. Update build orchestration (Makefile, GitHub workflows, Tekton pipelines) to pass the commit hash at build time.
+**Architecture:** Modify the Dockerfile.j2 template to accept a git commit build arg and add OCI standard labels. Regenerate the concrete Dockerfiles (Dockerfile.bootstrap-provider and Dockerfile.controlplane-provider) from the template. Update build orchestration (Makefile, GitHub workflows, Tekton pipelines) to pass the commit hash at build time.
 
 **Tech Stack:** Docker/Podman, Jinja2 templates, Make, GitHub Actions, Tekton Pipelines
 

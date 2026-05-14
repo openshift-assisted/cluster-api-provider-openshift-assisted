@@ -136,10 +136,13 @@ var _ = Describe("Transient API errors during TLS resolution", func() {
 		scheme := runtime.NewScheme()
 		_ = configv1.Install(scheme)
 
+		getCalls := 0
 		k8sClient := fakectrlclient.NewClientBuilder().
 			WithScheme(scheme).
 			WithInterceptorFuncs(interceptor.Funcs{
 				Get: func(_ context.Context, _ ctrlclient.WithWatch, _ ctrlclient.ObjectKey, _ ctrlclient.Object, _ ...ctrlclient.GetOption) error {
+					getCalls++
+
 					return apierrors.NewServiceUnavailable("transient API error")
 				},
 			}).
@@ -149,6 +152,7 @@ var _ = Describe("Transient API errors during TLS resolution", func() {
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("fetching TLS adherence policy from APIServer"))
 		Expect(err.Error()).To(ContainSubstring("transient API error"))
+		Expect(getCalls).To(Equal(1), "should call Get exactly once with no retry")
 	})
 })
 

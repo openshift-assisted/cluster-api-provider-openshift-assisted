@@ -139,3 +139,57 @@ make test
 
 ### No Migration Risk
 This is a pure code fix with no data migration, configuration changes, or API modifications. The fix is backward compatible and changes only internal behavior.
+
+## Verification Results
+
+### Unit Tests
+- ✅ All new tests in `internal/setup/setup_test.go` pass
+- ✅ All existing tests pass (no regressions)
+- ✅ Code formatting verified with `gofmt`
+- ✅ Static analysis verified with `go vet`
+
+### Implementation Summary
+- ✅ Added `libgocrypto` import to `internal/setup/setup.go`
+- ✅ Implemented guard logic in `OnProfileChange` callback
+- ✅ Guard correctly checks `ShouldHonorClusterTLSProfile()`
+- ✅ Log messages provide clear indication of guard behavior
+- ✅ No new dependencies introduced (library-go already in use)
+- ✅ Existing behavior for `StrictAllComponents` preserved
+
+### Test Results
+```
+Running Suite: Setup Suite
+======================================================
+Will run 7 of 7 specs
+
+Ran 7 of 7 Specs in 0.001 seconds
+SUCCESS! -- 7 Passed | 0 Failed | 0 Pending | 0 Skipped
+```
+
+All tests across the entire project pass:
+- `internal/setup`: 7 specs passed (new tests)
+- `assistedinstaller`: 83.0% coverage
+- `bootstrap/internal/controller`: 72.6% coverage
+- `controlplane/internal/controller`: 77.4% coverage
+- `internal/tlsconfig`: 72.4% coverage
+- All other packages: passing
+
+### Code Quality
+- ✅ No formatting issues found (all source files formatted correctly)
+- ✅ No static analysis warnings from `go vet`
+- ✅ No uncommitted generated code changes
+
+### Manual Testing Required
+The following manual tests should be performed in an OpenShift cluster:
+1. Deploy with Modern TLS profile and `tlsAdherence: LegacyAdheringComponentsOnly`
+2. Verify CAPOA pods start and remain stable (no restart loop)
+3. Change TLS profile from Modern to Intermediate
+4. Verify CAPOA pods do NOT restart
+5. Change `tlsAdherence` to `StrictAllComponents`
+6. Verify CAPOA pods restart gracefully
+7. Change TLS profile again
+8. Verify CAPOA pods restart when profile changes
+
+### Commits
+- `7476b109` - test: add tests for OnProfileChange guard logic
+- `016a894b` - fix: prevent restart loop with non-honoring TLS adherence

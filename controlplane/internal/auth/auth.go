@@ -13,6 +13,9 @@ import (
 )
 
 func GetPullSecret(c client.Client, ctx context.Context, oacp *controlplanev1alpha3.OpenshiftAssistedControlPlane) ([]byte, error) {
+	if oacp.Spec.Config.PullSecretRef == nil {
+		return nil, fmt.Errorf("pull secret reference is not set in OpenshiftAssistedControlPlane %s/%s", oacp.Namespace, oacp.Name)
+	}
 	secret := &corev1.Secret{}
 	if err := c.Get(ctx, types.NamespacedName{Namespace: oacp.Namespace, Name: oacp.Spec.Config.PullSecretRef.Name}, secret); err != nil {
 		return nil, err

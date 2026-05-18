@@ -161,9 +161,12 @@ docker-push-all: bootstrap-docker-push controlplane-docker-push
 .PHONY: docker-build
 docker-build: bootstrap-docker-build controlplane-docker-build
 
+# Git commit hash for container image labels
+GIT_COMMIT ?= $(shell git rev-parse HEAD 2>/dev/null || echo unknown)
+
 .PHONY: docker-build-internal
 docker-build-internal: ## Does not ensure Dockerfiles are generated.
-	$(CONTAINER_TOOL) build -f Dockerfile.$(PROVIDER)-provider -t ${IMG} .
+	$(CONTAINER_TOOL) build -f Dockerfile.$(PROVIDER)-provider --build-arg git_commit=$(GIT_COMMIT) -t ${IMG} .
 
 .PHONY: docker-push-internal
 docker-push-internal: ## Push docker image with the manager.

@@ -54,6 +54,10 @@ jobs:
           context: ${{ env.context }}
           tags: "${{ secrets.REGISTRY_SERVER }}/${{ secrets.REGISTRY_NAMESPACE }}/${{ env.bootstrap_image_name }}:${{env.IMAGE_TAG}}"
           file: "${{ env.bootstrap_dockerfile }}"
+          build-args: |
+            release=${{ github.ref_name }}
+            version=${{ env.IMAGE_TAG }}
+            git_commit=${{ github.sha }}
       - name: Build and publish controplane image to Quay
         uses: docker/build-push-action@v5
         with:
@@ -61,3 +65,7 @@ jobs:
           context: ${{ env.context }}
           tags: "${{ secrets.REGISTRY_SERVER }}/${{ secrets.REGISTRY_NAMESPACE }}/${{ env.controlplane_image_name }}:${{env.IMAGE_TAG}}"
           file: "${{ env.controlplane_dockerfile }}"
+          build-args: |
+            release=${{ github.ref_name }}
+            version=${{ env.IMAGE_TAG }}
+            git_commit=${{ github.sha }}

@@ -72,6 +72,33 @@ var _ = Describe("resolveOpenShiftTLSConfig", func() {
 		Expect(cfg.MinVersion).To(BeNumerically(">", 0))
 	})
 
+	It("should store actual profile spec when adherence is NoOpinion with non-default profile", func() {
+		modernProfile := configv1.TLSProfiles[configv1.TLSProfileModernType]
+		apiServer := &configv1.APIServer{
+			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+			Spec: configv1.APIServerSpec{
+				TLSSecurityProfile: &configv1.TLSSecurityProfile{
+					Type: configv1.TLSProfileModernType,
+				},
+				// TLSAdherence not set (defaults to NoOpinion)
+			},
+		}
+		k8sClient := newFakeControllerClient(apiServer)
+
+		result, err := resolveOpenShiftTLSConfig(ctx, k8sClient)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(result.TLSAdherencePolicy).To(Equal(configv1.TLSAdherencePolicyNoOpinion))
+
+		// TLSConfig should use Intermediate defaults (not Modern)
+		cfg := &tls.Config{}
+		result.TLSConfig(cfg)
+		Expect(cfg.MinVersion).To(Equal(uint16(tls.VersionTLS12))) // Intermediate default
+
+		// But TLSProfileSpec should store the actual Modern profile to prevent spurious watcher callbacks
+		Expect(result.TLSProfileSpec.MinTLSVersion).To(Equal(modernProfile.MinTLSVersion))
+		Expect(result.TLSProfileSpec.Ciphers).To(Equal(modernProfile.Ciphers))
+	})
+
 	It("should honor the cluster TLS profile when adherence is StrictAllComponents", func() {
 		modernProfile := configv1.TLSProfiles[configv1.TLSProfileModernType]
 		apiServer := &configv1.APIServer{

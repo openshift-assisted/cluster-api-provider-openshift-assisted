@@ -31,6 +31,7 @@ RUN CGO_ENABLED=1 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64} go build -
 FROM registry.access.redhat.com/ubi9/ubi-minimal:latest@sha256:8d0a8fb39ec907e8ca62cdd24b62a63ca49a30fe465798a360741fde58437a23
 ARG release=main
 ARG version=latest
+ARG git_commit=unknown
 
 WORKDIR /
 COPY --from=builder /opt/app-root/src/manager .
@@ -51,6 +52,10 @@ LABEL name="multicluster-engine/capoa-{{ provider }}-rhel9" \
       release="${release}" \
       version="${version}" \
       url="https://github.com/openshift-assisted/cluster-api-provider-openshift-assisted" \
-      vendor="Red Hat, Inc."
+      vendor="Red Hat, Inc." \
+      org.opencontainers.image.revision="${git_commit}" \
+      org.opencontainers.image.source="https://github.com/openshift-assisted/cluster-api-provider-openshift-assisted" \
+      vcs-ref="${git_commit}" \
+      vcs-type="git"
 
 ENTRYPOINT ["/manager"]

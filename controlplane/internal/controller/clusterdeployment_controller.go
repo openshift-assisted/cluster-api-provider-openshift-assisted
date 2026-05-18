@@ -25,8 +25,10 @@ import (
 	"strings"
 
 	controlplanev1alpha3 "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/api/v1alpha3"
+	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/internal/auth"
 	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/internal/imageregistry"
 	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/internal/release"
+	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/pkg/containers"
 	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/util"
 	logutil "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/util/log"
 
@@ -61,7 +63,8 @@ var (
 // ClusterDeploymentReconciler reconciles a ClusterDeployment object
 type ClusterDeploymentReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme      *runtime.Scheme
+	RemoteImage containers.RemoteImage
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -115,7 +118,24 @@ func (r *ClusterDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	if err = ensureClusterImageSet(ctx, r.Client, clusterDeployment.Name, getReleaseImage(*acp, arch)); err != nil {
+
+	releaseImage := getReleaseImage(*acp, arch)
+
+	pullSecret, err := auth.GetPullSecret(r.Client, ctx, acp)
+	if err != nil {
+		log.Error(err, "failed to get pull secret for digest resolution", "releaseImage", releaseImage)
+		return ctrl.Result{}, fmt.Errorf("failed to get pull secret for digest resolution: %w", err)
+	}
+
+	releaseImageWithDigest, err := release.GetReleaseImageWithDigest(releaseImage, pullSecret, r.RemoteImage)
+	if err != nil {
+		log.Error(err, "failed to resolve release image digest", "releaseImage", releaseImage)
+		return ctrl.Result{}, fmt.Errorf("failed to resolve release image digest for %s: %w", releaseImage, err)
+	}
+
+	log.V(logutil.InfoLevel).Info("resolved release image digest", "tagBasedImage", releaseImage, "digestBasedImage", releaseImageWithDigest)
+
+	if err = ensureClusterImageSet(ctx, r.Client, clusterDeployment.Name, releaseImageWithDigest); err != nil {
 		log.Error(err, "failed creating ClusterImageSet")
 		return ctrl.Result{}, err
 	}
@@ -280,6 +300,7 @@ func ensureClusterImageSet(ctx context.Context, c client.Client, imageSetName st
 
 	return err
 }
+
 
 func getClusterNetworks(cluster *clusterv1.Cluster) ([]hiveext.ClusterNetworkEntry, []string) {
 	clusterNetwork := make([]hiveext.ClusterNetworkEntry, 0, len(cluster.Spec.ClusterNetwork.Pods.CIDRBlocks))

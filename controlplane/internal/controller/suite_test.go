@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	metal3v1beta1 "github.com/metal3-io/cluster-api-provider-metal3/api/v1beta1"
+	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/assistedinstaller"
 	bootstrapv1alpha2 "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/bootstrap/api/v1alpha2"
 
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
@@ -35,6 +36,7 @@ import (
 	hiveext "github.com/openshift/assisted-service/api/hiveextension/v1beta1"
 	hivev1 "github.com/openshift/hive/apis/hive/v1"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	//+kubebuilder:scaffold:imports
 )
@@ -67,3 +69,17 @@ var _ = BeforeSuite(func() {
 	utilruntime.Must(apiextensionsv1.AddToScheme(testScheme))
 
 })
+
+// newPullSecret creates a test pull secret with the given name and namespace.
+// This helper reduces duplication across controller tests that need pull secrets for digest resolution.
+func newPullSecret(name, namespace string) *corev1.Secret {
+	return &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+		},
+		Data: map[string][]byte{
+			assistedinstaller.PullsecretDataKey: []byte(`{"auths":{"registry.example.com":{"auth":"dGVzdDp0ZXN0"}}}`),
+		},
+	}
+}

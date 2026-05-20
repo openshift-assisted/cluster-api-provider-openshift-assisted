@@ -22,6 +22,7 @@ import (
 	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/internal/tlsconfig"
 	configv1 "github.com/openshift/api/config/v1"
 	crtls "github.com/openshift/controller-runtime-common/pkg/tls"
+	libgocrypto "github.com/openshift/library-go/pkg/crypto"
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -56,6 +57,13 @@ func SetupSecurityProfileWatcher(mgr manager.Manager, result tlsconfig.TLSConfig
 			cancel()
 		},
 		OnProfileChange: func(_ context.Context, oldProfile, newProfile configv1.TLSProfileSpec) {
+			if !libgocrypto.ShouldHonorClusterTLSProfile(result.TLSAdherencePolicy) {
+				tlsLog.V(1).Info("TLS profile changed but adherence policy does not require honoring, ignoring",
+					"policy", result.TLSAdherencePolicy,
+					"oldProfile", oldProfile,
+					"newProfile", newProfile)
+				return
+			}
 			tlsLog.Info("TLS profile changed, shutting down to reload",
 				"oldProfile", oldProfile, "newProfile", newProfile)
 			cancel()

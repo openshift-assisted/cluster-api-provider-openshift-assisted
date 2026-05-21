@@ -23,10 +23,12 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	configv1 "github.com/openshift/api/config/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	fakectrlclient "sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 )
 
 func newFakeControllerClient(objs ...ctrlclient.Object) ctrlclient.Client {
@@ -153,5 +155,30 @@ var _ = Describe("resolveOpenShiftTLSConfig", func() {
 		_, err := resolveOpenShiftTLSConfig(ctx, k8sClient)
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("none of the ciphers from the cluster TLS profile are supported"))
+	})
+})
+
+var _ = Describe("Transient API errors during TLS resolution", func() {
+	It("should propagate a transient API error without retry or fallback", func() {
+		scheme := runtime.NewScheme()
+		_ = configv1.Install(scheme)
+
+		getCalls := 0
+		k8sClient := fakectrlclient.NewClientBuilder().
+			WithScheme(scheme).
+			WithInterceptorFuncs(interceptor.Funcs{
+				Get: func(_ context.Context, _ ctrlclient.WithWatch, _ ctrlclient.ObjectKey, _ ctrlclient.Object, _ ...ctrlclient.GetOption) error {
+					getCalls++
+
+					return apierrors.NewServiceUnavailable("transient API error")
+				},
+			}).
+			Build()
+
+		_, err := resolveOpenShiftTLSConfig(context.Background(), k8sClient)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("fetching TLS adherence policy from APIServer"))
+		Expect(err.Error()).To(ContainSubstring("transient API error"))
+		Expect(getCalls).To(Equal(1), "should call Get exactly once with no retry")
 	})
 })

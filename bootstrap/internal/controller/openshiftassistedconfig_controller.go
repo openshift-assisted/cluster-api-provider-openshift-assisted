@@ -147,7 +147,7 @@ func (r *OpenshiftAssistedConfigReconciler) Reconcile(ctx context.Context, req c
 	configOwner, err := bsutil.GetTypedConfigOwner(ctx, r.Client, config)
 	if apierrors.IsNotFound(err) {
 		// Could not find the owner yet, this is not an error and will re-reconcile when the owner gets set.
-		log.V(logutil.DebugLevel).Info("config owner not found", "name", configOwner.GetName())
+		log.V(logutil.DebugLevel).Info("config owner not found")
 		return ctrl.Result{}, nil
 	}
 	if err != nil {

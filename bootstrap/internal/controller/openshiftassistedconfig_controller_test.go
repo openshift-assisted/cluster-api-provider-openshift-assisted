@@ -181,6 +181,36 @@ var _ = Describe("OpenshiftAssistedConfig Controller", func() {
 				Expect(condition).To(BeNil())
 			})
 		})
+		When("OpenshiftAssistedConfig owner Machine is deleted during reconciliation", func() {
+			It("should not panic and continue gracefully", func() {
+				// Create cluster and machine first
+				cluster := testutils.NewCluster(clusterName, namespace)
+				Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
+
+				machine := testutils.NewMachine(namespace, machineName, clusterName)
+				Expect(k8sClient.Create(ctx, machine)).To(Succeed())
+				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(machine), machine)).To(Succeed())
+				machine.SetGroupVersionKind(clusterv1.GroupVersion.WithKind("Machine"))
+
+				// Create OpenshiftAssistedConfig with owner reference to machine
+				oac := NewOpenshiftAssistedConfigWithOwner(namespace, oacName, clusterName, machine)
+				Expect(k8sClient.Create(ctx, oac)).To(Succeed())
+
+				// Delete the machine before reconciliation
+				Expect(k8sClient.Delete(ctx, machine)).To(Succeed())
+
+				// Reconcile should not panic
+				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: client.ObjectKeyFromObject(oac),
+				})
+				Expect(err).NotTo(HaveOccurred())
+
+				// Verify no conditions were set (early return before condition logic)
+				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(oac), oac)).To(Succeed())
+				condition := v1beta1conditions.Get(oac, bootstrapv1alpha2.DataSecretAvailableCondition)
+				Expect(condition).To(BeNil())
+			})
+		})
 		When("ClusterDeployment and AgentClusterInstall are not created yet", func() {
 			It("should wait with no error", func() {
 				// Given

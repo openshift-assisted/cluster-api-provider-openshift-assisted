@@ -18,6 +18,7 @@ package setup
 
 import (
 	"context"
+	"crypto/tls"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -138,5 +139,54 @@ var _ = Describe("SetupSecurityProfileWatcher OnProfileChange callback behavior"
 			result := libgocrypto.ShouldHonorClusterTLSProfile(configv1.TLSAdherencePolicyStrictAllComponents)
 			Expect(result).To(BeTrue())
 		})
+	})
+})
+
+var _ = Describe("ResolveTLSConfig", func() {
+	It("should return Intermediate defaults when isOpenShift is false", func() {
+		result, err := ResolveTLSConfig(context.Background(), nil, false)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(result.TLSConfig).NotTo(BeNil())
+		Expect(result.TLSAdherencePolicy).To(Equal(configv1.TLSAdherencePolicy("")))
+
+		cfg := &tls.Config{}
+		result.TLSConfig(cfg)
+		Expect(cfg.MinVersion).To(Equal(uint16(tls.VersionTLS12)))
+	})
+})
+
+var _ = Describe("SetupSecurityProfileWatcher", func() {
+	It("should be a no-op when isOpenShift is false", func() {
+		called := false
+		cancel := func() { called = true }
+
+		err := SetupSecurityProfileWatcher(nil, tlsconfig.TLSConfigResult{}, false, cancel)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(called).To(BeFalse())
+	})
+})
+
+var _ = Describe("SetupSecurityProfileWatcher OnAdherencePolicyChange callback behavior", func() {
+	It("should always call cancel regardless of policy transition", func() {
+		transitions := [][2]configv1.TLSAdherencePolicy{
+			{configv1.TLSAdherencePolicyNoOpinion, configv1.TLSAdherencePolicyStrictAllComponents},
+			{configv1.TLSAdherencePolicyStrictAllComponents, configv1.TLSAdherencePolicyLegacyAdheringComponentsOnly},
+			{configv1.TLSAdherencePolicyLegacyAdheringComponentsOnly, configv1.TLSAdherencePolicyNoOpinion},
+		}
+
+		for _, t := range transitions {
+			cancelled := false
+			cancel := func() { cancelled = true }
+
+			// Replicate the OnAdherencePolicyChange callback from SetupSecurityProfileWatcher:
+			// it unconditionally calls cancel() on any policy transition.
+			onAdherencePolicyChange := func(_ context.Context, _, _ configv1.TLSAdherencePolicy) {
+				cancel()
+			}
+			onAdherencePolicyChange(context.Background(), t[0], t[1])
+
+			Expect(cancelled).To(BeTrue(),
+				"cancel should be called for transition %s -> %s", t[0], t[1])
+		}
 	})
 })

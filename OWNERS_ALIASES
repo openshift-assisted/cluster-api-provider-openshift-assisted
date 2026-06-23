@@ -3,10 +3,9 @@
 aliases:
   approvers:
     - openshift-edge-bot
-    - eranco74
     - gamli75
     - carbonin
     - rccrdpccl
-    - adriengentil
     - CrystalChun
     - jianzzha
+    - bluesort

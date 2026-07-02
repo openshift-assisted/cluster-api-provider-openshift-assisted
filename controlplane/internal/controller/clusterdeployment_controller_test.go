@@ -240,7 +240,7 @@ var _ = Describe("ClusterDeployment Controller", func() {
 
 				cfgOverride := controller.InstallConfigOverride{}
 				Expect(json.Unmarshal([]byte(aci.Annotations[controller.InstallConfigOverrides]), &cfgOverride)).NotTo(HaveOccurred())
-				Expect(cfgOverride.Capability.AdditionalEnabledCapabilities).To(Equal([]configv1.ClusterVersionCapability{"baremetal", "Console", "Insights", "OperatorLifecycleManager", "Ingress", "marketplace", "NodeTuning", "DeploymentConfig"}))
+				Expect(cfgOverride.Capability.AdditionalEnabledCapabilities).To(Equal([]configv1.ClusterVersionCapability{"Console", "Insights", "OperatorLifecycleManager", "Ingress", "marketplace", "NodeTuning", "DeploymentConfig"}))
 				Expect(cfgOverride.Capability.BaselineCapabilitySet).To(Equal(configv1.ClusterVersionCapabilitySet("None")))
 
 			})

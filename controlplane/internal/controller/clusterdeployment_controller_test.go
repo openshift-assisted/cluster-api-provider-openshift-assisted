@@ -240,7 +240,7 @@ var _ = Describe("ClusterDeployment Controller", func() {
 
 				cfgOverride := controller.InstallConfigOverride{}
 				Expect(json.Unmarshal([]byte(aci.Annotations[controller.InstallConfigOverrides]), &cfgOverride)).NotTo(HaveOccurred())
-				Expect(cfgOverride.Capability.AdditionalEnabledCapabilities).To(Equal([]configv1.ClusterVersionCapability{"Console", "Insights", "OperatorLifecycleManager", "Ingress", "marketplace", "NodeTuning", "DeploymentConfig"}))
+				Expect(cfgOverride.Capability.AdditionalEnabledCapabilities).To(Equal([]configv1.ClusterVersionCapability{"Console", "Insights", "OperatorLifecycleManager", "Ingress", "marketplace", "NodeTuning"}))
 				Expect(cfgOverride.Capability.BaselineCapabilitySet).To(Equal(configv1.ClusterVersionCapabilitySet("None")))
 
 			})
@@ -296,7 +296,7 @@ var _ = Describe("ClusterDeployment Controller", func() {
 					Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cd), aci)).To(Succeed())
 					By("Verifying the ACI has the default install config overrides for baremetal set in its annotations")
 					Expect(aci.Annotations).To(HaveKey(controller.InstallConfigOverrides))
-					Expect(aci.Annotations[controller.InstallConfigOverrides]).To(Equal(`{"capabilities":{"baselineCapabilitySet":"None","additionalEnabledCapabilities":["Console","Insights","OperatorLifecycleManager","Ingress","marketplace","NodeTuning","DeploymentConfig"]}}`))
+					Expect(aci.Annotations[controller.InstallConfigOverrides]).To(Equal(`{"capabilities":{"baselineCapabilitySet":"None","additionalEnabledCapabilities":["Console","Insights","OperatorLifecycleManager","Ingress","marketplace","NodeTuning"]}}`))
 				})
 			})
 			When("additional capabilities are specified", func() {
@@ -313,7 +313,7 @@ var _ = Describe("ClusterDeployment Controller", func() {
 
 					By("Verifying the ACI has the default install config overrides for baremetal and the additional capability set in its annotations")
 					Expect(aci.Annotations).To(HaveKey(controller.InstallConfigOverrides))
-					Expect(aci.Annotations[controller.InstallConfigOverrides]).To(Equal(`{"capabilities":{"baselineCapabilitySet":"None","additionalEnabledCapabilities":["Console","Insights","OperatorLifecycleManager","Ingress","marketplace","NodeTuning","DeploymentConfig","CloudControllerManager"]}}`))
+					Expect(aci.Annotations[controller.InstallConfigOverrides]).To(Equal(`{"capabilities":{"baselineCapabilitySet":"None","additionalEnabledCapabilities":["Console","Insights","OperatorLifecycleManager","Ingress","marketplace","NodeTuning","CloudControllerManager"]}}`))
 				})
 			})
 			When("additional capabilities include baremetal explicitly", func() {
@@ -331,7 +331,7 @@ var _ = Describe("ClusterDeployment Controller", func() {
 
 					By("Verifying the ACI has the default install config overrides for baremetal with baremetal appended")
 					Expect(aci.Annotations).To(HaveKey(controller.InstallConfigOverrides))
-					Expect(aci.Annotations[controller.InstallConfigOverrides]).To(Equal(`{"capabilities":{"baselineCapabilitySet":"None","additionalEnabledCapabilities":["Console","Insights","OperatorLifecycleManager","Ingress","marketplace","NodeTuning","DeploymentConfig","baremetal"]}}`))
+					Expect(aci.Annotations[controller.InstallConfigOverrides]).To(Equal(`{"capabilities":{"baselineCapabilitySet":"None","additionalEnabledCapabilities":["Console","Insights","OperatorLifecycleManager","Ingress","marketplace","NodeTuning","baremetal"]}}`))
 				})
 			})
 			When("additional capabilities include MAPI", func() {
@@ -349,7 +349,7 @@ var _ = Describe("ClusterDeployment Controller", func() {
 
 					By("Verifying the ACI has the default install config overrides for baremetal without MAPI")
 					Expect(aci.Annotations).To(HaveKey(controller.InstallConfigOverrides))
-					Expect(aci.Annotations[controller.InstallConfigOverrides]).To(Equal(`{"capabilities":{"baselineCapabilitySet":"None","additionalEnabledCapabilities":["Console","Insights","OperatorLifecycleManager","Ingress","marketplace","NodeTuning","DeploymentConfig","CloudControllerManager"]}}`))
+					Expect(aci.Annotations[controller.InstallConfigOverrides]).To(Equal(`{"capabilities":{"baselineCapabilitySet":"None","additionalEnabledCapabilities":["Console","Insights","OperatorLifecycleManager","Ingress","marketplace","NodeTuning","CloudControllerManager"]}}`))
 				})
 			})
 			When("only baseline capability is specified", func() {
@@ -367,7 +367,7 @@ var _ = Describe("ClusterDeployment Controller", func() {
 
 					By("Verifying the ACI has the correct install config overrides for baremetal and the specified baseline capability")
 					Expect(aci.Annotations).To(HaveKey(controller.InstallConfigOverrides))
-					Expect(aci.Annotations[controller.InstallConfigOverrides]).To(Equal(`{"capabilities":{"baselineCapabilitySet":"vCurrent","additionalEnabledCapabilities":["Console","Insights","OperatorLifecycleManager","Ingress","marketplace","NodeTuning","DeploymentConfig"]}}`))
+					Expect(aci.Annotations[controller.InstallConfigOverrides]).To(Equal(`{"capabilities":{"baselineCapabilitySet":"vCurrent","additionalEnabledCapabilities":["Console","Insights","OperatorLifecycleManager","Ingress","marketplace","NodeTuning"]}}`))
 				})
 			})
 			When("install config override annotation is set with MAPI capability", func() {
@@ -401,7 +401,7 @@ var _ = Describe("ClusterDeployment Controller", func() {
 					cfgOverride := controller.InstallConfigOverride{}
 					Expect(json.Unmarshal([]byte(aci.Annotations[controller.InstallConfigOverrides]), &cfgOverride)).NotTo(HaveOccurred())
 
-					Expect(cfgOverride.Capability.AdditionalEnabledCapabilities).To(Equal([]configv1.ClusterVersionCapability{"Console", "Insights", "OperatorLifecycleManager", "Ingress", "marketplace", "NodeTuning", "DeploymentConfig", "CloudControllerManager"}))
+					Expect(cfgOverride.Capability.AdditionalEnabledCapabilities).To(Equal([]configv1.ClusterVersionCapability{"Console", "Insights", "OperatorLifecycleManager", "Ingress", "marketplace", "NodeTuning", "CloudControllerManager"}))
 					Expect(cfgOverride.Capability.BaselineCapabilitySet).To(Equal(configv1.ClusterVersionCapabilitySet("None")))
 
 					// Verify MAPI is not in the capabilities

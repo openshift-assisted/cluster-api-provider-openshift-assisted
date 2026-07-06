@@ -57,7 +57,7 @@ const (
 )
 
 var (
-	defaultBaremetalAdditionalCapabilities = []configv1.ClusterVersionCapability{"Console", "Insights", "OperatorLifecycleManager", "Ingress", "marketplace", "NodeTuning", "DeploymentConfig"}
+	defaultBaremetalAdditionalCapabilities = []configv1.ClusterVersionCapability{"Console", "Insights", "OperatorLifecycleManager", "Ingress", "marketplace", "NodeTuning"}
 )
 
 // ClusterDeploymentReconciler reconciles a ClusterDeployment object

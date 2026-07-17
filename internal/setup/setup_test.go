@@ -18,6 +18,7 @@ package setup
 
 import (
 	"context"
+	"crypto/tls"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -140,3 +141,28 @@ var _ = Describe("SetupSecurityProfileWatcher OnProfileChange callback behavior"
 		})
 	})
 })
+
+var _ = Describe("ResolveTLSConfig", func() {
+	It("should return Intermediate defaults when isOpenShift is false", func() {
+		result, err := ResolveTLSConfig(context.Background(), nil, false)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(result.TLSConfig).NotTo(BeNil())
+		Expect(result.TLSAdherencePolicy).To(Equal(configv1.TLSAdherencePolicy("")))
+
+		cfg := &tls.Config{}
+		result.TLSConfig(cfg)
+		Expect(cfg.MinVersion).To(Equal(uint16(tls.VersionTLS12)))
+	})
+})
+
+var _ = Describe("SetupSecurityProfileWatcher", func() {
+	It("should be a no-op when isOpenShift is false", func() {
+		called := false
+		cancel := func() { called = true }
+
+		err := SetupSecurityProfileWatcher(nil, tlsconfig.TLSConfigResult{}, false, cancel)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(called).To(BeFalse())
+	})
+})
+

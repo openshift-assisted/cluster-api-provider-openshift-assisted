@@ -201,6 +201,7 @@ func (r *ClusterDeploymentReconciler) ensureAgentClusterInstall(
 		aci.Spec.ImageSetRef = &hivev1.ClusterImageSetReference{Name: clusterDeployment.Name}
 		aci.Spec.Networking.ClusterNetwork = clusterNetwork
 		aci.Spec.Networking.ServiceNetwork = serviceNetwork
+		aci.Spec.Networking.NetworkType = oacp.Spec.Config.NetworkType
 		aci.Spec.ManifestsConfigMapRefs = additionalManifests
 
 		if len(oacp.Spec.Config.APIVIPs) > 0 && len(oacp.Spec.Config.IngressVIPs) > 0 {
@@ -300,7 +301,6 @@ func ensureClusterImageSet(ctx context.Context, c client.Client, imageSetName st
 
 	return err
 }
-
 
 func getClusterNetworks(cluster *clusterv1.Cluster) ([]hiveext.ClusterNetworkEntry, []string) {
 	clusterNetwork := make([]hiveext.ClusterNetworkEntry, 0, len(cluster.Spec.ClusterNetwork.Pods.CIDRBlocks))

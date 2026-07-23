@@ -141,6 +141,7 @@ var _ = Describe("ClusterDeployment Controller", func() {
 				HTTPProxy: "https://example.com",
 			}
 			oacp.Spec.Config.MastersSchedulable = true
+			oacp.Spec.Config.NetworkType = "Cilium"
 
 			cd := utils.NewClusterDeploymentWithOwnerCluster(namespace, clusterName, clusterName, oacp)
 			Expect(k8sClient.Create(ctx, cd)).To(Succeed())
@@ -174,6 +175,7 @@ var _ = Describe("ClusterDeployment Controller", func() {
 			Expect(aci.Spec.Proxy).To(Equal(oacp.Spec.Config.Proxy))
 			Expect(aci.Spec.MastersSchedulable).To(Equal(oacp.Spec.Config.MastersSchedulable))
 			Expect(aci.Spec.SSHPublicKey).To(Equal(oacp.Spec.Config.SSHAuthorizedKey))
+			Expect(aci.Spec.Networking.NetworkType).To(Equal(oacp.Spec.Config.NetworkType))
 
 			// Assert ACI has correct labels
 			Expect(aci.Labels).NotTo(BeEmpty())

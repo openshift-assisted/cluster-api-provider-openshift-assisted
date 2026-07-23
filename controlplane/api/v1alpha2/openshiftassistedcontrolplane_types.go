@@ -103,6 +103,12 @@ type OpenshiftAssistedControlPlaneConfigSpec struct {
 	// +optional
 	MastersSchedulable bool `json:"mastersSchedulable,omitempty"`
 
+	// NetworkType is the Container Network Interface (CNI) plug-in to install.
+	// Defaults to OVNKubernetes for IPv6 or SNO, and OpenShiftSDN for IPv4.
+	// +kubebuilder:validation:Enum=OpenShiftSDN;OVNKubernetes;CiscoACI;Cilium;Calico;None
+	// +optional
+	NetworkType string `json:"networkType,omitempty"`
+
 	// SSHAuthorizedKey ssh key for accessing the cluster nodes after reboot
 	SSHAuthorizedKey string `json:"sshAuthorizedKey,omitempty"`
 

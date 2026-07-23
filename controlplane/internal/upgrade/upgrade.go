@@ -195,4 +195,3 @@ func isGARelease(desiredVersion, repositoryOverride string) bool {
 	}
 	return release.IsGA(desiredVersion)
 }
-

@@ -1,0 +1,4 @@
+---
+ocp_kubeconfig_path: ""
+ocp_cluster_domain: ""
+ocp_router_ip: ""

@@ -1,0 +1,18 @@
+---
+- name: Cleanup OCP e2e test
+  hosts: test_runner
+  vars:
+    src_dir: "/tmp/capbcoa"
+    test_namespace: test-capi
+    mce_namespace: "{{ lookup('ansible.builtin.env', 'MCE_NAMESPACE', default='multicluster-engine') }}"
+    number_of_nodes: "{{ lookup('ansible.builtin.env', 'NUMBER_OF_NODES', default='7') }}"
+    dev_scripts_dir: /home/dev-scripts
+    skip_ocp_install: "{{ lookup('ansible.builtin.env', 'SKIP_OCP_INSTALL', default='false') | lower in ['true', '1', 'yes'] }}"
+    skip_mce_install: "{{ lookup('ansible.builtin.env', 'SKIP_MCE_INSTALL', default='false') | lower in ['true', '1', 'yes'] }}"
+    extra_paths:
+      - /usr/local/bin
+  environment:
+    PATH: "{{ extra_paths | join(':') }}:{{ ansible_env.PATH }}"
+    KUBECONFIG: /tmp/ocp-kubeconfig
+  roles:
+    - cleanup_ocp

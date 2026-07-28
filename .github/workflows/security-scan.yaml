@@ -3,7 +3,12 @@ on:
   push:
     branches:
       - master
-  pull_request_target:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  security-events: write
+  contents: read
 
 jobs:
   image-scan:
@@ -19,8 +24,6 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -50,8 +53,6 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Create scans folder
         run: mkdir -p scans/
       - name: Run Trivy vulnerability scanner in repo mode

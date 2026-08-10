@@ -28,7 +28,7 @@ COPY {{ provider | replace('-', '') }}/internal/ {{ provider | replace('-', '') 
 # by leaving it empty we can ensure that the container and binary shipped on it will have the same platform.
 RUN CGO_ENABLED=1 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64} go build -mod=vendor -a -o manager {{ provider | replace('-', '') }}/main.go
 
-FROM registry.access.redhat.com/ubi9/ubi-minimal:latest@sha256:48fa5d8cda7fc00d270d8747c3eaa54ae196f0820d8540074a9c8c61d5e3056f
+FROM registry.access.redhat.com/ubi9/ubi-minimal:latest@sha256:57c8151c51445a07e503dab9dc9211dc3cdeac9d45ed81a10954b7d770659b3b
 ARG release=main
 ARG version=latest
 ARG git_commit=unknown

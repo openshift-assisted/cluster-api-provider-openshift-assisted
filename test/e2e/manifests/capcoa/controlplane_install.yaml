@@ -1250,6 +1250,20 @@ spec:
               replicas:
                 format: int32
                 type: integer
+              upgradePolicy:
+                default: Managed
+                description: |-
+                  UpgradePolicy controls how the controller handles workload cluster upgrades.
+                  - Managed (default): the controller actively reverts any externally-initiated
+                    upgrades (e.g., admin running oc adm upgrade on the workload cluster). Only upgrades
+                    driven by updating spec.distributionVersion are allowed.
+                  - Unrestricted: the controller does not block external upgrades. If the workload
+                    cluster is upgraded independently, a VersionDriftDetected condition is surfaced
+                    but no corrective action is taken.
+                enum:
+                - Managed
+                - Unrestricted
+                type: string
             required:
             - distributionVersion
             - machineTemplate

@@ -51,6 +51,17 @@ type OpenshiftAssistedControlPlaneSpec struct {
 	Replicas                    int32                                         `json:"replicas,omitempty"`
 	// DistributionVersion describes the targeted OpenShift version
 	DistributionVersion string `json:"distributionVersion"`
+
+	// UpgradePolicy controls how the controller handles workload cluster upgrades.
+	// - Managed (default): the controller actively reverts any externally-initiated
+	//   upgrades (e.g., admin running oc adm upgrade on the workload cluster). Only upgrades
+	//   driven by updating spec.distributionVersion are allowed.
+	// - Unrestricted: the controller does not block external upgrades. If the workload
+	//   cluster is upgraded independently, a VersionDriftDetected condition is surfaced
+	//   but no corrective action is taken.
+	// +kubebuilder:default=Managed
+	// +optional
+	UpgradePolicy UpgradePolicyType `json:"upgradePolicy,omitempty"`
 }
 
 // OpenshiftAssistedControlPlaneConfigSpec defines configuration for the agent-provisioned cluster
@@ -239,6 +250,20 @@ type OpenshiftAssistedControlPlaneList struct {
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []OpenshiftAssistedControlPlane `json:"items"`
 }
+
+// UpgradePolicyType defines how the controller handles tenant cluster upgrades.
+// +kubebuilder:validation:Enum=Managed;Unrestricted
+type UpgradePolicyType string
+
+const (
+	// UpgradePolicyManaged means the controller actively reverts externally-initiated
+	// upgrades. Only upgrades driven by spec.distributionVersion are permitted.
+	UpgradePolicyManaged UpgradePolicyType = "Managed"
+
+	// UpgradePolicyUnrestricted means the controller does not block external upgrades.
+	// If the tenant upgrades independently, a condition is surfaced but no action is taken.
+	UpgradePolicyUnrestricted UpgradePolicyType = "Unrestricted"
+)
 
 func init() {
 	SchemeBuilder.Register(&OpenshiftAssistedControlPlane{}, &OpenshiftAssistedControlPlaneList{})

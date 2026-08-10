@@ -293,9 +293,12 @@ func (r *OpenshiftAssistedControlPlaneReconciler) upgradeWorkloadCluster(ctx con
 
 	var isUpdateInProgress bool
 	var upgradeConditionMessage string
+	var conditionHandled bool
 	defer func() {
+		if conditionHandled {
+			return
+		}
 		if isUpdateInProgress || !isWorkloadClusterRunningDesiredVersion(oacp) {
-			// Either upgrade is in progress or it failed
 			setUpgradeStatus(oacp, isUpdateInProgress, upgradeConditionMessage)
 			return
 		}
@@ -327,11 +330,49 @@ func (r *OpenshiftAssistedControlPlaneReconciler) upgradeWorkloadCluster(ctx con
 		log.V(logutil.DebugLevel).Info("failed to get OpenShift version from ClusterVersion", "error", err.Error())
 	}
 
-	// TODO: check for upgrade errors, mark relevant conditions
+	specVersion, specErr := semver.ParseTolerant(oacp.Spec.DistributionVersion)
+	statusVersion, statusErr := semver.ParseTolerant(oacp.Status.DistributionVersion)
+
+	// Detect version drift: tenant cluster version is ahead of spec.distributionVersion.
+	// This happens when an external upgrade completed before the controller could revert it.
+	// Surface a condition so the cluster admin can update spec to acknowledge.
+	if specErr == nil && statusErr == nil && statusVersion.GT(specVersion) {
+		log.Info("version drift detected: tenant cluster is ahead of spec.distributionVersion",
+			"spec", oacp.Spec.DistributionVersion, "status", oacp.Status.DistributionVersion)
+		conditionHandled = true
+		setConditionFalse(oacp, controlplanev1alpha3.UpgradeCompletedCondition,
+			controlplanev1alpha3.VersionDriftDetectedReason,
+			"tenant cluster version %s is ahead of spec.distributionVersion %s; update spec to acknowledge",
+			oacp.Status.DistributionVersion, oacp.Spec.DistributionVersion)
+		return ctrl.Result{}, nil
+	}
+
+	// If an upgrade is in progress targeting a version we didn't request, and we're
+	// NOT expecting an upgrade ourselves (spec <= status), it was externally initiated.
+	// Clear it to enforce that upgrades are controller-driven only (when policy is Managed).
 	isDesiredVersionUpdated, err := upgrader.IsDesiredVersionUpdated(ctx, oacp.Spec.DistributionVersion)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
+	specIsNewer := specErr == nil && statusErr == nil && specVersion.GT(statusVersion)
+	if isUpdateInProgress && !isDesiredVersionUpdated && !specIsNewer {
+		if oacp.Spec.UpgradePolicy == "" || oacp.Spec.UpgradePolicy == controlplanev1alpha3.UpgradePolicyManaged {
+			log.Info("detected externally-initiated upgrade, clearing desiredUpdate (policy=Managed)",
+				"spec", oacp.Spec.DistributionVersion, "status", oacp.Status.DistributionVersion)
+			if clearErr := upgrader.ClearDesiredUpdate(ctx); clearErr != nil {
+				log.Error(clearErr, "failed to clear external desiredUpdate")
+				return ctrl.Result{Requeue: true, RequeueAfter: 30 * time.Second}, nil
+			}
+			conditionHandled = true
+			setConditionFalse(oacp, controlplanev1alpha3.UpgradeCompletedCondition,
+				controlplanev1alpha3.ExternalUpgradeBlockedReason,
+				"an external upgrade attempt was reverted; upgrades must be driven via spec.distributionVersion")
+			return ctrl.Result{Requeue: true, RequeueAfter: 30 * time.Second}, nil
+		}
+		log.Info("detected externally-initiated upgrade (policy=Unrestricted), not blocking",
+			"spec", oacp.Spec.DistributionVersion, "status", oacp.Status.DistributionVersion)
+	}
+
 	if isDesiredVersionUpdated && isUpdateInProgress {
 		log.V(logutil.DebugLevel).Info("desired version is updated, but did not complete upgrade yet, re-reconciling")
 		return ctrl.Result{
@@ -342,11 +383,19 @@ func (r *OpenshiftAssistedControlPlaneReconciler) upgradeWorkloadCluster(ctx con
 
 	if isWorkloadClusterRunningDesiredVersion(oacp) && !isUpdateInProgress {
 		log.V(logutil.DebugLevel).Info("cluster is now running expected version, upgrade completed")
-
 		return ctrl.Result{}, nil
 	}
 
-	// once updating, requeue to check update status
+	// Only push an upgrade when spec.distributionVersion is strictly newer than
+	// what the tenant is currently running. Never push a downgrade.
+	// If we can't determine the current version, proceed with the push (safe default).
+	if specErr == nil && statusErr == nil && !specVersion.GT(statusVersion) {
+		log.V(logutil.DebugLevel).Info("spec.distributionVersion is not newer than current, skipping upgrade push",
+			"spec", oacp.Spec.DistributionVersion, "status", oacp.Status.DistributionVersion)
+		return ctrl.Result{}, nil
+	}
+
+	// Push controller-initiated upgrade
 	return ctrl.Result{
 			Requeue:      true,
 			RequeueAfter: 1 * time.Minute,
@@ -386,6 +435,11 @@ func getUpgradeOptions(oacp *controlplanev1alpha3.OpenshiftAssistedControlPlane,
 }
 
 func isWorkloadClusterRunningDesiredVersion(oacp *controlplanev1alpha3.OpenshiftAssistedControlPlane) bool {
+	specV, specErr := semver.ParseTolerant(oacp.Spec.DistributionVersion)
+	statusV, statusErr := semver.ParseTolerant(oacp.Status.DistributionVersion)
+	if specErr == nil && statusErr == nil {
+		return specV.EQ(statusV)
+	}
 	return oacp.Spec.DistributionVersion == oacp.Status.DistributionVersion
 }
 

@@ -816,6 +816,18 @@ spec:
                           Defaults to None for baremetal platform workload clusters or vCurrent otherwise.
                         type: string
                     type: object
+                  cloudControllerManager:
+                    description: |-
+                      CloudControllerManager configures the cloud controller manager for the cluster.
+                      When enabled, the controller deploys the platform-appropriate CCM on the
+                      workload cluster (e.g. kubevirt-cloud-controller-manager for KubeVirt).
+                    properties:
+                      enabled:
+                        description: |-
+                          Enabled controls whether the platform-appropriate cloud controller manager
+                          is deployed on the workload cluster. Defaults to false.
+                        type: boolean
+                    type: object
                   clusterName:
                     description: |-
                       ClusterName is the friendly name of the cluster. It is used for subdomains,
@@ -823,6 +835,26 @@ spec:
                       cluster is useful.
                       If not defined ClusterName will be set as the CAPI ClusterName
                     type: string
+                  csiDriver:
+                    description: |-
+                      CSIDriver configures the platform-specific CSI driver for the cluster.
+                      When enabled, the controller deploys the appropriate CSI driver stack on
+                      the workload cluster (e.g. kubevirt-csi-driver for KubeVirt).
+                    properties:
+                      enabled:
+                        description: |-
+                          Enabled controls whether the platform-appropriate CSI driver is deployed
+                          on the workload cluster. Defaults to false.
+                        type: boolean
+                      infraStorageClass:
+                        description: |-
+                          InfraStorageClass is the StorageClass on the infra cluster used to back
+                          workload cluster PersistentVolumeClaims. Required when Enabled is true.
+                        type: string
+                    type: object
+                    x-kubernetes-validations:
+                    - message: infraStorageClass is required when CSI driver is enabled
+                      rule: '!self.enabled || self.infraStorageClass != '''''
                   diskEncryption:
                     description: DiskEncryption is the configuration to enable/disable
                       disk encryption for cluster nodes.

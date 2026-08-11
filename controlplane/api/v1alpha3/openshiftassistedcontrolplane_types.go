@@ -57,6 +57,18 @@ type OpenshiftAssistedControlPlaneSpec struct {
 type OpenshiftAssistedControlPlaneConfigSpec struct {
 	// From AgentClusterInstall https://github.com/openshift/assisted-service/blob/master/api/hiveextension/v1beta1/agentclusterinstall_types.go
 
+	// CloudControllerManager configures the cloud controller manager for the cluster.
+	// When enabled, the controller deploys the platform-appropriate CCM on the
+	// workload cluster (e.g. kubevirt-cloud-controller-manager for KubeVirt).
+	// +optional
+	CloudControllerManager *CCMSpec `json:"cloudControllerManager,omitempty"`
+
+	// CSIDriver configures the platform-specific CSI driver for the cluster.
+	// When enabled, the controller deploys the appropriate CSI driver stack on
+	// the workload cluster (e.g. kubevirt-csi-driver for KubeVirt).
+	// +optional
+	CSIDriver *CSIDriverSpec `json:"csiDriver,omitempty"`
+
 	// APIVIPs are the virtual IPs used to reach the OpenShift cluster's API.
 	// Enter one IP address for single-stack clusters, or up to two for dual-stack clusters (at
 	// most one IP address per IP stack used). The order of stacks should be the same as order
@@ -238,6 +250,28 @@ type OpenshiftAssistedControlPlaneList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []OpenshiftAssistedControlPlane `json:"items"`
+}
+
+// CCMSpec configures the cloud controller manager for the cluster.
+type CCMSpec struct {
+	// Enabled controls whether the platform-appropriate cloud controller manager
+	// is deployed on the workload cluster. Defaults to false.
+	// +optional
+	Enabled bool `json:"enabled,omitempty"`
+}
+
+// CSIDriverSpec configures the platform-specific CSI driver for the cluster.
+// +kubebuilder:validation:XValidation:rule="!self.enabled || self.infraStorageClass != ''",message="infraStorageClass is required when CSI driver is enabled"
+type CSIDriverSpec struct {
+	// Enabled controls whether the platform-appropriate CSI driver is deployed
+	// on the workload cluster. Defaults to false.
+	// +optional
+	Enabled bool `json:"enabled,omitempty"`
+
+	// InfraStorageClass is the StorageClass on the infra cluster used to back
+	// workload cluster PersistentVolumeClaims. Required when Enabled is true.
+	// +optional
+	InfraStorageClass string `json:"infraStorageClass,omitempty"`
 }
 
 func init() {

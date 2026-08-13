@@ -30,7 +30,7 @@ type OpenshiftAssistedControlPlaneMachineTemplate struct {
 	// Standard object's metadata.
 	// More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#metadata
 	// +optional
-	ObjectMeta clusterv1.ObjectMeta `json:"metadata,omitempty"`
+	ObjectMeta clusterv1.ObjectMeta `json:"metadata,omitempty,omitzero"`
 
 	// InfrastructureRef is a required reference to a custom resource
 	// offered by an infrastructure provider.
@@ -39,7 +39,7 @@ type OpenshiftAssistedControlPlaneMachineTemplate struct {
 	// Deletion contains configuration options for Machine deletion.
 	// +optional
 	// +kubebuilder:default={nodeDeletionTimeoutSeconds: 10}
-	Deletion clusterv1.MachineDeletionSpec `json:"deletion,omitempty"`
+	Deletion clusterv1.MachineDeletionSpec `json:"deletion,omitempty,omitzero"`
 }
 
 // OpenshiftAssistedControlPlaneSpec defines the desired state of OpenshiftAssistedControlPlane

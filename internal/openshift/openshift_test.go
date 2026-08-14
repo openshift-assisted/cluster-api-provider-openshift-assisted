@@ -21,75 +21,34 @@ import (
 	"fmt"
 	"sync/atomic"
 
+	"github.com/golang/mock/gomock"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/external_mocks"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/client-go/discovery"
-	restclient "k8s.io/client-go/rest"
-	openapi_v2 "github.com/google/gnostic-models/openapiv2"
-	"k8s.io/apimachinery/pkg/version"
-	"k8s.io/client-go/openapi"
 )
 
-type fakeDiscovery struct {
-	serverResourcesFn func(groupVersion string) (*metav1.APIResourceList, error)
-}
-
-func (f *fakeDiscovery) ServerResourcesForGroupVersion(groupVersion string) (*metav1.APIResourceList, error) {
-	return f.serverResourcesFn(groupVersion)
-}
-
-func (f *fakeDiscovery) ServerGroupsAndResources() ([]*metav1.APIGroup, []*metav1.APIResourceList, error) {
-	return nil, nil, nil
-}
-
-func (f *fakeDiscovery) ServerPreferredResources() ([]*metav1.APIResourceList, error) {
-	return nil, nil
-}
-
-func (f *fakeDiscovery) ServerPreferredNamespacedResources() ([]*metav1.APIResourceList, error) {
-	return nil, nil
-}
-
-func (f *fakeDiscovery) ServerGroups() (*metav1.APIGroupList, error) {
-	return nil, nil
-}
-
-func (f *fakeDiscovery) ServerVersion() (*version.Info, error) {
-	return nil, nil
-}
-
-func (f *fakeDiscovery) OpenAPISchema() (*openapi_v2.Document, error) {
-	return nil, nil
-}
-
-func (f *fakeDiscovery) OpenAPIV3() openapi.Client {
-	return nil
-}
-
-func (f *fakeDiscovery) RESTClient() restclient.Interface {
-	return nil
-}
-
-func (f *fakeDiscovery) WithLegacy() discovery.DiscoveryInterface {
-	return f
-}
-
-var _ discovery.DiscoveryInterface = &fakeDiscovery{}
-
 var _ = Describe("isOpenShiftWithDiscovery", func() {
+	var (
+		mockCtrl *gomock.Controller
+		disc     *external_mocks.MockDiscoveryInterface
+	)
+
+	BeforeEach(func() {
+		mockCtrl = gomock.NewController(GinkgoT())
+		disc = external_mocks.NewMockDiscoveryInterface(mockCtrl)
+	})
+
 	It("should detect OpenShift when apiservers resource exists", func() {
-		disc := &fakeDiscovery{
-			serverResourcesFn: func(_ string) (*metav1.APIResourceList, error) {
-				return &metav1.APIResourceList{
-					APIResources: []metav1.APIResource{
-						{Name: "apiservers"},
-					},
-				}, nil
-			},
-		}
+		disc.EXPECT().
+			ServerResourcesForGroupVersion(gomock.Any()).
+			Return(&metav1.APIResourceList{
+				APIResources: []metav1.APIResource{
+					{Name: "apiservers"},
+				},
+			}, nil)
 
 		result, err := isOpenShiftWithDiscovery(context.Background(), disc)
 		Expect(err).NotTo(HaveOccurred())
@@ -97,12 +56,10 @@ var _ = Describe("isOpenShiftWithDiscovery", func() {
 	})
 
 	It("should detect vanilla K8s when API group does not exist", func() {
-		disc := &fakeDiscovery{
-			serverResourcesFn: func(_ string) (*metav1.APIResourceList, error) {
-				return nil, apierrors.NewNotFound(
-					schema.GroupResource{Group: "config.openshift.io", Resource: "apiservers"}, "")
-			},
-		}
+		disc.EXPECT().
+			ServerResourcesForGroupVersion(gomock.Any()).
+			Return(nil, apierrors.NewNotFound(
+				schema.GroupResource{Group: "config.openshift.io", Resource: "apiservers"}, ""))
 
 		result, err := isOpenShiftWithDiscovery(context.Background(), disc)
 		Expect(err).NotTo(HaveOccurred())
@@ -110,16 +67,14 @@ var _ = Describe("isOpenShiftWithDiscovery", func() {
 	})
 
 	It("should detect vanilla K8s when API group exists but apiservers resource is missing", func() {
-		disc := &fakeDiscovery{
-			serverResourcesFn: func(_ string) (*metav1.APIResourceList, error) {
-				return &metav1.APIResourceList{
-					APIResources: []metav1.APIResource{
-						{Name: "infrastructures"},
-						{Name: "ingresses"},
-					},
-				}, nil
-			},
-		}
+		disc.EXPECT().
+			ServerResourcesForGroupVersion(gomock.Any()).
+			Return(&metav1.APIResourceList{
+				APIResources: []metav1.APIResource{
+					{Name: "infrastructures"},
+					{Name: "ingresses"},
+				},
+			}, nil)
 
 		result, err := isOpenShiftWithDiscovery(context.Background(), disc)
 		Expect(err).NotTo(HaveOccurred())
@@ -128,20 +83,19 @@ var _ = Describe("isOpenShiftWithDiscovery", func() {
 
 	It("should retry on transient API error then succeed", func() {
 		var calls int32
-		disc := &fakeDiscovery{
-			serverResourcesFn: func(_ string) (*metav1.APIResourceList, error) {
+		disc.EXPECT().
+			ServerResourcesForGroupVersion(gomock.Any()).
+			DoAndReturn(func(_ string) (*metav1.APIResourceList, error) {
 				call := atomic.AddInt32(&calls, 1)
 				if call == 1 {
 					return nil, fmt.Errorf("connection refused")
 				}
-
 				return &metav1.APIResourceList{
 					APIResources: []metav1.APIResource{
 						{Name: "apiservers"},
 					},
 				}, nil
-			},
-		}
+			}).Times(2)
 
 		result, err := isOpenShiftWithDiscovery(context.Background(), disc)
 		Expect(err).NotTo(HaveOccurred())
@@ -151,13 +105,12 @@ var _ = Describe("isOpenShiftWithDiscovery", func() {
 
 	It("should return error when context is cancelled during retry", func() {
 		ctx, cancel := context.WithCancel(context.Background())
-		disc := &fakeDiscovery{
-			serverResourcesFn: func(_ string) (*metav1.APIResourceList, error) {
+		disc.EXPECT().
+			ServerResourcesForGroupVersion(gomock.Any()).
+			DoAndReturn(func(_ string) (*metav1.APIResourceList, error) {
 				cancel()
-
 				return nil, fmt.Errorf("connection refused")
-			},
-		}
+			})
 
 		result, err := isOpenShiftWithDiscovery(ctx, disc)
 		Expect(err).To(HaveOccurred())
@@ -166,13 +119,11 @@ var _ = Describe("isOpenShiftWithDiscovery", func() {
 	})
 
 	It("should return false when resource list is empty", func() {
-		disc := &fakeDiscovery{
-			serverResourcesFn: func(_ string) (*metav1.APIResourceList, error) {
-				return &metav1.APIResourceList{
-					APIResources: []metav1.APIResource{},
-				}, nil
-			},
-		}
+		disc.EXPECT().
+			ServerResourcesForGroupVersion(gomock.Any()).
+			Return(&metav1.APIResourceList{
+				APIResources: []metav1.APIResource{},
+			}, nil)
 
 		result, err := isOpenShiftWithDiscovery(context.Background(), disc)
 		Expect(err).NotTo(HaveOccurred())

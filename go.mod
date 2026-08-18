@@ -9,6 +9,7 @@ require (
 	github.com/coreos/ignition/v2 v2.18.0
 	github.com/go-logr/logr v1.4.3
 	github.com/golang/mock v1.6.0
+	github.com/google/gnostic-models v0.7.0
 	github.com/google/go-containerregistry v0.20.3
 	github.com/kelseyhightower/envconfig v1.4.0
 	github.com/metal3-io/baremetal-operator/apis v0.11.2
@@ -69,7 +70,6 @@ require (
 	github.com/go-task/slim-sprig/v3 v3.0.0 // indirect
 	github.com/gobuffalo/flect v1.0.3 // indirect
 	github.com/google/btree v1.1.3 // indirect
-	github.com/google/gnostic-models v0.7.0 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/pprof v0.0.0-20260115054156-294ebfa9ad83 // indirect
 	github.com/google/uuid v1.6.0 // indirect

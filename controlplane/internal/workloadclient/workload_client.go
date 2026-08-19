@@ -15,9 +15,18 @@ import (
 
 type WorkloadClusterClientGenerator struct{}
 
+type EtcdMember struct {
+	ID   uint64
+	Name string
+}
+
 //go:generate mockgen -destination=mock_clientgenerator.go -package=workloadclient -source workload_client.go ClientGenerator
 type ClientGenerator interface {
 	GetWorkloadClusterClient(kubeconfig []byte) (client.Client, error)
+	RemoveEtcdMember(ctx context.Context, kubeconfig []byte, memberName string) error
+	ListEtcdMembers(ctx context.Context, kubeconfig []byte) ([]EtcdMember, error)
+	RemoveEtcdMemberByID(ctx context.Context, kubeconfig []byte, memberID uint64) error
+	ForwardEtcdLeadership(ctx context.Context, kubeconfig []byte, fromMemberName, toMemberName string) error
 }
 
 func NewWorkloadClusterClientGenerator() *WorkloadClusterClientGenerator {

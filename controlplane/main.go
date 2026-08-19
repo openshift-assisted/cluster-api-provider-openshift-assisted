@@ -198,10 +198,11 @@ func main() {
 	releaseImageRepository := containers.NewRemoteImageRepository()
 	clientGenerator := workloadclient.NewWorkloadClusterClientGenerator()
 	if err = (&controlplanecontroller.OpenshiftAssistedControlPlaneReconciler{
-		Client:             mgr.GetClient(),
-		Scheme:             mgr.GetScheme(),
-		K8sVersionDetector: version.NewKubernetesVersionDetector(releaseImageRepository),
-		UpgradeFactory:     upgrade.NewOpenshiftUpgradeFactory(releaseImageRepository, clientGenerator),
+		Client:                  mgr.GetClient(),
+		Scheme:                  mgr.GetScheme(),
+		K8sVersionDetector:      version.NewKubernetesVersionDetector(releaseImageRepository),
+		UpgradeFactory:          upgrade.NewOpenshiftUpgradeFactory(releaseImageRepository, clientGenerator),
+		WorkloadClientGenerator: clientGenerator,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "OpenshiftAssistedControlPlane")
 		os.Exit(1)

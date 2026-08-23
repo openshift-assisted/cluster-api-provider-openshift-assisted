@@ -57,6 +57,14 @@ type OpenshiftAssistedControlPlaneSpec struct {
 type OpenshiftAssistedControlPlaneConfigSpec struct {
 	// From AgentClusterInstall https://github.com/openshift/assisted-service/blob/master/api/hiveextension/v1beta1/agentclusterinstall_types.go
 
+	// InfraClusterRef references a Secret containing the kubeconfig for the
+	// infrastructure cluster where workload VMs and supporting resources
+	// (Services, Routes, DNS proxy, golden PVC) are created.
+	// If not set, the controller assumes the management cluster IS the infra
+	// cluster (local-infra topology).
+	// +optional
+	InfraClusterRef *corev1.LocalObjectReference `json:"infraClusterRef,omitempty"`
+
 	// CloudControllerManager configures the cloud controller manager for the cluster.
 	// When enabled, the controller deploys the platform-appropriate CCM on the
 	// workload cluster (e.g. kubevirt-cloud-controller-manager for KubeVirt).

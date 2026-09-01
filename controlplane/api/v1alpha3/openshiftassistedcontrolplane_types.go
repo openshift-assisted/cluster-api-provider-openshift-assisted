@@ -77,6 +77,12 @@ type OpenshiftAssistedControlPlaneConfigSpec struct {
 	// +optional
 	CSIDriver *CSIDriverSpec `json:"csiDriver,omitempty"`
 
+	// Network configures the workload cluster's network parameters.
+	// When set, the controller generates the appropriate Network operator manifest
+	// and injects it via ManifestsConfigMapRefs during installation.
+	// +optional
+	Network *WorkloadClusterNetworkSpec `json:"network,omitempty"`
+
 	// APIVIPs are the virtual IPs used to reach the OpenShift cluster's API.
 	// Enter one IP address for single-stack clusters, or up to two for dual-stack clusters (at
 	// most one IP address per IP stack used). The order of stacks should be the same as order
@@ -280,6 +286,36 @@ type CSIDriverSpec struct {
 	// workload cluster PersistentVolumeClaims. Required when Enabled is true.
 	// +optional
 	InfraStorageClass string `json:"infraStorageClass,omitempty"`
+}
+
+// WorkloadClusterNetworkSpec configures networking parameters for the workload cluster.
+// When set, the controller generates the appropriate Network operator manifest and
+// injects it during installation. This is useful for KubeVirt environments where the
+// default MTU causes issues due to double encapsulation (infra Geneve + tenant Geneve).
+type WorkloadClusterNetworkSpec struct {
+	// OVNKubernetes configures OVN-Kubernetes specific network parameters.
+	// +optional
+	OVNKubernetes *OVNKubernetesConfig `json:"ovnKubernetes,omitempty"`
+}
+
+// OVNKubernetesConfig holds OVN-Kubernetes network configuration for the workload cluster.
+type OVNKubernetesConfig struct {
+	// MTU is the maximum transmission unit for the workload cluster's pod network.
+	// For KubeVirt environments with bridge networking, this should be lower than
+	// the infra cluster's pod MTU to account for double Geneve encapsulation.
+	// Typical value: 1300 (safe for Azure/AWS/bare-metal with 1500 physical MTU).
+	// +optional
+	// +kubebuilder:validation:Minimum=576
+	// +kubebuilder:validation:Maximum=9000
+	MTU *uint32 `json:"mtu,omitempty"`
+
+	// GenevePort is the UDP port for Geneve tunnel traffic in the workload cluster.
+	// Must differ from the infra cluster's Geneve port (default 6081) to avoid conflicts.
+	// Typical value: 9880.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=65535
+	GenevePort *uint32 `json:"genevePort,omitempty"`
 }
 
 func init() {

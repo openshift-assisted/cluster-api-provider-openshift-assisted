@@ -162,9 +162,17 @@ spec:
 func generateCorefile(fqdn string, upstreamDNS string, apiIPs []string, ingressIPs []string) string {
 	escapedFQDN := strings.ReplaceAll(fqdn, ".", "[.]")
 
-	var apiAnswers string
+	// Partition IPs by address family for correct CoreDNS template matching
+	var apiV4Answers, apiV6Answers, apiIntV4Answers, apiIntV6Answers string
 	for _, ip := range apiIPs {
-		apiAnswers += fmt.Sprintf("        answer \"api.%s 60 IN %s %s\"\n", fqdn, dnsRecordType(ip), ip)
+		rt := dnsRecordType(ip)
+		if rt == "AAAA" {
+			apiV6Answers += fmt.Sprintf("        answer \"api.%s 60 IN AAAA %s\"\n", fqdn, ip)
+			apiIntV6Answers += fmt.Sprintf("        answer \"api-int.%s 60 IN AAAA %s\"\n", fqdn, ip)
+		} else {
+			apiV4Answers += fmt.Sprintf("        answer \"api.%s 60 IN A %s\"\n", fqdn, ip)
+			apiIntV4Answers += fmt.Sprintf("        answer \"api-int.%s 60 IN A %s\"\n", fqdn, ip)
+		}
 	}
 
 	// If no IPs are known yet, use forward-only mode
@@ -190,22 +198,11 @@ func generateCorefile(fqdn string, upstreamDNS string, apiIPs []string, ingressI
 `, fqdn, upstreamDNS)
 	}
 
-	var apiIntAnswers string
-	for _, ip := range apiIPs {
-		apiIntAnswers += fmt.Sprintf("        answer \"api-int.%s 60 IN %s %s\"\n", fqdn, dnsRecordType(ip), ip)
-	}
+	// Build template blocks for each address family
+	var templates string
 
-	// *.apps is handled by a separate server block using the file plugin (see generateAppsZoneFile).
-	// The proxy is authoritative for the tenant zone - unknown subdomains get NXDOMAIN.
-	// This is important for the assisted-service DNS wildcard validation: it queries a
-	// nonsensical subdomain (e.g. zzzzz.<fqdn>) and expects NXDOMAIN. If we forwarded
-	// to upstream DNS, the infra cluster's wildcard *.apps record would catch it and the
-	// validation would fail, blocking installation.
-	return fmt.Sprintf(`%s:5353 {
-    errors
-    log
-    reload 10s
-
+	if apiV4Answers != "" {
+		templates += fmt.Sprintf(`
     template IN A api.%s {
         match "^api[.]%s[.]$"
 %s        fallthrough
@@ -215,7 +212,28 @@ func generateCorefile(fqdn string, upstreamDNS string, apiIPs []string, ingressI
         match "^api-int[.]%s[.]$"
 %s        fallthrough
     }
+`, fqdn, escapedFQDN, apiV4Answers, fqdn, escapedFQDN, apiIntV4Answers)
+	}
 
+	if apiV6Answers != "" {
+		templates += fmt.Sprintf(`
+    template IN AAAA api.%s {
+        match "^api[.]%s[.]$"
+%s        fallthrough
+    }
+
+    template IN AAAA api-int.%s {
+        match "^api-int[.]%s[.]$"
+%s        fallthrough
+    }
+`, fqdn, escapedFQDN, apiV6Answers, fqdn, escapedFQDN, apiIntV6Answers)
+	}
+
+	return fmt.Sprintf(`%s:5353 {
+    errors
+    log
+    reload 10s
+%s
     template IN AAAA {
         match ".*"
         rcode NOERROR
@@ -233,7 +251,7 @@ func generateCorefile(fqdn string, upstreamDNS string, apiIPs []string, ingressI
 
     cache 30
 }
-`, fqdn, fqdn, escapedFQDN, apiAnswers, fqdn, escapedFQDN, apiIntAnswers)
+`, fqdn, templates)
 }
 
 // generateAppsCorefile generates a separate CoreDNS server block for the *.apps

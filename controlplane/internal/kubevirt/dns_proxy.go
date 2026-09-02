@@ -21,7 +21,7 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"regexp"
+	"strconv"
 
 	controlplanev1alpha3 "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/api/v1alpha3"
 	appsv1 "k8s.io/api/apps/v1"
@@ -33,6 +33,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -90,14 +91,16 @@ func EnsureDNSProxy(
 	}
 	baseDomain := oacp.Spec.Config.BaseDomain
 
-	if !isValidDNSName(clusterName) {
-		return fmt.Errorf("invalid clusterName %q: must be a valid DNS label", clusterName)
+	if errs := validation.IsDNS1123Label(clusterName); len(errs) > 0 {
+		return fmt.Errorf("invalid clusterName %q: %s", clusterName, errs[0])
 	}
-	if !isValidDNSName(baseDomain) {
-		return fmt.Errorf("invalid baseDomain %q: must be a valid DNS name", baseDomain)
+	if errs := validation.IsDNS1123Subdomain(baseDomain); len(errs) > 0 {
+		return fmt.Errorf("invalid baseDomain %q: %s", baseDomain, errs[0])
 	}
-
 	fqdn := fmt.Sprintf("%s.%s", clusterName, baseDomain)
+	if errs := validation.IsDNS1123Subdomain(fqdn); len(errs) > 0 {
+		return fmt.Errorf("invalid FQDN %q: %s", fqdn, errs[0])
+	}
 
 	// 1. CoreDNS ConfigMap
 	corefile := generateCorefile(fqdn, DefaultInfraClusterDNSIP, []string{config.APIIP}, config.IngressIPs)
@@ -209,8 +212,8 @@ func EnsureDNSForwardingRule(ctx context.Context, c client.Client, clusterName, 
 	}
 
 	fqdn := fmt.Sprintf("%s.%s", clusterName, baseDomain)
-	ruleName := clusterName + "-dns"
-	upstream := net.JoinHostPort(dnsProxyClusterIP, fmt.Sprintf("%d", TenantDNSPort))
+	ruleName := namespace + "-" + clusterName + "-dns"
+	upstream := net.JoinHostPort(dnsProxyClusterIP, strconv.Itoa(TenantDNSPort))
 
 	dnsGVK := schema.GroupVersionKind{
 		Group:   "operator.openshift.io",
@@ -265,8 +268,8 @@ func EnsureDNSForwardingRule(ctx context.Context, c client.Client, clusterName, 
 
 // RemoveDNSForwardingRule removes the tenant's DNS forwarding rule from the cluster
 // DNS operator. Called during tenant cluster cleanup. Uses retry-on-conflict.
-func RemoveDNSForwardingRule(ctx context.Context, c client.Client, clusterName string) error {
-	ruleName := clusterName + "-dns"
+func RemoveDNSForwardingRule(ctx context.Context, c client.Client, clusterName, namespace string) error {
+	ruleName := namespace + "-" + clusterName + "-dns"
 
 	dnsGVK := schema.GroupVersionKind{
 		Group:   "operator.openshift.io",
@@ -348,11 +351,4 @@ func retryOnConflict(maxRetries int, fn func() error) error {
 		}
 	}
 	return err
-}
-
-// dnsNameRegex matches valid DNS names (labels separated by dots, each 1-63 chars).
-var dnsNameRegex = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$`)
-
-func isValidDNSName(name string) bool {
-	return len(name) > 0 && len(name) <= 253 && dnsNameRegex.MatchString(name)
 }

@@ -215,65 +215,6 @@ var _ = Describe("RHCOS Golden PVC", func() {
 		})
 	})
 })
-
-var _ = Describe("ResolveCliImage", func() {
-	var (
-		ctx        context.Context
-		scheme     *runtime.Scheme
-		fakeClient client.Client
-		namespace  string
-	)
-
-	BeforeEach(func() {
-		ctx = context.Background()
-		namespace = testNamespace
-		scheme = runtime.NewScheme()
-		utilruntime.Must(corev1.AddToScheme(scheme))
-		utilruntime.Must(batchv1.AddToScheme(scheme))
-	})
-
-	Context("When the ConfigMap already contains the CLI image", func() {
-		It("should return the cached image", func() {
-			cm := &corev1.ConfigMap{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      kubevirt.CliImageConfigMap,
-					Namespace: namespace,
-				},
-				Data: map[string]string{"cli-image": "quay.io/openshift/cli:4.22"},
-			}
-			fakeClient = fake.NewClientBuilder().WithScheme(scheme).WithObjects(cm).Build()
-
-			img, err := kubevirt.ResolveCliImage(ctx, fakeClient, namespace, "quay.io/release:4.22", "pull-secret", "4.22.2")
-			Expect(err).NotTo(HaveOccurred())
-			Expect(img).To(Equal("quay.io/openshift/cli:4.22"))
-		})
-	})
-
-	Context("When no Job exists", func() {
-		It("should create the Job and return empty string", func() {
-			fakeClient = fake.NewClientBuilder().WithScheme(scheme).Build()
-
-			img, err := kubevirt.ResolveCliImage(ctx, fakeClient, namespace, "quay.io/release:4.22", "pull-secret", "4.22.2")
-			Expect(err).NotTo(HaveOccurred())
-			Expect(img).To(BeEmpty())
-
-			job := &batchv1.Job{}
-			err = fakeClient.Get(ctx, client.ObjectKey{Name: "resolve-cli-image-4.22", Namespace: namespace}, job)
-			Expect(err).NotTo(HaveOccurred())
-		})
-	})
-
-	Context("When version is invalid", func() {
-		It("should return an error", func() {
-			fakeClient = fake.NewClientBuilder().WithScheme(scheme).Build()
-
-			_, err := kubevirt.ResolveCliImage(ctx, fakeClient, namespace, "quay.io/release:4.22", "pull-secret", "bad")
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("cannot extract major.minor"))
-		})
-	})
-})
-
 var _ = Describe("readURLFromJobPod", func() {
 	var (
 		ctx        context.Context

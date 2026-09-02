@@ -30,6 +30,7 @@ import (
 	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/internal/release"
 	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/internal/upgrade"
 	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/internal/version"
+	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/internal/workloadclient"
 
 	"github.com/golang/mock/gomock"
 	. "github.com/onsi/ginkgo/v2"
@@ -53,6 +54,8 @@ import (
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 )
 
+var testK8sVersion = "1.30.0"
+
 var _ = Describe("OpenshiftAssistedControlPlane Controller", func() {
 	Context("When reconciling a resource", func() {
 		const (
@@ -61,7 +64,6 @@ var _ = Describe("OpenshiftAssistedControlPlane Controller", func() {
 			namespace                         = "test"
 		)
 		var (
-			k8sVersion                    = "1.30.0"
 			ctx                           = context.Background()
 			typeNamespacedName            types.NamespacedName
 			cluster                       *clusterv1.Cluster
@@ -81,7 +83,7 @@ var _ = Describe("OpenshiftAssistedControlPlane Controller", func() {
 				Build()
 
 			mockKubernetesVersionDetector = version.NewMockKubernetesVersionDetector(ctrl)
-			mockKubernetesVersionDetector.EXPECT().GetKubernetesVersion(gomock.Any(), gomock.Any()).Return(&k8sVersion, nil).AnyTimes()
+			mockKubernetesVersionDetector.EXPECT().GetKubernetesVersion(gomock.Any(), gomock.Any()).Return(&testK8sVersion, nil).AnyTimes()
 
 			mockUpgrader = upgrade.NewMockClusterUpgrade(ctrl)
 			mockUpgrader.EXPECT().IsUpgradeInProgress(gomock.Any()).Return(false, nil).AnyTimes()
@@ -136,12 +138,11 @@ var _ = Describe("OpenshiftAssistedControlPlane Controller", func() {
 				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
 					NamespacedName: typeNamespacedName,
 				})
-				expectedVersion := "1.30.0"
 				Expect(err).NotTo(HaveOccurred())
 				err = k8sClient.Get(ctx, typeNamespacedName, openshiftAssistedControlPlane)
 				Expect(err).NotTo(HaveOccurred())
 
-				Expect(openshiftAssistedControlPlane.Status.Version).To(Equal(expectedVersion))
+				Expect(openshiftAssistedControlPlane.Status.Version).To(Equal(testK8sVersion))
 				By("checking that the cluster deployment was created")
 				cd := &hivev1.ClusterDeployment{}
 				err = k8sClient.Get(ctx, typeNamespacedName, cd)
@@ -325,7 +326,6 @@ var _ = Describe("Upgrade scenarios", func() {
 	)
 
 	var (
-		k8sVersion                    = "1.30.0"
 		ctx                           context.Context
 		typeNamespacedName            types.NamespacedName
 		cluster                       *clusterv1.Cluster
@@ -347,7 +347,7 @@ var _ = Describe("Upgrade scenarios", func() {
 			Build()
 
 		mockKubernetesVersionDetector = version.NewMockKubernetesVersionDetector(ctrl)
-		mockKubernetesVersionDetector.EXPECT().GetKubernetesVersion(gomock.Any(), gomock.Any()).Return(&k8sVersion, nil).AnyTimes()
+		mockKubernetesVersionDetector.EXPECT().GetKubernetesVersion(gomock.Any(), gomock.Any()).Return(&testK8sVersion, nil).AnyTimes()
 
 		mockUpgrader = upgrade.NewMockClusterUpgrade(ctrl)
 		mockUpgradeFactory = upgrade.NewMockClusterUpgradeFactory(ctrl)
@@ -595,8 +595,7 @@ var _ = Describe("Scale operations and machine updates", func() {
 			Build()
 
 		mockKubernetesVersionDetector = version.NewMockKubernetesVersionDetector(ctrl)
-		k8sVersion := "1.30.0"
-		mockKubernetesVersionDetector.EXPECT().GetKubernetesVersion(gomock.Any(), gomock.Any()).Return(&k8sVersion, nil).AnyTimes()
+		mockKubernetesVersionDetector.EXPECT().GetKubernetesVersion(gomock.Any(), gomock.Any()).Return(&testK8sVersion, nil).AnyTimes()
 
 		Expect(k8sClient.Create(ctx, getMetal3MachineTemplateCRD())).To(Succeed())
 		machineTemplate := getMachineTemplate("infratemplate", namespace)
@@ -1060,6 +1059,519 @@ var _ = Describe("Scale operations and machine updates", func() {
 			// Verify that annotations from oacp are present in the bootstrap config
 			Expect(bootstrapConfig.Annotations).To(HaveKeyWithValue(bootstrapv1alpha2.DiscoveryIgnitionOverrideAnnotation, discoveryIgnitionOverride))
 			Expect(bootstrapConfig.Annotations).To(HaveKeyWithValue("custom-annotation", "custom-value"))
+		})
+	})
+})
+
+var _ = Describe("Pre-terminate hook and etcd cleanup", func() {
+	const (
+		openshiftAssistedControlPlaneName = "test-resource"
+		clusterName                       = "test-cluster"
+		namespace                         = "test"
+	)
+
+	var (
+		ctx                           context.Context
+		typeNamespacedName            types.NamespacedName
+		cluster                       *clusterv1.Cluster
+		controllerReconciler          *controller.OpenshiftAssistedControlPlaneReconciler
+		k8sClient                     client.Client
+		ctrl                          *gomock.Controller
+		mockKubernetesVersionDetector *version.MockKubernetesVersionDetector
+		mockUpgradeFactory            *upgrade.MockClusterUpgradeFactory
+		mockUpgrader                  *upgrade.MockClusterUpgrade
+		mockClientGenerator           *workloadclient.MockClientGenerator
+		oacp                          *controlplanev1alpha3.OpenshiftAssistedControlPlane
+	)
+
+	BeforeEach(func() {
+		ctx = context.Background()
+		ctrl = gomock.NewController(GinkgoT())
+		k8sClient = fakeclient.NewClientBuilder().
+			WithScheme(testScheme).
+			WithStatusSubresource(&clusterv1.Cluster{}, &controlplanev1alpha3.OpenshiftAssistedControlPlane{}, &clusterv1.Machine{}).
+			Build()
+
+		mockKubernetesVersionDetector = version.NewMockKubernetesVersionDetector(ctrl)
+		mockKubernetesVersionDetector.EXPECT().GetKubernetesVersion(gomock.Any(), gomock.Any()).Return(&testK8sVersion, nil).AnyTimes()
+
+		mockUpgrader = upgrade.NewMockClusterUpgrade(ctrl)
+		mockUpgrader.EXPECT().IsUpgradeInProgress(gomock.Any()).Return(false, nil).AnyTimes()
+		mockUpgrader.EXPECT().GetCurrentVersion(gomock.Any()).Return("4.18.0", nil).AnyTimes()
+		mockUpgrader.EXPECT().IsDesiredVersionUpdated(gomock.Any(), gomock.Any()).Return(true, nil).AnyTimes()
+		mockUpgrader.EXPECT().GetUpgradeStatus(gomock.Any()).Return("", nil).AnyTimes()
+
+		mockUpgradeFactory = upgrade.NewMockClusterUpgradeFactory(ctrl)
+		mockUpgradeFactory.EXPECT().NewUpgrader(gomock.Any()).Return(mockUpgrader, nil).AnyTimes()
+
+		mockClientGenerator = workloadclient.NewMockClientGenerator(ctrl)
+
+		Expect(k8sClient.Create(ctx, getMetal3MachineTemplateCRD())).To(Succeed())
+		machineTemplate := getMachineTemplate("infratemplate", namespace)
+		Expect(k8sClient.Create(ctx, &machineTemplate)).To(Succeed())
+
+		ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespace}}
+		Expect(k8sClient.Create(ctx, ns)).To(Succeed())
+
+		typeNamespacedName = types.NamespacedName{
+			Name:      openshiftAssistedControlPlaneName,
+			Namespace: namespace,
+		}
+
+		controllerReconciler = &controller.OpenshiftAssistedControlPlaneReconciler{
+			Client:                  k8sClient,
+			Scheme:                  k8sClient.Scheme(),
+			K8sVersionDetector:      mockKubernetesVersionDetector,
+			UpgradeFactory:          mockUpgradeFactory,
+			WorkloadClientGenerator: mockClientGenerator,
+		}
+
+		cluster = testutils.NewCluster(clusterName, namespace)
+		Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
+
+		kubeconfigSecret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      clusterName + "-kubeconfig",
+				Namespace: namespace,
+			},
+			Data: map[string][]byte{"value": []byte("fake-kubeconfig")},
+		}
+		Expect(k8sClient.Create(ctx, kubeconfigSecret)).To(Succeed())
+
+		oacp = testutils.NewOpenshiftAssistedControlPlane(namespace, openshiftAssistedControlPlaneName)
+		oacp.SetOwnerReferences([]metav1.OwnerReference{
+			*metav1.NewControllerRef(cluster, clusterv1.GroupVersion.WithKind(clusterv1.ClusterKind)),
+		})
+		oacp.Spec.MachineTemplate.InfrastructureRef = clusterv1.ContractVersionedObjectReference{
+			Kind:     "Metal3MachineTemplate",
+			Name:     "infratemplate",
+			APIGroup: "infrastructure.cluster.x-k8s.io",
+		}
+		conditions.Set(oacp, metav1.Condition{
+			Type:   string(controlplanev1alpha3.KubeconfigAvailableCondition),
+			Status: metav1.ConditionTrue,
+			Reason: string(controlplanev1alpha3.KubeconfigAvailableCondition),
+		})
+	})
+
+	AfterEach(func() {
+		ctrl.Finish()
+	})
+
+	Context("pre-terminate hook annotation on machines", func() {
+		It("should set pre-terminate hook annotation on new machines during scale up", func() {
+			oacp.Spec.Replicas = 1
+			Expect(k8sClient.Create(ctx, oacp)).To(Succeed())
+
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+			Expect(err).NotTo(HaveOccurred())
+
+			machineList := &clusterv1.MachineList{}
+			Expect(k8sClient.List(ctx, machineList, client.InNamespace(namespace))).To(Succeed())
+			Expect(machineList.Items).To(HaveLen(1))
+			Expect(machineList.Items[0].Annotations).To(HaveKey(clusterv1.PreTerminateDeleteHookAnnotationPrefix + "/oacp-etcd-cleanup"))
+		})
+	})
+
+	Context("reconcilePreTerminateHook removes etcd member", func() {
+		It("should call RemoveEtcdMember and clear the hook annotation for a deleting machine", func() {
+			oacp.Spec.Replicas = 3
+			Expect(k8sClient.Create(ctx, oacp)).To(Succeed())
+
+			for i := 0; i < 3; i++ {
+				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+				Expect(err).NotTo(HaveOccurred())
+			}
+
+			machineList := &clusterv1.MachineList{}
+			Expect(k8sClient.List(ctx, machineList, client.InNamespace(namespace))).To(Succeed())
+			Expect(machineList.Items).To(HaveLen(3))
+
+			machineToDelete := &machineList.Items[0]
+			machineToDelete.Status.NodeRef = clusterv1.MachineNodeReference{Name: "node-0"}
+			Expect(k8sClient.Status().Update(ctx, machineToDelete)).To(Succeed())
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: machineToDelete.Name, Namespace: namespace}, machineToDelete)).To(Succeed())
+			machineToDelete.Finalizers = append(machineToDelete.Finalizers, "test-finalizer")
+			Expect(k8sClient.Update(ctx, machineToDelete)).To(Succeed())
+
+			Expect(k8sClient.Delete(ctx, machineToDelete)).To(Succeed())
+
+			mockClientGenerator.EXPECT().ListEtcdMembers(gomock.Any(), gomock.Any()).Return([]workloadclient.EtcdMember{
+				{ID: 1, Name: "node-0"},
+			}, nil).Times(1)
+			mockClientGenerator.EXPECT().RemoveEtcdMember(gomock.Any(), gomock.Any(), "node-0").Return(nil).Times(1)
+
+			result, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).To(Equal(10 * time.Second))
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: machineToDelete.Name, Namespace: namespace}, machineToDelete)).To(Succeed())
+			Expect(machineToDelete.Annotations).NotTo(HaveKey(clusterv1.PreTerminateDeleteHookAnnotationPrefix + "/oacp-etcd-cleanup"))
+		})
+	})
+
+	Context("reconcilePreTerminateHook skips hook-cleared machines", func() {
+		It("should proceed to reconcileReplicas when deleting machine has no hook annotation", func() {
+			oacp.Spec.Replicas = 3
+			Expect(k8sClient.Create(ctx, oacp)).To(Succeed())
+
+			for i := 0; i < 3; i++ {
+				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+				Expect(err).NotTo(HaveOccurred())
+			}
+
+			machineList := &clusterv1.MachineList{}
+			Expect(k8sClient.List(ctx, machineList, client.InNamespace(namespace))).To(Succeed())
+
+			machineToDelete := &machineList.Items[0]
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: machineToDelete.Name, Namespace: namespace}, machineToDelete)).To(Succeed())
+			machineToDelete.Finalizers = append(machineToDelete.Finalizers, "test-finalizer")
+			delete(machineToDelete.Annotations, clusterv1.PreTerminateDeleteHookAnnotationPrefix+"/oacp-etcd-cleanup")
+			Expect(k8sClient.Update(ctx, machineToDelete)).To(Succeed())
+
+			Expect(k8sClient.Delete(ctx, machineToDelete)).To(Succeed())
+
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+			Expect(err).NotTo(HaveOccurred())
+
+			// reconcileReplicas runs and creates a replacement (active=2, desired=3)
+			Expect(k8sClient.List(ctx, machineList, client.InNamespace(namespace))).To(Succeed())
+			Expect(machineList.Items).To(HaveLen(4))
+		})
+	})
+
+	Context("reconcilePreTerminateHook error handling", func() {
+		It("should preserve hook annotation when RemoveEtcdMember fails", func() {
+			oacp.Spec.Replicas = 3
+			Expect(k8sClient.Create(ctx, oacp)).To(Succeed())
+
+			for i := 0; i < 3; i++ {
+				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+				Expect(err).NotTo(HaveOccurred())
+			}
+
+			machineList := &clusterv1.MachineList{}
+			Expect(k8sClient.List(ctx, machineList, client.InNamespace(namespace))).To(Succeed())
+			Expect(machineList.Items).To(HaveLen(3))
+
+			machineToDelete := &machineList.Items[0]
+			machineToDelete.Status.NodeRef = clusterv1.MachineNodeReference{Name: "node-0"}
+			Expect(k8sClient.Status().Update(ctx, machineToDelete)).To(Succeed())
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: machineToDelete.Name, Namespace: namespace}, machineToDelete)).To(Succeed())
+			machineToDelete.Finalizers = append(machineToDelete.Finalizers, "test-finalizer")
+			Expect(k8sClient.Update(ctx, machineToDelete)).To(Succeed())
+
+			Expect(k8sClient.Delete(ctx, machineToDelete)).To(Succeed())
+
+			mockClientGenerator.EXPECT().ListEtcdMembers(gomock.Any(), gomock.Any()).Return([]workloadclient.EtcdMember{
+				{ID: 1, Name: "node-0"},
+			}, nil).Times(1)
+			mockClientGenerator.EXPECT().RemoveEtcdMember(gomock.Any(), gomock.Any(), "node-0").Return(fmt.Errorf("connection refused")).Times(1)
+
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("failed to remove etcd member"))
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: machineToDelete.Name, Namespace: namespace}, machineToDelete)).To(Succeed())
+			Expect(machineToDelete.Annotations).To(HaveKey(clusterv1.PreTerminateDeleteHookAnnotationPrefix + "/oacp-etcd-cleanup"))
+		})
+	})
+
+	Context("reconcilePreTerminateHook one-at-a-time processing", func() {
+		It("should process only one deleting machine per reconcile", func() {
+			oacp.Spec.Replicas = 3
+			Expect(k8sClient.Create(ctx, oacp)).To(Succeed())
+
+			for i := 0; i < 3; i++ {
+				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+				Expect(err).NotTo(HaveOccurred())
+			}
+
+			machineList := &clusterv1.MachineList{}
+			Expect(k8sClient.List(ctx, machineList, client.InNamespace(namespace))).To(Succeed())
+			Expect(machineList.Items).To(HaveLen(3))
+
+			for i := 0; i < 2; i++ {
+				machine := &machineList.Items[i]
+				machine.Status.NodeRef = clusterv1.MachineNodeReference{Name: fmt.Sprintf("node-%d", i)}
+				Expect(k8sClient.Status().Update(ctx, machine)).To(Succeed())
+
+				Expect(k8sClient.Get(ctx, types.NamespacedName{Name: machine.Name, Namespace: namespace}, machine)).To(Succeed())
+				machine.Finalizers = append(machine.Finalizers, "test-finalizer")
+				Expect(k8sClient.Update(ctx, machine)).To(Succeed())
+
+				Expect(k8sClient.Delete(ctx, machine)).To(Succeed())
+			}
+
+			mockClientGenerator.EXPECT().ListEtcdMembers(gomock.Any(), gomock.Any()).Return([]workloadclient.EtcdMember{
+				{ID: 1, Name: "node-0"},
+				{ID: 2, Name: "node-1"},
+			}, nil).Times(1)
+			mockClientGenerator.EXPECT().RemoveEtcdMember(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Times(1)
+
+			result, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).To(Equal(10 * time.Second))
+		})
+	})
+
+	Context("reconcilePreTerminateHook no NodeRef", func() {
+		It("should clear the hook when infrastructure is not provisioned", func() {
+			oacp.Spec.Replicas = 1
+			Expect(k8sClient.Create(ctx, oacp)).To(Succeed())
+
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+			Expect(err).NotTo(HaveOccurred())
+
+			machineList := &clusterv1.MachineList{}
+			Expect(k8sClient.List(ctx, machineList, client.InNamespace(namespace))).To(Succeed())
+			Expect(machineList.Items).To(HaveLen(1))
+
+			machineToDelete := &machineList.Items[0]
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: machineToDelete.Name, Namespace: namespace}, machineToDelete)).To(Succeed())
+			machineToDelete.Finalizers = append(machineToDelete.Finalizers, "test-finalizer")
+			Expect(k8sClient.Update(ctx, machineToDelete)).To(Succeed())
+
+			Expect(k8sClient.Delete(ctx, machineToDelete)).To(Succeed())
+
+			result, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).To(Equal(10 * time.Second))
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: machineToDelete.Name, Namespace: namespace}, machineToDelete)).To(Succeed())
+			_, hasHook := machineToDelete.Annotations[clusterv1.PreTerminateDeleteHookAnnotationPrefix+"/oacp-etcd-cleanup"]
+			Expect(hasHook).To(BeFalse(), "pre-terminate hook should be cleared for machine without NodeRef and no infrastructure")
+		})
+
+		It("should clear hook and rely on etcd member reconciliation when infrastructure is provisioned but NodeRef is not set", func() {
+			oacp.Spec.Replicas = 1
+			Expect(k8sClient.Create(ctx, oacp)).To(Succeed())
+
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+			Expect(err).NotTo(HaveOccurred())
+
+			machineList := &clusterv1.MachineList{}
+			Expect(k8sClient.List(ctx, machineList, client.InNamespace(namespace))).To(Succeed())
+			Expect(machineList.Items).To(HaveLen(1))
+
+			machineToDelete := &machineList.Items[0]
+			infraProvisioned := true
+			machineToDelete.Status.Initialization.InfrastructureProvisioned = &infraProvisioned
+			Expect(k8sClient.Status().Update(ctx, machineToDelete)).To(Succeed())
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: machineToDelete.Name, Namespace: namespace}, machineToDelete)).To(Succeed())
+			machineToDelete.Finalizers = append(machineToDelete.Finalizers, "test-finalizer")
+			Expect(k8sClient.Update(ctx, machineToDelete)).To(Succeed())
+
+			Expect(k8sClient.Delete(ctx, machineToDelete)).To(Succeed())
+
+			result, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).To(Equal(10 * time.Second))
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: machineToDelete.Name, Namespace: namespace}, machineToDelete)).To(Succeed())
+			_, hasHook := machineToDelete.Annotations[clusterv1.PreTerminateDeleteHookAnnotationPrefix+"/oacp-etcd-cleanup"]
+			Expect(hasHook).To(BeFalse(), "pre-terminate hook should be cleared for machine without NodeRef, relying on etcd member reconciliation")
+		})
+	})
+
+	Context("ensurePreTerminateHooks adds annotation to existing machines", func() {
+		It("should add the pre-terminate hook annotation to machines missing it", func() {
+			oacp.Spec.Replicas = 3
+			Expect(k8sClient.Create(ctx, oacp)).To(Succeed())
+
+			for i := 0; i < 3; i++ {
+				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+				Expect(err).NotTo(HaveOccurred())
+			}
+
+			machineList := &clusterv1.MachineList{}
+			Expect(k8sClient.List(ctx, machineList, client.InNamespace(namespace))).To(Succeed())
+			Expect(machineList.Items).To(HaveLen(3))
+
+			for i := range machineList.Items {
+				machine := &machineList.Items[i]
+				Expect(k8sClient.Get(ctx, types.NamespacedName{Name: machine.Name, Namespace: namespace}, machine)).To(Succeed())
+				delete(machine.Annotations, clusterv1.PreTerminateDeleteHookAnnotationPrefix+"/oacp-etcd-cleanup")
+				Expect(k8sClient.Update(ctx, machine)).To(Succeed())
+			}
+
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(k8sClient.List(ctx, machineList, client.InNamespace(namespace))).To(Succeed())
+			for _, machine := range machineList.Items {
+				Expect(machine.Annotations).To(HaveKey(clusterv1.PreTerminateDeleteHookAnnotationPrefix + "/oacp-etcd-cleanup"))
+			}
+		})
+	})
+
+	Context("handleDeletion clears pre-terminate hooks", func() {
+		It("should clear pre-terminate hook annotations from all owned machines during OACP deletion", func() {
+			oacp.Spec.Replicas = 3
+			Expect(k8sClient.Create(ctx, oacp)).To(Succeed())
+
+			for i := 0; i < 3; i++ {
+				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+				Expect(err).NotTo(HaveOccurred())
+			}
+
+			machineList := &clusterv1.MachineList{}
+			Expect(k8sClient.List(ctx, machineList, client.InNamespace(namespace))).To(Succeed())
+			Expect(machineList.Items).To(HaveLen(3))
+
+			for _, machine := range machineList.Items {
+				Expect(machine.Annotations).To(HaveKey(clusterv1.PreTerminateDeleteHookAnnotationPrefix + "/oacp-etcd-cleanup"))
+			}
+
+			Expect(k8sClient.Get(ctx, typeNamespacedName, oacp)).To(Succeed())
+			Expect(k8sClient.Delete(ctx, oacp)).To(Succeed())
+
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(k8sClient.List(ctx, machineList, client.InNamespace(namespace))).To(Succeed())
+			for _, machine := range machineList.Items {
+				Expect(machine.Annotations).NotTo(HaveKey(clusterv1.PreTerminateDeleteHookAnnotationPrefix + "/oacp-etcd-cleanup"))
+			}
+		})
+	})
+
+	Context("reconcileEtcdMembers orphan pruning", func() {
+		It("should remove an orphaned etcd member when no provisioning machines exist", func() {
+			oacp.Spec.Replicas = 3
+			Expect(k8sClient.Create(ctx, oacp)).To(Succeed())
+
+			for i := 0; i < 3; i++ {
+				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+				Expect(err).NotTo(HaveOccurred())
+			}
+
+			machineList := &clusterv1.MachineList{}
+			Expect(k8sClient.List(ctx, machineList, client.InNamespace(namespace))).To(Succeed())
+			Expect(machineList.Items).To(HaveLen(3))
+
+			for i := range machineList.Items {
+				machine := &machineList.Items[i]
+				machine.Status.NodeRef = clusterv1.MachineNodeReference{Name: fmt.Sprintf("node-%d", i)}
+				Expect(k8sClient.Status().Update(ctx, machine)).To(Succeed())
+			}
+
+			mockClientGenerator.EXPECT().ListEtcdMembers(gomock.Any(), gomock.Any()).Return([]workloadclient.EtcdMember{
+				{ID: 1, Name: "node-0"},
+				{ID: 2, Name: "node-1"},
+				{ID: 3, Name: "node-2"},
+				{ID: 99, Name: "orphaned-node"},
+			}, nil).Times(1)
+			mockClientGenerator.EXPECT().RemoveEtcdMemberByID(gomock.Any(), gomock.Any(), uint64(99)).Return(nil).Times(1)
+
+			result, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).To(Equal(1 * time.Second))
+		})
+
+		It("should not remove orphaned members when provisioning machines exist", func() {
+			oacp.Spec.Replicas = 3
+			Expect(k8sClient.Create(ctx, oacp)).To(Succeed())
+
+			for i := 0; i < 3; i++ {
+				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+				Expect(err).NotTo(HaveOccurred())
+			}
+
+			machineList := &clusterv1.MachineList{}
+			Expect(k8sClient.List(ctx, machineList, client.InNamespace(namespace))).To(Succeed())
+			Expect(machineList.Items).To(HaveLen(3))
+
+			for i := 0; i < 2; i++ {
+				machine := &machineList.Items[i]
+				machine.Status.NodeRef = clusterv1.MachineNodeReference{Name: fmt.Sprintf("node-%d", i)}
+				Expect(k8sClient.Status().Update(ctx, machine)).To(Succeed())
+			}
+
+			mockClientGenerator.EXPECT().ListEtcdMembers(gomock.Any(), gomock.Any()).Return([]workloadclient.EtcdMember{
+				{ID: 1, Name: "node-0"},
+				{ID: 2, Name: "node-1"},
+				{ID: 3, Name: "new-member"},
+			}, nil).Times(1)
+
+			result, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(ctrlruntime.Result{}))
+
+			Expect(k8sClient.Get(ctx, typeNamespacedName, oacp)).To(Succeed())
+			condition := conditions.Get(oacp, string(controlplanev1alpha3.EtcdClusterHealthyCondition))
+			Expect(condition).NotTo(BeNil())
+			Expect(condition.Status).To(Equal(metav1.ConditionFalse))
+			Expect(condition.Reason).To(Equal(controlplanev1alpha3.EtcdOrphanMembersDetectedReason))
+		})
+
+		It("should set EtcdClusterHealthy to true when no orphans exist", func() {
+			oacp.Spec.Replicas = 3
+			Expect(k8sClient.Create(ctx, oacp)).To(Succeed())
+
+			for i := 0; i < 3; i++ {
+				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+				Expect(err).NotTo(HaveOccurred())
+			}
+
+			machineList := &clusterv1.MachineList{}
+			Expect(k8sClient.List(ctx, machineList, client.InNamespace(namespace))).To(Succeed())
+			Expect(machineList.Items).To(HaveLen(3))
+
+			for i := range machineList.Items {
+				machine := &machineList.Items[i]
+				machine.Status.NodeRef = clusterv1.MachineNodeReference{Name: fmt.Sprintf("node-%d", i)}
+				Expect(k8sClient.Status().Update(ctx, machine)).To(Succeed())
+			}
+
+			mockClientGenerator.EXPECT().ListEtcdMembers(gomock.Any(), gomock.Any()).Return([]workloadclient.EtcdMember{
+				{ID: 1, Name: "node-0"},
+				{ID: 2, Name: "node-1"},
+				{ID: 3, Name: "node-2"},
+			}, nil).Times(1)
+
+			result, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(ctrlruntime.Result{}))
+
+			Expect(k8sClient.Get(ctx, typeNamespacedName, oacp)).To(Succeed())
+			condition := conditions.Get(oacp, string(controlplanev1alpha3.EtcdClusterHealthyCondition))
+			Expect(condition).NotTo(BeNil())
+			Expect(condition.Status).To(Equal(metav1.ConditionTrue))
+		})
+
+		It("should treat etcd members with empty name as unexpected", func() {
+			oacp.Spec.Replicas = 2
+			Expect(k8sClient.Create(ctx, oacp)).To(Succeed())
+
+			for i := 0; i < 2; i++ {
+				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+				Expect(err).NotTo(HaveOccurred())
+			}
+
+			machineList := &clusterv1.MachineList{}
+			Expect(k8sClient.List(ctx, machineList, client.InNamespace(namespace))).To(Succeed())
+			Expect(machineList.Items).To(HaveLen(2))
+
+			for i := range machineList.Items {
+				machine := &machineList.Items[i]
+				machine.Status.NodeRef = clusterv1.MachineNodeReference{Name: fmt.Sprintf("node-%d", i)}
+				Expect(k8sClient.Status().Update(ctx, machine)).To(Succeed())
+			}
+
+			mockClientGenerator.EXPECT().ListEtcdMembers(gomock.Any(), gomock.Any()).Return([]workloadclient.EtcdMember{
+				{ID: 1, Name: "node-0"},
+				{ID: 2, Name: "node-1"},
+				{ID: 3, Name: ""},
+			}, nil).Times(1)
+			mockClientGenerator.EXPECT().RemoveEtcdMemberByID(gomock.Any(), gomock.Any(), uint64(3)).Return(nil).Times(1)
+
+			result, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).To(Equal(1 * time.Second))
 		})
 	})
 })

@@ -53,4 +53,11 @@ const (
 	// MachineGenerationFailedReason (Severity=Error) documents an OpenshiftAssistedControlPlane failing to
 	// generate a machine object.
 	MachineGenerationFailedReason = "MachineGenerationFailed"
+
+	// EtcdClusterHealthyCondition documents the health of the etcd cluster managed by the control plane.
+	EtcdClusterHealthyCondition clusterv1beta2.ConditionType = "EtcdClusterHealthy"
+
+	// EtcdOrphanMembersDetectedReason documents that orphaned etcd members were detected
+	// but cannot be removed because provisioning machines exist.
+	EtcdOrphanMembersDetectedReason = "EtcdOrphanMembersDetected"
 )

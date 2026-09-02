@@ -5,6 +5,7 @@
 package workloadclient
 
 import (
+	context "context"
 	reflect "reflect"
 
 	gomock "github.com/golang/mock/gomock"
@@ -34,6 +35,20 @@ func (m *MockClientGenerator) EXPECT() *MockClientGeneratorMockRecorder {
 	return m.recorder
 }
 
+// ForwardEtcdLeadership mocks base method.
+func (m *MockClientGenerator) ForwardEtcdLeadership(ctx context.Context, kubeconfig []byte, fromMemberName, toMemberName string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ForwardEtcdLeadership", ctx, kubeconfig, fromMemberName, toMemberName)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ForwardEtcdLeadership indicates an expected call of ForwardEtcdLeadership.
+func (mr *MockClientGeneratorMockRecorder) ForwardEtcdLeadership(ctx, kubeconfig, fromMemberName, toMemberName interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ForwardEtcdLeadership", reflect.TypeOf((*MockClientGenerator)(nil).ForwardEtcdLeadership), ctx, kubeconfig, fromMemberName, toMemberName)
+}
+
 // GetWorkloadClusterClient mocks base method.
 func (m *MockClientGenerator) GetWorkloadClusterClient(kubeconfig []byte) (client.Client, error) {
 	m.ctrl.T.Helper()
@@ -47,4 +62,47 @@ func (m *MockClientGenerator) GetWorkloadClusterClient(kubeconfig []byte) (clien
 func (mr *MockClientGeneratorMockRecorder) GetWorkloadClusterClient(kubeconfig interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWorkloadClusterClient", reflect.TypeOf((*MockClientGenerator)(nil).GetWorkloadClusterClient), kubeconfig)
+}
+
+// ListEtcdMembers mocks base method.
+func (m *MockClientGenerator) ListEtcdMembers(ctx context.Context, kubeconfig []byte) ([]EtcdMember, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListEtcdMembers", ctx, kubeconfig)
+	ret0, _ := ret[0].([]EtcdMember)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListEtcdMembers indicates an expected call of ListEtcdMembers.
+func (mr *MockClientGeneratorMockRecorder) ListEtcdMembers(ctx, kubeconfig interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEtcdMembers", reflect.TypeOf((*MockClientGenerator)(nil).ListEtcdMembers), ctx, kubeconfig)
+}
+
+// RemoveEtcdMember mocks base method.
+func (m *MockClientGenerator) RemoveEtcdMember(ctx context.Context, kubeconfig []byte, memberName string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RemoveEtcdMember", ctx, kubeconfig, memberName)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RemoveEtcdMember indicates an expected call of RemoveEtcdMember.
+func (mr *MockClientGeneratorMockRecorder) RemoveEtcdMember(ctx, kubeconfig, memberName interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemoveEtcdMember", reflect.TypeOf((*MockClientGenerator)(nil).RemoveEtcdMember), ctx, kubeconfig, memberName)
+}
+
+// RemoveEtcdMemberByID mocks base method.
+func (m *MockClientGenerator) RemoveEtcdMemberByID(ctx context.Context, kubeconfig []byte, memberID uint64) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RemoveEtcdMemberByID", ctx, kubeconfig, memberID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RemoveEtcdMemberByID indicates an expected call of RemoveEtcdMemberByID.
+func (mr *MockClientGeneratorMockRecorder) RemoveEtcdMemberByID(ctx, kubeconfig, memberID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemoveEtcdMemberByID", reflect.TypeOf((*MockClientGenerator)(nil).RemoveEtcdMemberByID), ctx, kubeconfig, memberID)
 }

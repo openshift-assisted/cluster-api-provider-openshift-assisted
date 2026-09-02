@@ -32,6 +32,7 @@ import (
 	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/internal/release"
 	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/internal/upgrade"
 	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/internal/version"
+	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/internal/workloadclient"
 	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/pkg/containers"
 	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/util"
 	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/util/failuredomains"
@@ -68,14 +69,16 @@ const (
 	minOpenShiftVersion               = "4.14.0"
 	openshiftAssistedControlPlaneKind = "OpenshiftAssistedControlPlane"
 	oacpFinalizer                     = "openshiftassistedcontrolplane." + controlplanev1alpha3.Group + "/deprovision"
+	preTerminateHookAnnotation        = clusterv1.PreTerminateDeleteHookAnnotationPrefix + "/oacp-etcd-cleanup"
 )
 
 // OpenshiftAssistedControlPlaneReconciler reconciles a OpenshiftAssistedControlPlane object
 type OpenshiftAssistedControlPlaneReconciler struct {
 	client.Client
-	K8sVersionDetector version.KubernetesVersionDetector
-	Scheme             *runtime.Scheme
-	UpgradeFactory     upgrade.ClusterUpgradeFactory
+	K8sVersionDetector      version.KubernetesVersionDetector
+	Scheme                  *runtime.Scheme
+	UpgradeFactory          upgrade.ClusterUpgradeFactory
+	WorkloadClientGenerator workloadclient.ClientGenerator
 }
 
 var minVersion = semver.MustParse(minOpenShiftVersion)
@@ -227,6 +230,22 @@ func (r *OpenshiftAssistedControlPlaneReconciler) Reconcile(ctx context.Context,
 			return result, err
 		}
 	}
+
+	if err := r.ensurePreTerminateHooks(ctx, oacp, cluster); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	if conditions.IsTrue(oacp, string(controlplanev1alpha3.KubeconfigAvailableCondition)) {
+		if etcdResult, etcdErr := r.reconcileEtcdMembers(ctx, oacp, cluster); etcdErr != nil || !etcdResult.IsZero() {
+			return etcdResult, etcdErr
+		}
+	}
+
+	hookResult, hookErr := r.reconcilePreTerminateHook(ctx, oacp, cluster)
+	if hookErr != nil || !hookResult.IsZero() {
+		return hookResult, hookErr
+	}
+
 	return result, r.reconcileReplicas(ctx, oacp, cluster)
 }
 
@@ -411,6 +430,10 @@ func (r *OpenshiftAssistedControlPlaneReconciler) handleDeletion(ctx context.Con
 		return nil
 	}
 
+	if err := r.clearPreTerminateHooks(ctx, oacp); err != nil {
+		return err
+	}
+
 	if err := r.Delete(ctx, &hivev1.ClusterDeployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      oacp.Name,
@@ -425,10 +448,42 @@ func (r *OpenshiftAssistedControlPlaneReconciler) handleDeletion(ctx context.Con
 	return nil
 }
 
+// clearPreTerminateHooks removes the pre-terminate hook annotation from all machines
+// owned by this OACP, allowing them to terminate during cluster deletion without
+// waiting for etcd member removal (such as when the entire etcd cluster is being destroyed).
+func (r *OpenshiftAssistedControlPlaneReconciler) clearPreTerminateHooks(ctx context.Context, oacp *controlplanev1alpha3.OpenshiftAssistedControlPlane) error {
+	machineList := &clusterv1.MachineList{}
+	if err := r.List(ctx, machineList, client.InNamespace(oacp.Namespace)); err != nil {
+		return fmt.Errorf("failed to list machines: %w", err)
+	}
+
+	var errs []error
+	for i := range machineList.Items {
+		machine := &machineList.Items[i]
+		if !metav1.IsControlledBy(machine, oacp) {
+			continue
+		}
+		if _, ok := machine.Annotations[preTerminateHookAnnotation]; !ok {
+			continue
+		}
+		patchHelper, err := patch.NewHelper(machine, r.Client)
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		delete(machine.Annotations, preTerminateHookAnnotation)
+		if err := patchHelper.Patch(ctx, machine); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return kerrors.NewAggregate(errs)
+}
+
 func (r *OpenshiftAssistedControlPlaneReconciler) computeDesiredMachine(oacp *controlplanev1alpha3.OpenshiftAssistedControlPlane, name string, cluster *clusterv1.Cluster, failureDomain string) *clusterv1.Machine {
 	var machineUID types.UID
 	annotations := map[string]string{
 		"bmac.agent-install.openshift.io/role": "master",
+		preTerminateHookAnnotation:             "",
 	}
 
 	// Creating a new machine
@@ -527,10 +582,205 @@ func (r *OpenshiftAssistedControlPlaneReconciler) ensureClusterDeployment(
 	return err
 }
 
+func (r *OpenshiftAssistedControlPlaneReconciler) ensurePreTerminateHooks(ctx context.Context, oacp *controlplanev1alpha3.OpenshiftAssistedControlPlane, cluster *clusterv1.Cluster) error {
+	log := ctrl.LoggerFrom(ctx)
+	ownerGK := schema.GroupKind{Group: controlplanev1alpha3.Group, Kind: openshiftAssistedControlPlaneKind}
+	allMachines, err := collections.GetFilteredMachinesForCluster(ctx, r.Client, cluster, collections.OwnedMachines(oacp, ownerGK), collections.ActiveMachines)
+	if err != nil {
+		return err
+	}
+
+	var errs []error
+	for _, machine := range allMachines {
+		if _, ok := machine.Annotations[preTerminateHookAnnotation]; ok {
+			continue
+		}
+		log.V(logutil.InfoLevel).Info("adding pre-terminate hook to existing machine", "machine", machine.Name)
+		patchHelper, err := patch.NewHelper(machine, r.Client)
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		if machine.Annotations == nil {
+			machine.Annotations = map[string]string{}
+		}
+		machine.Annotations[preTerminateHookAnnotation] = ""
+		if err := patchHelper.Patch(ctx, machine); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return kerrors.NewAggregate(errs)
+}
+
+func (r *OpenshiftAssistedControlPlaneReconciler) reconcilePreTerminateHook(ctx context.Context, oacp *controlplanev1alpha3.OpenshiftAssistedControlPlane, cluster *clusterv1.Cluster) (ctrl.Result, error) {
+	log := ctrl.LoggerFrom(ctx)
+	ownerGK := schema.GroupKind{Group: controlplanev1alpha3.Group, Kind: openshiftAssistedControlPlaneKind}
+	allMachines, err := collections.GetFilteredMachinesForCluster(ctx, r.Client, cluster, collections.OwnedMachines(oacp, ownerGK))
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	deletingMachines := allMachines.Filter(collections.HasDeletionTimestamp)
+	if deletingMachines.Len() == 0 {
+		return ctrl.Result{}, nil
+	}
+
+	machinesWithHook := deletingMachines.Filter(collections.HasAnnotationKey(preTerminateHookAnnotation))
+	if machinesWithHook.Len() == 0 {
+		return ctrl.Result{}, nil
+	}
+
+	machineToProcess := machinesWithHook.OldestDeletionTimestamp()
+	if machineToProcess == nil {
+		return ctrl.Result{}, nil
+	}
+
+	if machineToProcess.Status.NodeRef.IsDefined() {
+		if !conditions.IsTrue(oacp, string(controlplanev1alpha3.KubeconfigAvailableCondition)) {
+			log.V(logutil.InfoLevel).Info("kubeconfig not yet available, clearing hook and relying on etcd member reconciliation", "machine", machineToProcess.Name)
+		} else {
+			nodeName := machineToProcess.Status.NodeRef.Name
+
+			kubeconfig, err := util.GetWorkloadKubeconfig(ctx, r.Client, cluster.Name, cluster.Namespace)
+			if err != nil {
+				return ctrl.Result{}, fmt.Errorf("failed to get workload kubeconfig: %w", err)
+			}
+
+			ownerGK := schema.GroupKind{Group: controlplanev1alpha3.Group, Kind: openshiftAssistedControlPlaneKind}
+			allMachines, err := collections.GetFilteredMachinesForCluster(ctx, r.Client, cluster, collections.OwnedMachines(oacp, ownerGK), collections.ActiveMachines)
+			if err != nil {
+				return ctrl.Result{}, fmt.Errorf("failed to get machines: %w", err)
+			}
+
+			replacementCandidateMachine := allMachines.Filter(
+				collections.And(
+					collections.HasNode(),
+					collections.Not(collections.HasDeletionTimestamp),
+				),
+			).Newest()
+
+			if replacementCandidateMachine != nil && replacementCandidateMachine.Name != machineToProcess.Name {
+				toNodeName := replacementCandidateMachine.Status.NodeRef.Name
+				log.V(logutil.InfoLevel).Info("forwarding etcd leadership before member removal", "from", nodeName, "to", toNodeName)
+				if err := r.WorkloadClientGenerator.ForwardEtcdLeadership(ctx, kubeconfig, nodeName, toNodeName); err != nil {
+					return ctrl.Result{}, fmt.Errorf("failed to forward etcd leadership: %w", err)
+				}
+			}
+
+			log.V(logutil.InfoLevel).Info("removing etcd member for machine being deleted", "machine", machineToProcess.Name, "node", nodeName)
+			if err := r.WorkloadClientGenerator.RemoveEtcdMember(ctx, kubeconfig, nodeName); err != nil {
+				return ctrl.Result{}, fmt.Errorf("failed to remove etcd member for node %s: %w", nodeName, err)
+			}
+		}
+	} else {
+		log.V(logutil.InfoLevel).Info("machine has no node ref, clearing hook and relying on etcd member reconciliation", "machine", machineToProcess.Name)
+	}
+
+	patchHelper, err := patch.NewHelper(machineToProcess, r.Client)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to create patch helper: %w", err)
+	}
+	delete(machineToProcess.Annotations, preTerminateHookAnnotation)
+	if err := patchHelper.Patch(ctx, machineToProcess); err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to remove pre-terminate hook annotation: %w", err)
+	}
+
+	log.V(logutil.InfoLevel).Info("successfully cleared pre-terminate hook", "machine", machineToProcess.Name)
+	return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+}
+
+func (r *OpenshiftAssistedControlPlaneReconciler) reconcileEtcdMembers(ctx context.Context, oacp *controlplanev1alpha3.OpenshiftAssistedControlPlane, cluster *clusterv1.Cluster) (ctrl.Result, error) {
+	log := ctrl.LoggerFrom(ctx)
+	ownerGK := schema.GroupKind{Group: controlplanev1alpha3.Group, Kind: openshiftAssistedControlPlaneKind}
+	allMachines, err := collections.GetFilteredMachinesForCluster(ctx, r.Client, cluster, collections.OwnedMachines(oacp, ownerGK))
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	if allMachines.Len() == 0 {
+		return ctrl.Result{}, nil
+	}
+
+	expectedMembers := map[string]struct{}{}
+	var provisioningMachines []string
+	for _, machine := range allMachines {
+		if !machine.Status.NodeRef.IsDefined() {
+			provisioningMachines = append(provisioningMachines, machine.Name)
+			continue
+		}
+		expectedMembers[machine.Status.NodeRef.Name] = struct{}{}
+	}
+
+	if len(expectedMembers) == 0 {
+		return ctrl.Result{}, nil
+	}
+
+	kubeconfig, err := util.GetWorkloadKubeconfig(ctx, r.Client, cluster.Name, cluster.Namespace)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to get workload kubeconfig: %w", err)
+	}
+
+	etcdMembers, err := r.WorkloadClientGenerator.ListEtcdMembers(ctx, kubeconfig)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to list etcd members: %w", err)
+	}
+
+	if len(etcdMembers) == 0 {
+		return ctrl.Result{}, nil
+	}
+
+	var unexpectedMembers []workloadclient.EtcdMember
+	for _, member := range etcdMembers {
+		if _, ok := expectedMembers[member.Name]; ok {
+			continue
+		}
+		unexpectedMembers = append(unexpectedMembers, member)
+	}
+
+	if len(unexpectedMembers) == 0 {
+		setConditionTrue(oacp, controlplanev1alpha3.EtcdClusterHealthyCondition)
+		return ctrl.Result{}, nil
+	}
+
+	if len(provisioningMachines) > 0 {
+		log.V(logutil.InfoLevel).Info("etcd members without corresponding machines detected, but provisioning machines exist — deferring removal",
+			"unexpectedMembers", formatEtcdMemberNames(unexpectedMembers),
+			"provisioningMachines", provisioningMachines)
+		setConditionFalse(oacp, controlplanev1alpha3.EtcdClusterHealthyCondition, controlplanev1alpha3.EtcdOrphanMembersDetectedReason,
+			"orphaned etcd members %v detected but removal deferred while machines %v are provisioning", formatEtcdMemberNames(unexpectedMembers), provisioningMachines)
+		return ctrl.Result{}, nil
+	}
+
+	orphan := unexpectedMembers[0]
+	orphanName := orphan.Name
+	if orphanName == "" {
+		orphanName = "(unnamed)"
+	}
+	log.V(logutil.InfoLevel).Info("removing orphaned etcd member", "memberName", orphanName, "memberID", orphan.ID)
+
+	if err := r.WorkloadClientGenerator.RemoveEtcdMemberByID(ctx, kubeconfig, orphan.ID); err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to remove orphaned etcd member %s (id: %d): %w", orphanName, orphan.ID, err)
+	}
+
+	return ctrl.Result{RequeueAfter: 1 * time.Second}, nil
+}
+
+func formatEtcdMemberNames(members []workloadclient.EtcdMember) []string {
+	names := make([]string, len(members))
+	for i, m := range members {
+		if m.Name == "" {
+			names[i] = "(unnamed)"
+		} else {
+			names[i] = m.Name
+		}
+	}
+	return names
+}
+
 func (r *OpenshiftAssistedControlPlaneReconciler) reconcileReplicas(ctx context.Context, oacp *controlplanev1alpha3.OpenshiftAssistedControlPlane, cluster *clusterv1.Cluster) error {
 	log := ctrl.LoggerFrom(ctx)
 	ownerGK := schema.GroupKind{Group: controlplanev1alpha3.Group, Kind: "OpenshiftAssistedControlPlane"}
-	machines, err := collections.GetFilteredMachinesForCluster(ctx, r.Client, cluster, collections.OwnedMachines(oacp, ownerGK))
+	machines, err := collections.GetFilteredMachinesForCluster(ctx, r.Client, cluster, collections.OwnedMachines(oacp, ownerGK), collections.ActiveMachines)
 	if err != nil {
 		return err
 	}
@@ -558,7 +808,7 @@ func (r *OpenshiftAssistedControlPlaneReconciler) reconcileReplicas(ctx context.
 		if err != nil {
 			return fmt.Errorf("failed to scale down control plane: %v", err)
 		}
-		log.V(logutil.InfoLevel).Info("creating controlplane machine", "machine name", machine.Name)
+		log.V(logutil.InfoLevel).Info("deleting controlplane machine", "machine name", machine.Name)
 	}
 
 	log.V(logutil.DebugLevel).Info("updating replica status", "oacp", oacp, "machines", machines)
@@ -838,6 +1088,7 @@ func (r *OpenshiftAssistedControlPlaneReconciler) scaleDownControlPlane(ctx cont
 	if machineToDelete == nil {
 		return nil, errors.New("failed to select machine for scale down: no machine found")
 	}
+
 	if err := r.Delete(ctx, machineToDelete); err != nil && !apierrors.IsNotFound(err) {
 		return nil, err
 	}

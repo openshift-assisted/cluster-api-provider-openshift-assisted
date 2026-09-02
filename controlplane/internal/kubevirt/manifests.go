@@ -63,3 +63,36 @@ spec:
 		},
 	}
 }
+
+// indentMultiline indents every non-empty line of s by the given number of spaces.
+func indentMultiline(s string, spaces int) string {
+	indent := ""
+	for i := 0; i < spaces; i++ {
+		indent += " "
+	}
+	result := ""
+	for i, line := range splitLines(s) {
+		if i > 0 {
+			result += "\n"
+		}
+		if line != "" {
+			result += indent + line
+		}
+	}
+	return result
+}
+
+func splitLines(s string) []string {
+	var lines []string
+	start := 0
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\n' {
+			lines = append(lines, s[start:i])
+			start = i + 1
+		}
+	}
+	if start < len(s) {
+		lines = append(lines, s[start:])
+	}
+	return lines
+}

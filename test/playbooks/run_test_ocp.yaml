@@ -1,0 +1,124 @@
+---
+# Setup and run tests on an OCP management cluster with MCE via OLM
+#
+# This playbook deploys an OCP cluster via dev-scripts on a bare-metal host,
+# installs MCE via OLM, then provisions a workload cluster using CAPOA with
+# emulated bare-metal nodes (libvirt VMs + sushy-tools).
+#
+# Environment variables:
+#   PULLSECRET=<base64>        - Base64-encoded container registry pull secret (required)
+#   OCP_TOPOLOGY=compact       - OCP management cluster topology: compact, ha, sno
+#   OCP_VERSION=4.20           - OCP release stream for dev-scripts
+#   OCP_RELEASE_IMAGE=<image>  - Specific OCP release image (overrides OCP_VERSION)
+#   MCE_CATALOG_IMAGE=<image>  - Custom catalog index image (omit for production redhat-operators)
+#   MCE_CHANNEL=stable-2.11    - OLM subscription channel
+#   MCE_NAMESPACE=<ns>         - MCE namespace (default: multicluster-engine)
+#   MCE_CREATE_IDMS=true       - Create ImageDigestMirrorSet (auto when custom catalog)
+#   SKIP_OCP_INSTALL=true      - Skip OCP deployment (provide OCP_KUBECONFIG_PATH instead)
+#   OCP_KUBECONFIG_PATH=<path> - Path to existing OCP kubeconfig (when SKIP_OCP_INSTALL=true)
+#   SKIP_MCE_INSTALL=true      - Skip MCE installation (assume pre-installed)
+#   SKIP_CLUSTER=true          - Skip workload cluster provisioning and assertions
+#
+# Examples:
+#   # Full e2e: deploy OCP, install MCE, provision workload cluster
+#   make e2e-test-ocp
+#
+#   # Use a specific OCP release image
+#   OCP_RELEASE_IMAGE=quay.io/openshift-release-dev/ocp-release:4.20.0-x86_64 \
+#     make e2e-test-ocp
+#
+#   # Test with a nightly MCE build
+#   MCE_CATALOG_IMAGE=quay.io/acm-d/mce-custom-registry:2.11-BACKPLANE-2025-07-15-00-26-11 \
+#     make e2e-test-ocp
+#
+#   # Skip OCP deploy, use existing cluster
+#   SKIP_OCP_INSTALL=true OCP_KUBECONFIG_PATH=~/.kube/ocp-config \
+#     make e2e-test-ocp
+#
+#   # Skip OCP + MCE install, just provision workload cluster
+#   SKIP_OCP_INSTALL=true OCP_KUBECONFIG_PATH=~/.kube/ocp-config \
+#     SKIP_MCE_INSTALL=true make e2e-test-ocp
+
+- name: Setup and run tests on OCP management cluster
+  hosts: test_runner
+  vars:
+    management_cluster_type: ocp
+    remote_manifests_path: /tmp/manifests
+    test_namespace: test-capi
+    number_of_nodes: "{{ lookup('ansible.builtin.env', 'NUMBER_OF_NODES', default='7') }}"
+    cluster_topology: "{{ lookup('ansible.builtin.env', 'CLUSTER_TOPOLOGY', default='multinode') }}"
+    example_manifest: "{{ cluster_topology }}-example.yaml.j2"
+    src_dir: "/tmp/capbcoa"
+    ssh_authorized_key: "{{ lookup('ansible.builtin.env', 'SSH_AUTHORIZED_KEY') }}"
+    pullsecret: "{{ lookup('ansible.builtin.env', 'PULLSECRET') }}"
+    cluster_name: "test-{{ cluster_topology }}"
+    medium_delay: 10
+    medium_retries: 60
+    high_delay: 60
+    high_retries: 300
+    low_delay: 1
+    low_retries: 1
+    extra_paths:
+      - /usr/local/bin
+    openshift_version: >-
+      {{ lookup('ansible.builtin.env', 'OPENSHIFT_VERSION') | default('4.20.0', true) }}
+    default_rhcos_image_url: >-
+      https://mirror.openshift.com/pub/openshift-v4/dependencies/rhcos/4.20/4.20.0/rhcos-4.20.0-x86_64-nutanix.x86_64.qcow2
+    rhcos_image_url: >-
+      {{ lookup('ansible.builtin.env', 'RHCOS_IMAGE_URL') | default(default_rhcos_image_url, true) }}
+    rhcos_checksum_url: >-
+      {{ lookup('ansible.builtin.env', 'RHCOS_CHECKSUM_URL')
+         | default(rhcos_image_url | dirname ~ '/sha256sum.txt', true) }}
+
+    # OCP management cluster deployment
+    dev_scripts_topology: "{{ lookup('ansible.builtin.env', 'OCP_TOPOLOGY', default='compact') }}"
+    dev_scripts_ocp_version: "{{ lookup('ansible.builtin.env', 'OCP_VERSION', default='4.20') }}"
+    dev_scripts_release_image: "{{ lookup('ansible.builtin.env', 'OCP_RELEASE_IMAGE', default='') }}"
+    skip_ocp_install: "{{ lookup('ansible.builtin.env', 'SKIP_OCP_INSTALL', default='false') | lower in ['true', '1', 'yes'] }}"
+    ocp_kubeconfig_path: "{{ lookup('ansible.builtin.env', 'OCP_KUBECONFIG_PATH', default='') }}"
+    ocp_cluster_domain: "{{ lookup('ansible.builtin.env', 'OCP_CLUSTER_DOMAIN', default='') }}"
+    ocp_router_ip: "{{ lookup('ansible.builtin.env', 'OCP_ROUTER_IP', default='') }}"
+
+    # MCE OLM configuration
+    mce_catalog_image: "{{ lookup('ansible.builtin.env', 'MCE_CATALOG_IMAGE', default='') }}"
+    mce_channel: "{{ lookup('ansible.builtin.env', 'MCE_CHANNEL', default='stable-2.11') }}"
+    mce_package_name: "{{ lookup('ansible.builtin.env', 'MCE_PACKAGE_NAME', default='multicluster-engine') }}"
+    mce_namespace: "{{ lookup('ansible.builtin.env', 'MCE_NAMESPACE', default='multicluster-engine') }}"
+    mce_create_idms: "{{ lookup('ansible.builtin.env', 'MCE_CREATE_IDMS', default='') }}"
+
+    # Conditional execution flags
+    skip_mce_install: "{{ lookup('ansible.builtin.env', 'SKIP_MCE_INSTALL', default='false') | lower in ['true', '1', 'yes'] }}"
+    skip_cluster: "{{ lookup('ansible.builtin.env', 'SKIP_CLUSTER', default='false') | lower in ['true', '1', 'yes'] }}"
+
+  environment:
+    PATH: "{{ extra_paths | join(':') }}:{{ ansible_env.PATH }}"
+    KUBECONFIG: /tmp/ocp-kubeconfig
+
+  roles:
+    # Infrastructure setup (always runs)
+    - system_dependencies
+    - sourcecode_setup
+    - network_setup
+    - baremetal_emulation
+
+    # OCP management cluster deployment via dev-scripts
+    - role: dev_scripts_setup
+      when: not skip_ocp_install
+
+    # OCP cluster validation and discovery
+    - ocp_cluster_setup
+
+    # MCE installation via OLM
+    - role: mce_olm_install
+      when: not skip_mce_install
+
+    # BMH setup (always runs)
+    - bmh_setup
+
+    # Workload cluster provisioning
+    - role: cluster_install
+      when: not skip_cluster
+    - role: assert_install
+      when: not skip_cluster
+    - role: assert_upgrade
+      when: not skip_cluster and upgrade_to_version is defined

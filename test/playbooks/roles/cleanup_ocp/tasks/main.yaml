@@ -1,0 +1,118 @@
+---
+- name: Delete sushytools pod
+  containers.podman.podman_container:
+    name: sushy-tools
+    state: absent
+
+- name: Delete test namespace
+  kubernetes.core.k8s:
+    api_version: v1
+    kind: Namespace
+    name: "{{ test_namespace }}"
+    state: absent
+    wait: true
+    wait_timeout: 300
+  failed_when: false
+
+- name: Delete AgentServiceConfig
+  kubernetes.core.k8s:
+    api_version: agent-install.openshift.io/v1beta1
+    kind: AgentServiceConfig
+    name: agent
+    state: absent
+    wait: true
+    wait_timeout: 300
+  failed_when: false
+  when: not skip_mce_install
+
+- name: Delete MultiClusterEngine CR
+  kubernetes.core.k8s:
+    api_version: multicluster.openshift.io/v1
+    kind: MultiClusterEngine
+    name: multiclusterengine
+    state: absent
+    wait: true
+    wait_timeout: 600
+  failed_when: false
+  when: not skip_mce_install
+
+- name: Delete MCE Subscription
+  kubernetes.core.k8s:
+    api_version: operators.coreos.com/v1alpha1
+    kind: Subscription
+    name: multicluster-engine
+    namespace: "{{ mce_namespace }}"
+    state: absent
+  failed_when: false
+  when: not skip_mce_install
+
+- name: Delete MCE CSVs
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - delete
+      - csv
+      - -n
+      - "{{ mce_namespace }}"
+      - --all
+  failed_when: false
+  changed_when: true
+  when: not skip_mce_install
+
+- name: Delete MCE namespace
+  kubernetes.core.k8s:
+    api_version: v1
+    kind: Namespace
+    name: "{{ mce_namespace }}"
+    state: absent
+    wait: true
+    wait_timeout: 300
+  failed_when: false
+  when: not skip_mce_install
+
+- name: Delete custom CatalogSource
+  kubernetes.core.k8s:
+    api_version: operators.coreos.com/v1alpha1
+    kind: CatalogSource
+    name: mce-custom-catalog
+    namespace: openshift-marketplace
+    state: absent
+  failed_when: false
+  when: not skip_mce_install
+
+- name: Delete ImageDigestMirrorSet
+  kubernetes.core.k8s:
+    api_version: config.openshift.io/v1
+    kind: ImageDigestMirrorSet
+    name: mce-downstream-mirror
+    state: absent
+  failed_when: false
+  when: not skip_mce_install
+
+- name: Destroy VMs
+  community.libvirt.virt:
+    name: "bmh-vm-{{ item }}"
+    state: destroyed
+  with_sequence:
+    count: "{{ number_of_nodes }}"
+    format: "%02x"
+  failed_when: false
+
+- name: Remove bmh network
+  community.libvirt.virt_net:
+    state: absent
+    name: bmh
+
+- name: Check if dev-scripts directory exists
+  ansible.builtin.stat:
+    path: "{{ dev_scripts_dir }}"
+  register: dev_scripts_stat
+  when: not skip_ocp_install
+
+- name: Tear down dev-scripts OCP cluster
+  ansible.builtin.command:
+    cmd: make clean
+    chdir: "{{ dev_scripts_dir }}"
+  when: not skip_ocp_install and dev_scripts_stat.stat.exists | default(false)
+  changed_when: true
+  failed_when: false

@@ -2,6 +2,13 @@
 
 This directory contains Ansible playbooks for running end-to-end tests of the Cluster API Provider OpenShift Assisted project.
 
+Two test flows are available:
+
+| Flow | Playbook | Management Cluster | MCE Installation |
+|------|----------|-------------------|-----------------|
+| **Kind** | `run_test.yaml` | Kind cluster (created by playbook) | Helm chart or clusterctl |
+| **OCP** | `run_test_ocp.yaml` | Pre-existing OCP cluster | OLM (production or nightly catalog) |
+
 ## Main Playbook: run_test.yaml
 
 The `run_test.yaml` playbook is the primary test automation script that sets up a complete testing environment and runs comprehensive end-to-end tests for the Cluster API Provider OpenShift Assisted.
@@ -345,3 +352,157 @@ USE_MCE_CHART=true INSTALLATION_MODE=upstream \
   MCE_CAPOA_BOOTSTRAP_IMAGE=quay.io/myrepo/capoa-bootstrap:dev \
   make e2e-test
 ```
+
+## OCP Flow: run_test_ocp.yaml
+
+The OCP flow is a full e2e test that starts from a bare host and:
+1. Deploys an OCP management cluster via [dev-scripts](https://github.com/openshift-metal3/dev-scripts)
+2. Installs MCE via OLM on the OCP cluster
+3. Sets up emulated bare-metal nodes (libvirt VMs + sushy-tools)
+4. Provisions a workload cluster using CAPOA
+
+This exercises the production delivery path (OCP + MCE via OLM) rather than the Kind-based development path.
+
+### Prerequisites
+
+- SSH access to a remote bare-metal host with sufficient resources for both the OCP management cluster (dev-scripts VMs) and the emulated workload cluster nodes (libvirt VMs)
+- Pull secret for container registries (base64-encoded)
+- If using a custom MCE catalog image from `quay.io/acm-d`, the pull secret must include credentials for that registry
+
+### Quick Start
+
+```bash
+# Full e2e: deploy OCP (compact), install MCE, provision workload cluster
+make e2e-test-ocp
+
+# Use a specific OCP release image
+OCP_RELEASE_IMAGE=quay.io/openshift-release-dev/ocp-release:4.20.0-x86_64 \
+  make e2e-test-ocp
+
+# Test with a nightly MCE build
+MCE_CATALOG_IMAGE=quay.io/acm-d/mce-custom-registry:2.11-BACKPLANE-2025-07-15-00-26-11 \
+  make e2e-test-ocp
+```
+
+### Required Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `REMOTE_HOST` | Hostname/IP of the remote bare-metal host |
+| `SSH_KEY_FILE` | Path to SSH private key for the remote host |
+| `SSH_AUTHORIZED_KEY` | SSH public key content |
+| `PULLSECRET` | Base64-encoded container registry pull secret |
+
+### OCP Management Cluster Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `OCP_TOPOLOGY` | `compact` | OCP management cluster topology preset (see below) |
+| `OCP_VERSION` | `4.20` | OCP release stream for dev-scripts |
+| `OCP_RELEASE_IMAGE` | (empty) | Specific OCP release image (overrides `OCP_VERSION`) |
+| `SKIP_OCP_INSTALL` | `false` | Skip OCP deployment, use existing cluster |
+| `OCP_KUBECONFIG_PATH` | (empty) | Kubeconfig for existing cluster (required when `SKIP_OCP_INSTALL=true`) |
+| `OCP_CLUSTER_DOMAIN` | (auto-discovered) | OCP apps domain |
+| `OCP_ROUTER_IP` | (auto-discovered) | OCP router IP address |
+
+#### OCP Topology Presets
+
+| Preset | Masters | Workers | Master RAM | Master vCPUs | Master Disk |
+|--------|---------|---------|------------|--------------|-------------|
+| `compact` | 3 | 0 | 32 GB | 16 | 100 GB |
+| `ha` | 3 | 2 | 32 GB | 16 | 100 GB |
+| `sno` | 1 | 0 | 64 GB | 16 | 120 GB |
+
+### MCE OLM Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MCE_CATALOG_IMAGE` | (empty = `redhat-operators`) | Custom catalog index image |
+| `MCE_CHANNEL` | `stable-2.11` | OLM subscription channel |
+| `MCE_NAMESPACE` | `multicluster-engine` | Namespace for MCE installation |
+| `MCE_CREATE_IDMS` | auto | Create ImageDigestMirrorSet (`true`/`false`; auto = yes when custom catalog) |
+| `SKIP_MCE_INSTALL` | `false` | Skip MCE installation (assume pre-installed) |
+
+### Workload Cluster Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CLUSTER_TOPOLOGY` | `multinode` | `multinode`, `sno`, `multinode-okd`, or `sno-okd` |
+| `NUMBER_OF_NODES` | `7` | Number of emulated BMH nodes |
+| `SKIP_CLUSTER` | `false` | Skip cluster provisioning and assertions |
+
+### MCE Catalog Modes
+
+#### Production Mode (default)
+
+Uses the `redhat-operators` CatalogSource that ships with OCP. No additional configuration needed.
+
+```bash
+make e2e-test-ocp
+```
+
+#### Custom Catalog Mode
+
+Set `MCE_CATALOG_IMAGE` to a custom catalog index image. This creates a custom `CatalogSource` and (by default) an `ImageDigestMirrorSet` to mirror `registry.redhat.io/multicluster-engine` to `quay.io/acm-d`.
+
+```bash
+# Specific nightly snapshot
+MCE_CATALOG_IMAGE=quay.io/acm-d/mce-custom-registry:2.11-BACKPLANE-2025-07-15-00-26-11 \
+  make e2e-test-ocp
+
+# Disable IDMS creation (e.g. if already configured)
+MCE_CATALOG_IMAGE=quay.io/acm-d/mce-custom-registry:2.11-BACKPLANE-2025-07-15-00-26-11 \
+  MCE_CREATE_IDMS=false make e2e-test-ocp
+```
+
+### Operational Modes
+
+```bash
+# Full e2e (default)
+make e2e-test-ocp
+
+# Skip OCP deploy, use existing cluster
+SKIP_OCP_INSTALL=true OCP_KUBECONFIG_PATH=~/.kube/ocp-config make e2e-test-ocp
+
+# Skip OCP + MCE install, just provision workload cluster
+SKIP_OCP_INSTALL=true OCP_KUBECONFIG_PATH=~/.kube/ocp-config \
+  SKIP_MCE_INSTALL=true make e2e-test-ocp
+
+# Demo mode: setup infra + BMHs only
+SKIP_MCE_INSTALL=true SKIP_CLUSTER=true make e2e-test-ocp
+```
+
+### OCP Flow Roles
+
+| # | Role | Description |
+|---|------|-------------|
+| 1 | `system_dependencies` | Install OS packages (shared with Kind flow) |
+| 2 | `sourcecode_setup` | Sync source code to remote host (shared) |
+| 3 | `network_setup` | Configure libvirt network and DNS (shared) |
+| 4 | `baremetal_emulation` | Start sushy-tools BMC emulator (shared) |
+| 5 | `dev_scripts_setup` | Deploy OCP management cluster via dev-scripts |
+| 6 | `ocp_cluster_setup` | Validate OCP cluster, discover apps domain and router IP |
+| 7 | `mce_olm_install` | Install MCE via OLM, create MCE CR and AgentServiceConfig |
+| 8 | `bmh_setup` | Create libvirt VMs and BareMetalHost CRs (shared) |
+| 9 | `cluster_install` | Apply cluster example manifests (shared) |
+| 10 | `assert_install` | Validate cluster installation (shared) |
+| 11 | `assert_upgrade` | Validate cluster upgrade (shared, conditional) |
+
+### Network Layout
+
+The OCP flow creates two independent libvirt networks on the same host:
+
+| Network | Subnet | Purpose | Created By |
+|---------|--------|---------|------------|
+| dev-scripts networks | `192.168.111.0/24`, `192.168.126.0/24` | OCP management cluster VMs | dev-scripts |
+| `bmh` | `192.168.222.0/24` | Workload cluster emulated BMH VMs | network_setup / bmh_setup |
+
+These subnets do not overlap. The `bmh` network's dnsmasq is configured to resolve `*.apps.<ocp-domain>` to the OCP router IP so that emulated VMs can reach the assisted-service and assisted-image-service Routes.
+
+### Cleanup
+
+```bash
+ansible-playbook test/playbooks/cleanup_ocp.yaml -i test/playbooks/inventories/ocp_host.yaml
+```
+
+This removes: test namespace, MCE (CR, Subscription, CSV, namespace), custom CatalogSource, IDMS, libvirt VMs, bmh network, and the dev-scripts OCP cluster.

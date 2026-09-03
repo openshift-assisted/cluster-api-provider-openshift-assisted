@@ -54,9 +54,6 @@ const (
 	RHCOSURLJobNamePrefix         = "rhcos-url-resolve-"
 	RHCOSURLConfigMapKey          = "qcow2-url"
 
-	CliImageJobNamePrefix = "resolve-cli-image-"
-	CliImageConfigMap     = "capoa-cli-image"
-
 	RHCOSImportJobNamePrefix = "rhcos-import-"
 
 	jobFailedCooldownAnnotation = "capoa.openshift.io/last-job-failure"
@@ -482,88 +479,6 @@ echo "Resolved: $URL"
 	return buildPullSecretJob(name, namespace, releaseImage, pullSecretName, jobImage, script, "resolve-url",
 		corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("100m"), corev1.ResourceMemory: resource.MustParse("256Mi")},
 		corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("512Mi")},
-	)
-}
-
-// ResolveCliImage extracts the ose-cli image reference from the OCP release payload.
-// Uses a Job that stores the result in a ConfigMap for subsequent use by CCM/CSI
-// bash operators. Returns ("", nil) if the Job hasn't completed yet.
-func ResolveCliImage(
-	ctx context.Context,
-	c client.Client,
-	namespace string,
-	releaseImage string,
-	pullSecretName string,
-	version string,
-) (string, error) {
-	log := ctrl.LoggerFrom(ctx)
-
-	majorMinor := extractMajorMinor(version)
-	if majorMinor == "" {
-		return "", fmt.Errorf("cannot extract major.minor from version %q", version)
-	}
-
-	cm := &corev1.ConfigMap{}
-	if err := c.Get(ctx, client.ObjectKey{Name: CliImageConfigMap, Namespace: namespace}, cm); err == nil {
-		if img := cm.Data["cli-image"]; img != "" {
-			return img, nil
-		}
-	}
-
-	jobName := CliImageJobNamePrefix + majorMinor
-	existingJob := &batchv1.Job{}
-	err := c.Get(ctx, client.ObjectKey{Name: jobName, Namespace: namespace}, existingJob)
-	if err == nil {
-		if existingJob.Status.Succeeded > 0 {
-			img, logErr := ReadURLFromJobPod(ctx, c, jobName, namespace)
-			if logErr != nil || img == "" {
-				log.Info("CLI image Job completed but could not read result, deleting for retry", "error", logErr)
-				_ = c.Delete(ctx, existingJob, client.PropagationPolicy(metav1.DeletePropagationBackground))
-				return "", nil
-			}
-			newCM := &corev1.ConfigMap{
-				ObjectMeta: metav1.ObjectMeta{Name: CliImageConfigMap, Namespace: namespace},
-				Data:       map[string]string{"cli-image": img},
-			}
-			if createErr := c.Create(ctx, newCM); createErr != nil && !errors.IsAlreadyExists(createErr) {
-				return "", fmt.Errorf("failed to create CLI image ConfigMap: %w", createErr)
-			}
-			log.Info("resolved CLI image from release payload", "image", img)
-			return img, nil
-		}
-		if existingJob.Status.Failed > 0 {
-			log.Info("CLI image resolution Job failed, deleting for retry", "job", jobName)
-			_ = c.Delete(ctx, existingJob, client.PropagationPolicy(metav1.DeletePropagationBackground))
-			return "", nil
-		}
-		log.V(1).Info("CLI image resolution Job still running", "job", jobName)
-		return "", nil
-	}
-	if !errors.IsNotFound(err) {
-		return "", fmt.Errorf("failed to check CLI image Job: %w", err)
-	}
-
-	job := buildCliImageResolveJob(jobName, namespace, releaseImage, pullSecretName, GetJobImage(""))
-	if err := c.Create(ctx, job); err != nil {
-		if errors.IsAlreadyExists(err) {
-			return "", nil
-		}
-		return "", fmt.Errorf("failed to create CLI image resolve Job: %w", err)
-	}
-	log.Info("created CLI image resolution Job", "job", jobName)
-	return "", nil
-}
-
-func buildCliImageResolveJob(name, namespace, releaseImage, pullSecretName, jobImage string) *batchv1.Job {
-	script := `#!/bin/bash
-set -euo pipefail
-CLI_IMAGE=$(oc adm release info "$RELEASE_IMAGE" --image-for=cli --registry-config=/pull-secret/.dockerconfigjson)
-echo "$CLI_IMAGE" > /dev/termination-log
-echo "Resolved CLI image: $CLI_IMAGE"
-`
-	return buildPullSecretJob(name, namespace, releaseImage, pullSecretName, jobImage, script, "resolve-cli",
-		corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("100m"), corev1.ResourceMemory: resource.MustParse("128Mi")},
-		corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("256Mi")},
 	)
 }
 

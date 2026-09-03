@@ -1,7 +1,6 @@
 package ignition
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"path/filepath"
@@ -10,6 +9,7 @@ import (
 	"github.com/coreos/ignition/v2/config/v3_1"
 	config_types "github.com/coreos/ignition/v2/config/v3_1/types"
 	"github.com/go-logr/logr"
+	ignutil "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/pkg/ignition"
 	logutil "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/util/log"
 )
 
@@ -33,8 +33,8 @@ cat $config_dir/openstack/latest/meta_data.json | jq -r '. | keys[]' | while rea
 `
 
 func getConfigdriveMetadataFile() config_types.File {
-	return CreateIgnitionFile("/usr/local/bin/configdrive_metadata",
-		"root", "data:text/plain;charset=utf-8;base64,"+base64Encode(configdriveMetadataScript), 493, true)
+	return ignutil.CreateFile("/usr/local/bin/configdrive_metadata",
+		"root", "data:text/plain;charset=utf-8;base64,"+ignutil.Base64Encode(configdriveMetadataScript), 493, true)
 }
 
 func getConfigdriveMetadataSystemdUnit() config_types.Unit {
@@ -221,8 +221,8 @@ WantedBy=multi-user.target
 		Name:     name + ".service",
 	}
 
-	file := CreateIgnitionFile(scriptPath,
-		"root", "data:text/plain;charset=utf-8;base64,"+base64Encode(sb.String()), 0700, true)
+	file := ignutil.CreateFile(scriptPath,
+		"root", "data:text/plain;charset=utf-8;base64,"+ignutil.Base64Encode(sb.String()), 0700, true)
 
 	return unit, file
 }
@@ -323,8 +323,8 @@ WantedBy=multi-user.target
 		Name:     name + ".service",
 	}
 
-	file := CreateIgnitionFile(scriptPath,
-		"root", "data:text/plain;charset=utf-8;base64,"+base64Encode(sb.String()), 0700, true)
+	file := ignutil.CreateFile(scriptPath,
+		"root", "data:text/plain;charset=utf-8;base64,"+ignutil.Base64Encode(sb.String()), 0700, true)
 
 	return unit, file
 }
@@ -399,14 +399,15 @@ WantedBy=multi-user.target
 		Name:     "set-hostname.service",
 	}
 
-	file := CreateIgnitionFile("/usr/local/bin/set_hostname",
-		"root", "data:text/plain;charset=utf-8;base64,"+base64Encode(scriptContent), 493, true)
+	file := ignutil.CreateFile("/usr/local/bin/set_hostname",
+		"root", "data:text/plain;charset=utf-8;base64,"+ignutil.Base64Encode(scriptContent), 493, true)
 
 	return unit, file
 }
 
-func base64Encode(s string) string {
-	return base64.StdEncoding.EncodeToString([]byte(s))
+// CreateIgnitionFile is a convenience wrapper around ignutil.CreateFile for backward compatibility.
+func CreateIgnitionFile(path, user, content string, mode int, overwrite bool) config_types.File {
+	return ignutil.CreateFile(path, user, content, mode, overwrite)
 }
 
 // MergeIgnitionConfig merges installed-node units and files into an existing ignition
@@ -440,23 +441,6 @@ func MergeIgnitionConfig(log logr.Logger, baseIgnition []byte, opts IgnitionOpti
 	config.Storage.Files = append(config.Storage.Files, files...)
 
 	return json.Marshal(config)
-}
-
-func CreateIgnitionFile(path, user, content string, mode int, overwrite bool) config_types.File {
-	return config_types.File{
-		Node: config_types.Node{
-			Path:      path,
-			Overwrite: &overwrite,
-			User:      config_types.NodeUser{Name: &user},
-		},
-		FileEmbedded1: config_types.FileEmbedded1{
-			Append: []config_types.Resource{},
-			Contents: config_types.Resource{
-				Source: &content,
-			},
-			Mode: &mode,
-		},
-	}
 }
 
 const injectProviderIDScript = `#!/bin/bash
@@ -551,8 +535,8 @@ WantedBy=multi-user.target
 		Name:     "capoa-inject-provider-id.service",
 	}
 
-	file := CreateIgnitionFile("/usr/local/bin/inject-provider-id",
-		"root", "data:text/plain;charset=utf-8;base64,"+base64Encode(injectProviderIDScript), 493, true)
+	file := ignutil.CreateFile("/usr/local/bin/inject-provider-id",
+		"root", "data:text/plain;charset=utf-8;base64,"+ignutil.Base64Encode(injectProviderIDScript), 493, true)
 
 	return unit, file
 }

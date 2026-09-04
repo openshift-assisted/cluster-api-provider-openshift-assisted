@@ -109,6 +109,10 @@ type OpenshiftAssistedControlPlaneConfigSpec struct {
 	// +optional
 	NetworkType string `json:"networkType,omitempty"`
 
+	// MachineNetwork is the list of IP address pools for machines.
+	// +optional
+	MachineNetwork []hiveext.MachineNetworkEntry `json:"machineNetwork,omitempty"`
+
 	// SSHAuthorizedKey ssh key for accessing the cluster nodes after reboot
 	SSHAuthorizedKey string `json:"sshAuthorizedKey,omitempty"`
 

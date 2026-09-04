@@ -185,6 +185,8 @@ spec:
     - 192.168.222.40
     ingressVIPs:
     - 192.168.222.41
+    machineNetwork:
+    - cidr: 10.0.0.0/16
     baseDomain: lab.home
     pullSecretRef:
       name: "pull-secret"
@@ -213,11 +215,6 @@ metadata:
   annotations:
     controlplane.cluster.x-k8s.io/install-config-override: |
       {
-        "networking": {
-          "machineNetwork": [
-            {"cidr": "10.0.0.0/16"}
-          ]
-        },
         "compute": [
           {
             "name": "worker",

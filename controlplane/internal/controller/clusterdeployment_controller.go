@@ -202,6 +202,7 @@ func (r *ClusterDeploymentReconciler) ensureAgentClusterInstall(
 		aci.Spec.Networking.ClusterNetwork = clusterNetwork
 		aci.Spec.Networking.ServiceNetwork = serviceNetwork
 		aci.Spec.Networking.NetworkType = oacp.Spec.Config.NetworkType
+		aci.Spec.Networking.MachineNetwork = oacp.Spec.Config.MachineNetwork
 		aci.Spec.ManifestsConfigMapRefs = additionalManifests
 
 		if len(oacp.Spec.Config.APIVIPs) > 0 && len(oacp.Spec.Config.IngressVIPs) > 0 {

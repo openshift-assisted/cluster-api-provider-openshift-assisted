@@ -142,6 +142,7 @@ var _ = Describe("ClusterDeployment Controller", func() {
 			}
 			oacp.Spec.Config.MastersSchedulable = true
 			oacp.Spec.Config.NetworkType = "Cilium"
+			oacp.Spec.Config.MachineNetwork = []hiveext.MachineNetworkEntry{{CIDR: "10.0.0.0/16"}}
 
 			cd := utils.NewClusterDeploymentWithOwnerCluster(namespace, clusterName, clusterName, oacp)
 			Expect(k8sClient.Create(ctx, cd)).To(Succeed())
@@ -176,6 +177,7 @@ var _ = Describe("ClusterDeployment Controller", func() {
 			Expect(aci.Spec.MastersSchedulable).To(Equal(oacp.Spec.Config.MastersSchedulable))
 			Expect(aci.Spec.SSHPublicKey).To(Equal(oacp.Spec.Config.SSHAuthorizedKey))
 			Expect(aci.Spec.Networking.NetworkType).To(Equal(oacp.Spec.Config.NetworkType))
+			Expect(aci.Spec.Networking.MachineNetwork).To(Equal(oacp.Spec.Config.MachineNetwork))
 
 			// Assert ACI has correct labels
 			Expect(aci.Labels).NotTo(BeEmpty())

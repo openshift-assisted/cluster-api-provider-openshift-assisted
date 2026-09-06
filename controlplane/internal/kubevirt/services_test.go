@@ -55,13 +55,13 @@ var _ = Describe("EnsureExternalAccessServices", func() {
 		err = fakeClient.Get(ctx, client.ObjectKey{Name: "test-cluster-api", Namespace: "test-ns"}, apiSvc)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(apiSvc.Spec.Type).To(Equal(corev1.ServiceTypeClusterIP))
-		Expect(apiSvc.Spec.Ports).To(HaveLen(3))
+		Expect(apiSvc.Spec.Ports).To(HaveLen(4))
 
 		portNames := make([]string, 0, len(apiSvc.Spec.Ports))
 		for _, p := range apiSvc.Spec.Ports {
 			portNames = append(portNames, p.Name)
 		}
-		Expect(portNames).To(ContainElements("api", "mcs", "api-route"))
+		Expect(portNames).To(ContainElements("api", "mcs", "api-route", "mcs-nodeport"))
 
 		ingressSvc := &corev1.Service{}
 		err = fakeClient.Get(ctx, client.ObjectKey{Name: "test-cluster-ingress", Namespace: "test-ns"}, ingressSvc)

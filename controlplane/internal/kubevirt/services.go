@@ -45,7 +45,8 @@ type ServiceIPs struct {
 // to expose the tenant cluster's API and Ingress endpoints.
 //
 // The API service exposes ports 6443 (kube-apiserver), 22623 (MCS for bootstrap),
-// and 443 (for Route-based access where kubeconfig is rewritten to port 443).
+// 443 (for Route-based access where kubeconfig is rewritten to port 443), and
+// 30624 (MCS NodePort for day-2 worker ignition via the MCS proxy).
 //
 // The Ingress service exposes ports 443 (HTTPS) and 80 (HTTP) for tenant
 // cluster ingress traffic forwarded through the wildcard Route.
@@ -93,6 +94,12 @@ func EnsureExternalAccessServices(
 				Name:       "api-route",
 				Port:       443,
 				TargetPort: intstr.FromInt(6443),
+				Protocol:   corev1.ProtocolTCP,
+			},
+			{
+				Name:       "mcs-nodeport",
+				Port:       MCSNodePort,
+				TargetPort: intstr.FromInt(MCSNodePort),
 				Protocol:   corev1.ProtocolTCP,
 			},
 		}

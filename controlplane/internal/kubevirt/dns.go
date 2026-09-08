@@ -85,7 +85,7 @@ data:
 %s
   apps.db: |
 %s
-`, namespace, indentMultiline(corefileContent, 4), indentMultiline(appsDbContent, 4))
+`, namespace, indentMultiline(corefileContent), indentMultiline(appsDbContent))
 
 	manifests = append(manifests, ManifestEntry{
 		Filename: "01-dns-proxy-configmap.yaml",

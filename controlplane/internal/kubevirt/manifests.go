@@ -64,12 +64,9 @@ spec:
 	}
 }
 
-// indentMultiline indents every non-empty line of s by the given number of spaces.
-func indentMultiline(s string, spaces int) string {
-	indent := ""
-	for i := 0; i < spaces; i++ {
-		indent += " "
-	}
+// indentMultiline indents every non-empty line of s by 4 spaces.
+func indentMultiline(s string) string {
+	const indent = "    "
 	result := ""
 	for i, line := range splitLines(s) {
 		if i > 0 {

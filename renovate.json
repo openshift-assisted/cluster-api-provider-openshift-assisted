@@ -16,7 +16,8 @@
     "prConcurrentLimit": 0,
     "enabledManagers": [
         "custom.regex",
-        "tekton"
+        "tekton",
+        "rpm-lockfile"
     ],
     "tekton": {
         "managerFilePatterns": [
@@ -54,6 +55,18 @@
                 "backplane-2.17",
                 "backplane-2.9",
                 "master"
+            ]
+        },
+        {
+            "groupName": "RPM lockfile refresh",
+            "addLabels": [
+                "rpm-lockfile"
+            ],
+            "schedule": [
+                "on Saturday"
+            ],
+            "matchManagers": [
+                "rpm-lockfile"
             ]
         },
         {

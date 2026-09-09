@@ -1,0 +1,12 @@
+contentOrigin:
+  repofiles:
+    - ./ubi.repo
+
+packages:
+  - crypto-policies-scripts
+
+arches:
+  - aarch64
+  - x86_64
+  - ppc64le
+  - s390x

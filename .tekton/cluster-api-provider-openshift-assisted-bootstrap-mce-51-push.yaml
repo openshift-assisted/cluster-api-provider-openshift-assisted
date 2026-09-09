@@ -29,6 +29,8 @@ spec:
     - linux/ppc64le
     - linux/s390x
     - linux/arm64
+  - name: prefetch-input
+    value: '[{"type": "rpm", "path": "./rpm-prefetching/"}]'
   - name: dockerfile
     value: Dockerfile.bootstrap-provider
   - name: path-context

@@ -109,6 +109,11 @@ type OpenshiftAssistedControlPlaneConfigSpec struct {
 	// +optional
 	NetworkType string `json:"networkType,omitempty"`
 
+	// MachineNetwork is the list of IP address pools for machines.
+	// +kubebuilder:validation:XValidation:rule="self.all(x, isCIDR(x.cidr))",message="each machine network CIDR must be valid"
+	// +optional
+	MachineNetwork []hiveext.MachineNetworkEntry `json:"machineNetwork,omitempty"`
+
 	// SSHAuthorizedKey ssh key for accessing the cluster nodes after reboot
 	SSHAuthorizedKey string `json:"sshAuthorizedKey,omitempty"`
 

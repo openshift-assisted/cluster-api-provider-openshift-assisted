@@ -102,6 +102,11 @@ func (in *OpenshiftAssistedControlPlaneConfigSpec) DeepCopyInto(out *OpenshiftAs
 		*out = new(v1beta1.Proxy)
 		**out = **in
 	}
+	if in.MachineNetwork != nil {
+		in, out := &in.MachineNetwork, &out.MachineNetwork
+		*out = make([]v1beta1.MachineNetworkEntry, len(*in))
+		copy(*out, *in)
+	}
 	if in.PullSecretRef != nil {
 		in, out := &in.PullSecretRef, &out.PullSecretRef
 		*out = new(v1.LocalObjectReference)

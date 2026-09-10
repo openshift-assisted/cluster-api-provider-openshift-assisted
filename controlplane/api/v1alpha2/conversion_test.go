@@ -21,6 +21,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	hiveext "github.com/openshift/assisted-service/api/hiveextension/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
@@ -834,6 +835,58 @@ var _ = Describe("OpenshiftAssistedControlPlane", func() {
 			dst := &OpenshiftAssistedControlPlane{}
 			Expect(dst.ConvertFrom(src)).To(Succeed())
 			Expect(dst.Spec.Config.NetworkType).To(Equal("OVNKubernetes"))
+		})
+	})
+
+	Context("MachineNetwork conversion", func() {
+		It("should carry MachineNetwork from v1alpha2 to v1alpha3 via ConvertTo", func() {
+			src := &OpenshiftAssistedControlPlane{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-cp", Namespace: "default"},
+				Spec: OpenshiftAssistedControlPlaneSpec{
+					Replicas:            1,
+					DistributionVersion: "4.16.0",
+					MachineTemplate: OpenshiftAssistedControlPlaneMachineTemplate{
+						InfrastructureRef: corev1.ObjectReference{
+							APIVersion: "infrastructure.cluster.x-k8s.io/v1beta1",
+							Kind:       "Metal3MachineTemplate",
+							Name:       "test-infra",
+						},
+					},
+					Config: OpenshiftAssistedControlPlaneConfigSpec{
+						MachineNetwork: []hiveext.MachineNetworkEntry{{CIDR: "10.0.0.0/16"}},
+						BaseDomain:     "example.com",
+					},
+				},
+			}
+
+			dst := &controlplanev1alpha3.OpenshiftAssistedControlPlane{}
+			Expect(src.ConvertTo(dst)).To(Succeed())
+			Expect(dst.Spec.Config.MachineNetwork).To(Equal(src.Spec.Config.MachineNetwork))
+		})
+
+		It("should carry MachineNetwork from v1alpha3 to v1alpha2 via ConvertFrom", func() {
+			src := &controlplanev1alpha3.OpenshiftAssistedControlPlane{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-cp", Namespace: "default"},
+				Spec: controlplanev1alpha3.OpenshiftAssistedControlPlaneSpec{
+					Replicas:            1,
+					DistributionVersion: "4.16.0",
+					MachineTemplate: controlplanev1alpha3.OpenshiftAssistedControlPlaneMachineTemplate{
+						InfrastructureRef: clusterv1.ContractVersionedObjectReference{
+							Kind:     "Metal3MachineTemplate",
+							Name:     "test-infra",
+							APIGroup: "infrastructure.cluster.x-k8s.io",
+						},
+					},
+					Config: controlplanev1alpha3.OpenshiftAssistedControlPlaneConfigSpec{
+						MachineNetwork: []hiveext.MachineNetworkEntry{{CIDR: "2001:db8::/64"}},
+						BaseDomain:     "example.com",
+					},
+				},
+			}
+
+			dst := &OpenshiftAssistedControlPlane{}
+			Expect(dst.ConvertFrom(src)).To(Succeed())
+			Expect(dst.Spec.Config.MachineNetwork).To(Equal(src.Spec.Config.MachineNetwork))
 		})
 	})
 })

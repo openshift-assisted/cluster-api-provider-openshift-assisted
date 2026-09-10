@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"regexp"
 	"slices"
 	"strings"
@@ -305,7 +306,11 @@ func ensureClusterImageSet(ctx context.Context, c client.Client, imageSetName st
 func getClusterNetworks(cluster *clusterv1.Cluster) ([]hiveext.ClusterNetworkEntry, []string) {
 	clusterNetwork := make([]hiveext.ClusterNetworkEntry, 0, len(cluster.Spec.ClusterNetwork.Pods.CIDRBlocks))
 	for _, cidrBlock := range cluster.Spec.ClusterNetwork.Pods.CIDRBlocks {
-		clusterNetwork = append(clusterNetwork, hiveext.ClusterNetworkEntry{CIDR: cidrBlock, HostPrefix: 23})
+		hostPrefix := int32(23)
+		if ip, _, err := net.ParseCIDR(cidrBlock); err == nil && ip.To4() == nil {
+			hostPrefix = 64
+		}
+		clusterNetwork = append(clusterNetwork, hiveext.ClusterNetworkEntry{CIDR: cidrBlock, HostPrefix: hostPrefix})
 	}
 
 	return clusterNetwork, cluster.Spec.ClusterNetwork.Services.CIDRBlocks

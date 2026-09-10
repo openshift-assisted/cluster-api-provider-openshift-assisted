@@ -14,17 +14,20 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1alpha2
+package v1alpha3
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
@@ -43,10 +46,10 @@ var (
 	testScheme = runtime.NewScheme()
 )
 
-func TestV1Alpha2(t *testing.T) {
+func TestV1Alpha3(t *testing.T) {
 	RegisterFailHandler(Fail)
 
-	RunSpecs(t, "Bootstrap API v1alpha2 Suite")
+	RunSpecs(t, "ControlPlane API v1alpha3 Suite")
 }
 
 var _ = BeforeSuite(func() {
@@ -54,8 +57,14 @@ var _ = BeforeSuite(func() {
 	testutil.SetupTestLoggerWithDefault(GinkgoWriter, -3)
 
 	By("bootstrapping test environment")
+	// The generated CRD carries a machineNetwork CEL rule (isCIDR) with no maxItems.
+	// A vanilla envtest apiserver rejects it for exceeding the CEL cost budget (OpenShift
+	// relaxes this limit, so it installs fine on a real cluster). That rule is unrelated to
+	// this suite, so load the CRD and drop it before installing.
+	crd := loadOACPCRD()
+
 	testEnv = &envtest.Environment{
-		CRDDirectoryPaths:     []string{filepath.Join("..", "..", "config", "crd", "bases")},
+		CRDs:                  []*apiextensionsv1.CustomResourceDefinition{crd},
 		ErrorIfCRDPathMissing: true,
 	}
 
@@ -79,3 +88,29 @@ var _ = AfterSuite(func() {
 		Expect(testEnv.Stop()).To(Succeed())
 	}
 })
+
+// loadOACPCRD reads the generated OpenshiftAssistedControlPlane CRD and strips the
+// machineNetwork CEL validation, which a vanilla apiserver rejects for exceeding the
+// CEL cost budget. The minProperties constraints under test are left untouched.
+func loadOACPCRD() *apiextensionsv1.CustomResourceDefinition {
+	path := filepath.Join("..", "..", "config", "crd", "bases",
+		"controlplane.cluster.x-k8s.io_openshiftassistedcontrolplanes.yaml")
+	data, err := os.ReadFile(path)
+	Expect(err).NotTo(HaveOccurred())
+
+	crd := &apiextensionsv1.CustomResourceDefinition{}
+	Expect(yaml.Unmarshal(data, crd)).To(Succeed())
+
+	for i := range crd.Spec.Versions {
+		schema := crd.Spec.Versions[i].Schema.OpenAPIV3Schema
+		spec := schema.Properties["spec"]
+		config := spec.Properties["config"]
+		machineNetwork := config.Properties["machineNetwork"]
+		machineNetwork.XValidations = nil
+		config.Properties["machineNetwork"] = machineNetwork
+		spec.Properties["config"] = config
+		schema.Properties["spec"] = spec
+	}
+
+	return crd
+}

@@ -72,6 +72,20 @@ func (m *MockClusterUpgrade) EXPECT() *MockClusterUpgradeMockRecorder {
 	return m.recorder
 }
 
+// ClearDesiredUpdate mocks base method.
+func (m *MockClusterUpgrade) ClearDesiredUpdate(ctx context.Context) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClearDesiredUpdate", ctx)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ClearDesiredUpdate indicates an expected call of ClearDesiredUpdate.
+func (mr *MockClusterUpgradeMockRecorder) ClearDesiredUpdate(ctx interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClearDesiredUpdate", reflect.TypeOf((*MockClusterUpgrade)(nil).ClearDesiredUpdate), ctx)
+}
+
 // GetCurrentVersion mocks base method.
 func (m *MockClusterUpgrade) GetCurrentVersion(ctx context.Context) (string, error) {
 	m.ctrl.T.Helper()

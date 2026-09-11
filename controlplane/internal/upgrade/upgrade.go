@@ -37,6 +37,7 @@ type ClusterUpgrade interface {
 	IsDesiredVersionUpdated(ctx context.Context, desiredVersion string) (bool, error)
 	GetUpgradeStatus(ctx context.Context) (string, error)
 	UpdateClusterVersionDesiredUpdate(ctx context.Context, desiredVersion string, architecture string, options ...ClusterUpgradeOption) error
+	ClearDesiredUpdate(ctx context.Context) error
 }
 
 func NewOpenshiftUpgradeFactory(remoteImage containers.RemoteImage, clientGenerator workloadclient.ClientGenerator) *OpenshiftUpgradeFactory {
@@ -168,6 +169,20 @@ func (u *OpenshiftUpgrader) UpdateClusterVersionDesiredUpdate(ctx context.Contex
 		return u.client.Update(ctx, &clusterVersion)
 	}
 	return nil
+}
+
+// ClearDesiredUpdate removes any pending desiredUpdate from the ClusterVersion,
+// effectively canceling an in-flight upgrade that was not initiated by this controller.
+func (u *OpenshiftUpgrader) ClearDesiredUpdate(ctx context.Context) error {
+	clusterVersion, err := u.getClusterVersion(ctx)
+	if err != nil {
+		return err
+	}
+	if clusterVersion.Spec.DesiredUpdate == nil {
+		return nil
+	}
+	clusterVersion.Spec.DesiredUpdate = nil
+	return u.client.Update(ctx, &clusterVersion)
 }
 
 func (u *OpenshiftUpgrader) getClusterVersion(ctx context.Context) (configv1.ClusterVersion, error) {

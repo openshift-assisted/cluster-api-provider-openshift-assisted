@@ -203,6 +203,7 @@ spec:
                       required:
                       - cidr
                       type: object
+                    maxItems: 32
                     type: array
                     x-kubernetes-validations:
                     - message: each machine network CIDR must be valid
@@ -892,6 +893,7 @@ spec:
                       required:
                       - cidr
                       type: object
+                    maxItems: 32
                     type: array
                     x-kubernetes-validations:
                     - message: each machine network CIDR must be valid

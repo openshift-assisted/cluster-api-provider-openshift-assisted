@@ -7,7 +7,7 @@ DIST_DIR ?= ./dist
 # Image URL to use all building/pushing image targets
 IMG ?= $(CONTAINER_REPOSITORY):$(CONTAINER_TAG)
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
-ENVTEST_K8S_VERSION = 1.29.0
+ENVTEST_K8S_VERSION = 1.31.0
 
 TEST ?= $(shell go list ./... | grep -v /e2e)
 PLAYBOOK_DIR ?= test/playbooks
@@ -259,7 +259,7 @@ $(LOCALBIN):
 ## Tool Versions
 KUSTOMIZE_VERSION ?= v5.3.0
 CONTROLLER_TOOLS_VERSION ?= v0.17.2
-ENVTEST_VERSION ?= release-0.17
+ENVTEST_VERSION ?= release-0.19
 GOLANGCI_LINT_VERSION ?= v2.11.4
 GOLANGCI_LINT_OPTS ?= --timeout 10m
 MOCKGEN_VERSION ?= v1.6.0

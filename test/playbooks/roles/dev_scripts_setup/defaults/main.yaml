@@ -1,0 +1,32 @@
+---
+dev_scripts_repo: "https://github.com/openshift-metal3/dev-scripts.git"
+dev_scripts_branch: "master"
+dev_scripts_dir: "/home/dev-scripts"
+dev_scripts_ocp_version: "4.20"
+dev_scripts_release_image: ""
+dev_scripts_cluster_name: "ostest"
+
+dev_scripts_topology: "compact"
+
+dev_scripts_topologies:
+  compact:
+    num_masters: 3
+    num_workers: 0
+    master_memory: 32768
+    master_disk: 100
+    master_vcpu: 16
+  ha:
+    num_masters: 3
+    num_workers: 2
+    master_memory: 32768
+    master_disk: 100
+    master_vcpu: 16
+    worker_memory: 16384
+    worker_disk: 100
+    worker_vcpu: 8
+  sno:
+    num_masters: 1
+    num_workers: 0
+    master_memory: 65536
+    master_disk: 120
+    master_vcpu: 16

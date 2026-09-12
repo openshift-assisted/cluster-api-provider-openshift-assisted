@@ -1,0 +1,27 @@
+#!/bin/bash
+
+set -o nounset
+
+export IP_STACK="v4"
+export NETWORK_TYPE="OVNKubernetes"
+export PROVISIONING_NETWORK_PROFILE="Disabled"
+export CLUSTER_NAME="{{ dev_scripts_cluster_name }}"
+
+{% set topo = dev_scripts_topologies[dev_scripts_topology] %}
+export NUM_MASTERS={{ topo.num_masters }}
+export NUM_WORKERS={{ topo.num_workers }}
+export MASTER_MEMORY={{ topo.master_memory }}
+export MASTER_DISK={{ topo.master_disk }}
+export MASTER_VCPU={{ topo.master_vcpu }}
+{% if topo.num_workers > 0 %}
+export WORKER_MEMORY={{ topo.worker_memory }}
+export WORKER_DISK={{ topo.worker_disk }}
+export WORKER_VCPU={{ topo.worker_vcpu }}
+{% endif %}
+
+{% if dev_scripts_release_image != '' %}
+export OPENSHIFT_RELEASE_IMAGE="{{ dev_scripts_release_image }}"
+{% else %}
+export OPENSHIFT_RELEASE_STREAM="{{ dev_scripts_ocp_version }}"
+export OPENSHIFT_RELEASE_TYPE="nightly"
+{% endif %}

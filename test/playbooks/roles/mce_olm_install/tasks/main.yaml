@@ -1,0 +1,281 @@
+---
+- name: Resolve effective IDMS flag
+  ansible.builtin.set_fact:
+    effective_create_idms: >-
+      {{ mce_create_idms if mce_create_idms != ''
+         else (mce_catalog_image != '') | string | lower }}
+
+- name: Resolve effective catalog source name
+  ansible.builtin.set_fact:
+    effective_catalog_source: >-
+      {{ 'mce-custom-catalog' if mce_catalog_image != ''
+         else 'redhat-operators' }}
+
+- name: Display MCE installation mode
+  ansible.builtin.debug:
+    msg: >-
+      MCE catalog: {{ 'custom (' ~ mce_catalog_image ~ ')' if mce_catalog_image != '' else 'redhat-operators (production)' }},
+      Channel: {{ mce_channel }},
+      IDMS: {{ effective_create_idms }}
+
+# Custom catalog setup (nightly/staging builds)
+
+- name: Create custom CatalogSource
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: operators.coreos.com/v1alpha1
+      kind: CatalogSource
+      metadata:
+        name: mce-custom-catalog
+        namespace: openshift-marketplace
+      spec:
+        sourceType: grpc
+        image: "{{ mce_catalog_image }}"
+        displayName: MCE Custom Catalog
+        updateStrategy:
+          registryPoll:
+            interval: 10m
+  when: mce_catalog_image != ''
+
+- name: Wait for custom CatalogSource to be ready
+  kubernetes.core.k8s_info:
+    api_version: operators.coreos.com/v1alpha1
+    kind: CatalogSource
+    name: mce-custom-catalog
+    namespace: openshift-marketplace
+  register: catalog_status
+  until: >-
+    catalog_status.resources is defined and
+    catalog_status.resources | length > 0 and
+    catalog_status.resources[0].status.connectionState.lastObservedState | default('') == 'READY'
+  retries: "{{ medium_retries | int }}"
+  delay: "{{ medium_delay | int }}"
+  when: mce_catalog_image != ''
+
+- name: Create ImageDigestMirrorSet for downstream images
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: config.openshift.io/v1
+      kind: ImageDigestMirrorSet
+      metadata:
+        name: mce-downstream-mirror
+      spec:
+        imageDigestMirrors:
+          - mirrors:
+              - quay.io/acm-d
+            source: registry.redhat.io/multicluster-engine
+          - mirrors:
+              - quay.io/acm-d
+            source: registry.redhat.io/rhacm2
+  when: effective_create_idms | bool
+
+# MCE operator installation via OLM
+
+- name: Create MCE namespace
+  kubernetes.core.k8s:
+    api_version: v1
+    kind: Namespace
+    name: "{{ mce_namespace }}"
+    state: present
+
+- name: Create OperatorGroup for MCE
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: operators.coreos.com/v1
+      kind: OperatorGroup
+      metadata:
+        name: mce-operator-group
+        namespace: "{{ mce_namespace }}"
+      spec:
+        targetNamespaces:
+          - "{{ mce_namespace }}"
+
+- name: Create MCE Subscription
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: operators.coreos.com/v1alpha1
+      kind: Subscription
+      metadata:
+        name: multicluster-engine
+        namespace: "{{ mce_namespace }}"
+      spec:
+        channel: "{{ mce_channel }}"
+        installPlanApproval: Automatic
+        name: "{{ mce_package_name }}"
+        source: "{{ effective_catalog_source }}"
+        sourceNamespace: openshift-marketplace
+
+- name: Wait for MCE CSV to succeed
+  ansible.builtin.shell: >-
+    kubectl get csv -n {{ mce_namespace }}
+    -o jsonpath='{.items[?(@.spec.displayName=="multicluster engine for Kubernetes")].status.phase}'
+    2>/dev/null
+  register: csv_status
+  until: csv_status.stdout == 'Succeeded'
+  retries: "{{ high_retries | int }}"
+  delay: "{{ medium_delay | int }}"
+  changed_when: false
+
+# MCE CR and component deployment
+
+- name: Deploy MultiClusterEngine CR
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: multicluster.openshift.io/v1
+      kind: MultiClusterEngine
+      metadata:
+        name: multiclusterengine
+      spec:
+        overrides:
+          components:
+            - name: assisted-service
+              enabled: true
+            - name: cluster-api
+              enabled: true
+            - name: cluster-api-provider-metal3-preview
+              enabled: true
+            - name: cluster-api-provider-openshift-assisted-preview
+              enabled: true
+            - name: cluster-manager
+              enabled: true
+            - name: cluster-lifecycle
+              enabled: false
+            - name: server-foundation
+              enabled: false
+            - name: local-cluster
+              enabled: false
+            - name: console-mce
+              enabled: false
+            - name: hypershift
+              enabled: false
+            - name: hypershift-local-hosting
+              enabled: false
+            - name: discovery
+              enabled: false
+            - name: hive
+              enabled: false
+            - name: cluster-proxy-addon
+              enabled: false
+            - name: managedserviceaccount
+              enabled: false
+            - name: cluster-api-provider-aws
+              enabled: false
+            - name: image-based-install-operator
+              enabled: false
+        targetNamespace: "{{ mce_namespace }}"
+
+- name: Wait for MCE operator
+  kubernetes.core.k8s_info:
+    api_version: apps/v1
+    kind: Deployment
+    name: multicluster-engine-operator
+    namespace: "{{ mce_namespace }}"
+  register: mce_operator_status
+  until: >-
+    mce_operator_status.resources is defined and
+    mce_operator_status.resources | length > 0 and
+    mce_operator_status.resources[0].status.conditions |
+    selectattr('type', 'equalto', 'Available') |
+    selectattr('status', 'equalto', 'True') |
+    list |
+    length > 0
+  retries: "{{ high_retries | int }}"
+  delay: "{{ medium_delay | int }}"
+
+- name: Wait for AgentServiceConfig CRD to be available
+  kubernetes.core.k8s_info:
+    api_version: apiextensions.k8s.io/v1
+    kind: CustomResourceDefinition
+    name: agentserviceconfigs.agent-install.openshift.io
+  register: asc_crd_status
+  until: >-
+    asc_crd_status.resources is defined and
+    asc_crd_status.resources | length > 0
+  retries: "{{ high_retries | int }}"
+  delay: "{{ medium_delay | int }}"
+
+- name: Generate OCP AgentServiceConfig manifest
+  ansible.builtin.template:
+    src: ocp-agentconfig.yaml.j2
+    dest: /tmp/ocp-agentconfig.yaml
+    mode: '0644'
+
+- name: Deploy AgentServiceConfig for OCP
+  kubernetes.core.k8s:
+    state: present
+    src: /tmp/ocp-agentconfig.yaml
+
+- name: Wait for assisted-service
+  kubernetes.core.k8s_info:
+    api_version: apps/v1
+    kind: Deployment
+    name: assisted-service
+    namespace: "{{ mce_namespace }}"
+  register: assisted_service_status
+  until: >-
+    assisted_service_status.resources is defined and
+    assisted_service_status.resources | length > 0 and
+    assisted_service_status.resources[0].status.conditions |
+    selectattr('type', 'equalto', 'Available') |
+    selectattr('status', 'equalto', 'True') |
+    list |
+    length > 0
+  retries: "{{ high_retries | int }}"
+  delay: "{{ medium_delay | int }}"
+
+- name: Wait for CAPI controller
+  kubernetes.core.k8s_info:
+    api_version: apps/v1
+    kind: Deployment
+    namespace: "{{ mce_namespace }}"
+    label_selectors:
+      - "cluster.x-k8s.io/provider=cluster-api"
+  register: capi_status
+  until: >-
+    capi_status.resources is defined and
+    capi_status.resources | length > 0 and
+    capi_status.resources[0].status.conditions |
+    selectattr('type', 'equalto', 'Available') |
+    selectattr('status', 'equalto', 'True') |
+    list |
+    length > 0
+  retries: "{{ high_retries | int }}"
+  delay: "{{ medium_delay | int }}"
+
+- name: Wait for Metal3Cluster CRD
+  kubernetes.core.k8s_info:
+    api_version: apiextensions.k8s.io/v1
+    kind: CustomResourceDefinition
+    name: metal3clusters.infrastructure.cluster.x-k8s.io
+    wait: true
+    wait_condition:
+      type: Established
+      status: "True"
+    wait_timeout: 300
+
+- name: Get assisted-service route
+  kubernetes.core.k8s_info:
+    api_version: route.openshift.io/v1
+    kind: Route
+    namespace: "{{ mce_namespace }}"
+    label_selectors:
+      - "app=assisted-service"
+  register: assisted_route
+  until: >-
+    assisted_route.resources is defined and
+    assisted_route.resources | length > 0
+  retries: "{{ medium_retries | int }}"
+  delay: "{{ medium_delay | int }}"
+
+- name: Set assisted service hostname fact
+  ansible.builtin.set_fact:
+    assisted_service_hostname: "{{ assisted_route.resources[0].spec.host }}"
+
+- name: Display assisted service route
+  ansible.builtin.debug:
+    msg: "Assisted service available at: https://{{ assisted_service_hostname }}"

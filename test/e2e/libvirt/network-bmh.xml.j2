@@ -34,8 +34,12 @@
     <dnsmasq:option value='address=/api-int.test-{{ cluster_topology }}.lab.home/192.168.222.40'/>
     <dnsmasq:option value='address=/.apps.test-{{ cluster_topology }}.lab.home/192.168.222.41'/>
 {% endif %}
+{% if management_cluster_type | default('kind') == 'ocp' %}
+    <dnsmasq:option value='address=/.{{ ocp_apps_domain }}/{{ loadbalancer_ip }}'/>
+{% else %}
     <dnsmasq:option value='address=/assisted-service.assisted-installer.com/{{ loadbalancer_ip }}'/>
     <dnsmasq:option value='address=/assisted-image.assisted-installer.com/{{ loadbalancer_ip }}'/>
+{% endif %}
 {% for dns in host_dns_servers %}
     <dnsmasq:option value='server={{ dns }}'/>
 {% endfor %}

@@ -1,0 +1,101 @@
+---
+- name: Check if kubectl is installed
+  ansible.builtin.command: kubectl version --client
+  register: kubectl_check
+  changed_when: false
+  failed_when: false
+
+- name: Get latest kubectl version  # noqa: command-instead-of-module
+  ansible.builtin.command: >
+    curl -4 -sL --fail --retry 5 --retry-delay 5 --max-time 30
+    https://dl.k8s.io/release/stable.txt
+  register: stable_kubectl_version
+  changed_when: false
+  when: kubectl_check.rc != 0
+
+- name: Install kubectl binary  # noqa: command-instead-of-module no-changed-when
+  ansible.builtin.command:
+    cmd: >-
+      curl -4 -fsSL -o /usr/local/bin/kubectl
+      "https://dl.k8s.io/release/{{ stable_kubectl_version.stdout | trim }}/bin/linux/amd64/kubectl"
+  when: kubectl_check.rc != 0
+
+- name: Set kubectl permissions
+  ansible.builtin.file:
+    path: /usr/local/bin/kubectl
+    mode: '0755'
+  when: kubectl_check.rc != 0
+
+- name: Copy external OCP kubeconfig to remote host
+  ansible.builtin.copy:
+    src: "{{ ocp_kubeconfig_path }}"
+    dest: /tmp/ocp-kubeconfig
+    mode: '0600'
+  when: ocp_kubeconfig_path != ''
+
+- name: Validate OCP cluster connectivity
+  ansible.builtin.command: kubectl cluster-info
+  register: cluster_info
+  changed_when: false
+
+- name: Discover OCP apps domain
+  ansible.builtin.command: >-
+    kubectl get ingresses.config.openshift.io cluster
+    -o jsonpath='{.spec.domain}'
+  register: apps_domain_result
+  changed_when: false
+  when: ocp_cluster_domain == ''
+
+- name: Set OCP apps domain fact
+  ansible.builtin.set_fact:
+    ocp_apps_domain: >-
+      {{ ocp_cluster_domain if ocp_cluster_domain != ''
+         else apps_domain_result.stdout }}
+
+- name: Discover OCP router IP from router service
+  ansible.builtin.command: >-
+    kubectl get svc -n openshift-ingress router-default
+    -o jsonpath='{.status.loadBalancer.ingress[0].ip}'
+  register: router_svc_result
+  changed_when: false
+  failed_when: false
+  when: ocp_router_ip == ''
+
+- name: Fallback - discover OCP router IP from worker node
+  ansible.builtin.command: >-
+    kubectl get nodes -l node-role.kubernetes.io/worker
+    -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}'
+  register: router_node_result
+  changed_when: false
+  when: >-
+    ocp_router_ip == '' and
+    (router_svc_result.stdout | default('') | trim == '')
+
+- name: Set OCP router IP fact
+  ansible.builtin.set_fact:
+    ocp_router_ip: >-
+      {{ ocp_router_ip if ocp_router_ip != ''
+         else (router_svc_result.stdout | trim
+               if router_svc_result.stdout | default('') | trim != ''
+               else router_node_result.stdout | trim) }}
+
+- name: Display OCP cluster info
+  ansible.builtin.debug:
+    msg: "OCP apps domain: {{ ocp_apps_domain }}, Router IP: {{ ocp_router_ip }}"
+
+- name: Verify OLM is running
+  kubernetes.core.k8s_info:
+    api_version: apps/v1
+    kind: Deployment
+    name: catalog-operator
+    namespace: openshift-operator-lifecycle-manager
+  register: olm_status
+  until: >-
+    olm_status.resources is defined and
+    olm_status.resources | length > 0
+
+- name: Write router IP for bmh_setup consumption
+  ansible.builtin.copy:
+    content: "{{ ocp_router_ip }}"
+    dest: /tmp/loadbalancer_ip
+    mode: '0644'

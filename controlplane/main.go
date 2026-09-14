@@ -32,14 +32,14 @@ import (
 
 	bootstrapv1alpha2 "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/bootstrap/api/v1alpha2"
 	configv1 "github.com/openshift/api/config/v1"
+	aiv1beta1 "github.com/openshift/assisted-service/api/v1beta1"
 	hiveext "github.com/openshift/assisted-service/api/hiveextension/v1beta1"
 	hivev1 "github.com/openshift/hive/apis/hive/v1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 
-	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
-	// to ensure that exec-entrypoint and run can make use of them.
 	"github.com/spf13/pflag"
 	corev1 "k8s.io/api/core/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -51,6 +51,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
@@ -79,8 +80,10 @@ func init() {
 	utilruntime.Must(controlplanev1alpha2.AddToScheme(scheme))
 	utilruntime.Must(controlplanev1alpha3.AddToScheme(scheme))
 	utilruntime.Must(clusterv1.AddToScheme(scheme))
+	utilruntime.Must(apiextensionsv1.AddToScheme(scheme))
 	utilruntime.Must(hivev1.AddToScheme(scheme))
 	utilruntime.Must(hiveext.AddToScheme(scheme))
+	utilruntime.Must(aiv1beta1.AddToScheme(scheme))
 	utilruntime.Must(bootstrapv1alpha2.AddToScheme(scheme))
 	utilruntime.Must(configv1.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
@@ -179,17 +182,6 @@ func main() {
 				},
 			},
 		},
-		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
-		// when the Manager ends. This requires the binary to immediately end when the
-		// Manager is stopped, otherwise, this setting is unsafe. Setting this significantly
-		// speeds up voluntary leader transitions as the new leader don't have to wait
-		// LeaseDuration time first.
-		//
-		// In the default scaffold provided, the program ends immediately after
-		// the manager stops, so would be fine to enable this option. However,
-		// if you are doing or is intended to do any operation such as perform cleanups
-		// after the manager stops then its usage might be unsafe.
-		// LeaderElectionReleaseOnCancel: true,
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
@@ -210,6 +202,7 @@ func main() {
 		Client:      mgr.GetClient(),
 		Scheme:      mgr.GetScheme(),
 		RemoteImage: releaseImageRepository,
+		APIReader:   mgr.GetAPIReader(),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ClusterDeployment")
 		os.Exit(1)
@@ -245,9 +238,61 @@ func main() {
 		os.Exit(1)
 	}
 
+	if err := mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
+		return ensureCRDContractLabels(ctx, mgr.GetAPIReader(), mgr.GetClient())
+	})); err != nil {
+		setupLog.Error(err, "unable to add CRD contract label runnable")
+		os.Exit(1)
+	}
+
 	setupLog.V(log.DebugLevel).Info("starting manager")
 	if err := mgr.Start(ctx); err != nil {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
+}
+
+// ensureCRDContractLabels ensures CAPI contract version labels exist on
+// provider CRDs. The CAPI conversion webhook needs these to resolve
+// which provider API version corresponds to each CAPI contract version.
+// The CAPI core controller may strip them on startup if its embedded
+// CRD templates lack the labels, so we re-apply on every CAPOA startup.
+func ensureCRDContractLabels(ctx context.Context, reader client.Reader, c client.Client) error {
+	log := ctrl.Log.WithName("crd-labels")
+
+	crdLabels := map[string]map[string]string{
+		"kubevirtclusters.infrastructure.cluster.x-k8s.io":                          {"cluster.x-k8s.io/v1beta1": "v1alpha1", "cluster.x-k8s.io/v1beta2": "v1alpha1"},
+		"kubevirtmachines.infrastructure.cluster.x-k8s.io":                          {"cluster.x-k8s.io/v1beta1": "v1alpha1", "cluster.x-k8s.io/v1beta2": "v1alpha1"},
+		"kubevirtmachinetemplates.infrastructure.cluster.x-k8s.io":                  {"cluster.x-k8s.io/v1beta1": "v1alpha1", "cluster.x-k8s.io/v1beta2": "v1alpha1"},
+		"openshiftassistedconfigs.bootstrap.cluster.x-k8s.io":                       {"cluster.x-k8s.io/v1beta1": "v1alpha2", "cluster.x-k8s.io/v1beta2": "v1alpha2"},
+		"openshiftassistedconfigtemplates.bootstrap.cluster.x-k8s.io":               {"cluster.x-k8s.io/v1beta1": "v1alpha2", "cluster.x-k8s.io/v1beta2": "v1alpha2"},
+		"openshiftassistedcontrolplanes.controlplane.cluster.x-k8s.io":              {"cluster.x-k8s.io/v1beta1": "v1alpha3", "cluster.x-k8s.io/v1beta2": "v1alpha3"},
+	}
+
+	for crdName, requiredLabels := range crdLabels {
+		crd := &apiextensionsv1.CustomResourceDefinition{}
+		if err := reader.Get(ctx, client.ObjectKey{Name: crdName}, crd); err != nil {
+			log.V(1).Info("CRD not found, skipping label check", "crd", crdName)
+			continue
+		}
+
+		needsUpdate := false
+		if crd.Labels == nil {
+			crd.Labels = make(map[string]string)
+		}
+		for k, v := range requiredLabels {
+			if crd.Labels[k] != v {
+				crd.Labels[k] = v
+				needsUpdate = true
+			}
+		}
+		if needsUpdate {
+			if err := c.Update(ctx, crd); err != nil {
+				log.Error(err, "failed to update CRD contract labels", "crd", crdName)
+			} else {
+				log.Info("ensured CAPI contract labels on CRD", "crd", crdName)
+			}
+		}
+	}
+	return nil
 }

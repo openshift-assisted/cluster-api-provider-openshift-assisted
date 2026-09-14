@@ -47,6 +47,12 @@ const (
 	TenantDNSPort           = 5353
 	TenantDNSAppLabel       = "tenant-dns"
 
+	// DNSRuleCreatedAnnotation is set on the OACP when a cluster-scoped DNS
+	// forwarding rule is created. The value stores the creation identity as
+	// "namespace/clusterName" so the deletion handler can remove the correct rule
+	// without relying on GetOwnerCluster (which can return nil during teardown).
+	DNSRuleCreatedAnnotation = "controlplane.cluster.x-k8s.io/dns-rule-created"
+
 	DefaultCoreDNSImage    = "quay.io/openshift/origin-coredns:latest"
 	RelatedImageCoreDNSEnv = "RELATED_IMAGE_COREDNS"
 )
@@ -351,4 +357,25 @@ func retryOnConflict(maxRetries int, fn func() error) error {
 		}
 	}
 	return err
+}
+
+const (
+	defaultInfraCoreDNSIP = "172.30.0.10"
+)
+
+// GetInfraCoreDNSIP resolves the infra cluster's CoreDNS ClusterIP by looking
+// up the dns-default Service in openshift-dns. Falls back to the standard
+// OpenShift default (172.30.0.10) if the lookup fails.
+func GetInfraCoreDNSIP(ctx context.Context, infraClient client.Client) string {
+	svc := &corev1.Service{}
+	if err := infraClient.Get(ctx, client.ObjectKey{
+		Name:      "dns-default",
+		Namespace: "openshift-dns",
+	}, svc); err != nil {
+		return defaultInfraCoreDNSIP
+	}
+	if svc.Spec.ClusterIP == "" || svc.Spec.ClusterIP == "None" {
+		return defaultInfraCoreDNSIP
+	}
+	return svc.Spec.ClusterIP
 }

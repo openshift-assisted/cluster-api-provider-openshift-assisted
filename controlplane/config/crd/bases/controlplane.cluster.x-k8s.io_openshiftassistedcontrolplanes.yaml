@@ -199,6 +199,7 @@ spec:
                         cidr:
                           description: CIDR is the IP block address pool for machines
                             within the cluster.
+                          maxLength: 43
                           type: string
                       required:
                       - cidr
@@ -889,6 +890,7 @@ spec:
                         cidr:
                           description: CIDR is the IP block address pool for machines
                             within the cluster.
+                          maxLength: 43
                           type: string
                       required:
                       - cidr

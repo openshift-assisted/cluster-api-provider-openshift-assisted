@@ -17,10 +17,10 @@ require (
 	github.com/onsi/ginkgo/v2 v2.28.1
 	github.com/onsi/gomega v1.39.1
 	github.com/openshift/api v0.0.0-20260317165824-54a3998d81eb
-	github.com/openshift/assisted-service/api v0.0.0-00010101000000-000000000000
+	github.com/openshift/assisted-service/api v0.0.0-20260911214433-7e8128f45436
 	github.com/openshift/assisted-service/models v0.0.0
 	github.com/openshift/controller-runtime-common v0.0.0-20260318085703-1812aed6dbd2
-	github.com/openshift/hive/apis v0.0.0-20231220215202-ad99b9e52d27
+	github.com/openshift/hive/apis v0.0.0-20260415205034-aa1db747a6ba
 	github.com/openshift/library-go v0.0.0-20260420092056-e2aa54bc9908
 	github.com/pelletier/go-toml v1.9.5
 	github.com/pkg/errors v0.9.1
@@ -143,6 +143,6 @@ require (
 )
 
 replace (
-	github.com/openshift/assisted-service/api => github.com/openshift/assisted-service/api v0.0.0-20260420083704-ad06f01dd4ff
+	github.com/openshift/assisted-service/api => github.com/openshift/assisted-service/api v0.0.0-20260911214433-7e8128f45436
 	github.com/openshift/assisted-service/models => github.com/openshift/assisted-service/models v0.0.0-20260420083704-ad06f01dd4ff
 )

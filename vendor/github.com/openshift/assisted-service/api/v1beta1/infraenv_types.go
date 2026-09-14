@@ -66,6 +66,11 @@ type InfraEnvSpec struct {
 	// +optional
 	AdditionalNTPSources []string `json:"additionalNTPSources,omitempty"`
 
+	// NTPSources is a list of NTP sources (hostname or IP) to be used as the exclusive NTP
+	// configuration for hosts in this InfraEnv. Mutually exclusive with AdditionalNTPSources.
+	// +optional
+	NTPSources []string `json:"ntpSources,omitempty"`
+
 	// SSHAuthorizedKey is a SSH public keys that will be added to all agents for use in debugging.
 	// +optional
 	SSHAuthorizedKey string `json:"sshAuthorizedKey,omitempty"`
@@ -133,6 +138,12 @@ type InfraEnvSpec struct {
 	// +optional
 	OSImageVersion string `json:"osImageVersion,omitempty"`
 
+	// OSStream is the OS stream to use when generating the InfraEnv (e.g. rhel-9, rhel-10).
+	// If unset and ClusterRef is set, the cluster's OS stream is used.
+	// Note: OSStream can't be specified along with ClusterRef while creating an InfraEnv.
+	// +optional
+	OSStream string `json:"osStream,omitempty"`
+
 	// MirrorRegistryRef references a ConfigMap containing mirror registry configuration in TOML format.
 	// The referenced ConfigMap should contain 'registries.conf' and optionally 'ca-bundle.crt' keys.
 	// This configuration is embedded into the discovery image so that agents can pull container images
@@ -152,6 +163,13 @@ type InfraEnvSpec struct {
 	// discovered by this InfraEnv.
 	// +optional
 	AgentApproval *AgentApproval `json:"agentApproval,omitempty"`
+
+	// NetworkDiscoveryDelaySeconds is the number of seconds to wait before mapping host MACs
+	// to interfaces when applying static network config on minimal ISO.
+	// This can be used on hosts that need time to discover their NICs.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	NetworkDiscoveryDelaySeconds *int64 `json:"networkDiscoveryDelaySeconds,omitempty"`
 }
 
 // AgentApproval defines configuration for automatic approval of Agents

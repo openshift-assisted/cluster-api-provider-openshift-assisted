@@ -56,6 +56,14 @@ var _ = Describe("EnsureMCSProxy", func() {
 		Expect(deploy.Spec.Template.Spec.Containers).To(HaveLen(1))
 		Expect(deploy.Spec.Template.Spec.Containers[0].Name).To(Equal("socat"))
 
+		container := deploy.Spec.Template.Spec.Containers[0]
+		Expect(container.Resources.Requests).NotTo(BeEmpty())
+		Expect(container.Resources.Limits).NotTo(BeEmpty())
+		Expect(container.ReadinessProbe).NotTo(BeNil())
+		Expect(container.ReadinessProbe.HTTPGet).NotTo(BeNil())
+		Expect(container.LivenessProbe).NotTo(BeNil())
+		Expect(container.LivenessProbe.TCPSocket).NotTo(BeNil())
+
 		svc := &corev1.Service{}
 		err = fakeClient.Get(ctx, client.ObjectKey{Name: "test-cluster-mcs-proxy", Namespace: "test-ns"}, svc)
 		Expect(err).NotTo(HaveOccurred())

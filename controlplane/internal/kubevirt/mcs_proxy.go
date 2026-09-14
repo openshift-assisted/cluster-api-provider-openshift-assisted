@@ -24,6 +24,7 @@ import (
 	controlplanev1alpha3 "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/api/v1alpha3"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/ptr"
@@ -40,6 +41,8 @@ const (
 	LabelApp = "app"
 	// LabelCAPIClusterName is the CAPI cluster name label key.
 	LabelCAPIClusterName = "cluster.x-k8s.io/cluster-name"
+	// LabelCAPIRole is the CAPI role label key.
+	LabelCAPIRole = "cluster.x-k8s.io/role"
 
 	// MCSNodePort is the NodePort allocated inside the tenant cluster for MCS HTTP access.
 	// OVN-Kubernetes blocks ports 22623/22624 at the OVS datapath level, but allows
@@ -130,6 +133,36 @@ func EnsureMCSProxy(
 						Name:          "mcs",
 						Protocol:      corev1.ProtocolTCP,
 					}},
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("10m"),
+							corev1.ResourceMemory: resource.MustParse("16Mi"),
+						},
+						Limits: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("100m"),
+							corev1.ResourceMemory: resource.MustParse("64Mi"),
+						},
+					},
+					ReadinessProbe: &corev1.Probe{
+						ProbeHandler: corev1.ProbeHandler{
+							HTTPGet: &corev1.HTTPGetAction{
+								Path:   "/config/worker",
+								Port:   intstr.FromInt32(int32(MCSProxyPort)),
+								Scheme: corev1.URISchemeHTTP,
+							},
+						},
+						InitialDelaySeconds: 5,
+						PeriodSeconds:       10,
+					},
+					LivenessProbe: &corev1.Probe{
+						ProbeHandler: corev1.ProbeHandler{
+							TCPSocket: &corev1.TCPSocketAction{
+								Port: intstr.FromInt32(int32(MCSProxyPort)),
+							},
+						},
+						InitialDelaySeconds: 15,
+						PeriodSeconds:       20,
+					},
 				}},
 			},
 		}

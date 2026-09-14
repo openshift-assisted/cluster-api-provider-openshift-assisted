@@ -19,6 +19,7 @@ package kubevirt
 import (
 	"fmt"
 
+	controlplanev1alpha3 "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/api/v1alpha3"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
@@ -27,6 +28,10 @@ const (
 	// to provide DHCP and handle L3 routing for bridge-bound VMs on the pod network.
 	// This is the same mechanism HyperShift uses for KubeVirt hosted clusters.
 	LiveMigrationAnnotation = "kubevirt.io/allow-pod-bridge-network-live-migration"
+
+	// EvictionStrategyLiveMigrateIfPossible attempts live migration on eviction; if
+	// migration is not possible (e.g., RWO disks), falls back to graceful VM shutdown.
+	EvictionStrategyLiveMigrateIfPossible = "LiveMigrateIfPossible"
 )
 
 // ValidateNetworkingRequirements checks that a KubevirtMachineTemplate's VM spec
@@ -103,4 +108,93 @@ func validateBridgeInterface(vmiSpec map[string]interface{}) error {
 		"KubevirtMachineTemplate uses masquerade or other non-bridge binding; " +
 			"bridge: {} is required on the default pod network interface; " +
 			"masquerade gives all VMs the same IP (10.0.2.2), breaking etcd and kubectl exec")
+}
+
+// EnforceNetworkingRequirements mutates a cloned KubevirtMachine (unstructured) to
+// ensure correct networking configuration for a working multi-node cluster.
+func EnforceNetworkingRequirements(
+	infraMachine *unstructured.Unstructured,
+	oacp *controlplanev1alpha3.OpenshiftAssistedControlPlane,
+) error {
+	vmiSpec, found, err := unstructured.NestedMap(infraMachine.Object,
+		"spec", "virtualMachineTemplate", "spec", "template", "spec")
+	if err != nil || !found {
+		return fmt.Errorf("failed to find VMI spec in infrastructure machine: found=%v, err=%v", found, err)
+	}
+
+	if err := enforceBridgeInterface(vmiSpec); err != nil {
+		return fmt.Errorf("failed to enforce bridge interface: %w", err)
+	}
+
+	vmiSpec["evictionStrategy"] = EvictionStrategyLiveMigrateIfPossible
+
+	if err := unstructured.SetNestedMap(infraMachine.Object, vmiSpec,
+		"spec", "virtualMachineTemplate", "spec", "template", "spec"); err != nil {
+		return fmt.Errorf("failed to set VMI spec: %w", err)
+	}
+
+	annotations, _, _ := unstructured.NestedStringMap(infraMachine.Object,
+		"spec", "virtualMachineTemplate", "spec", "template", "metadata", "annotations")
+	if annotations == nil {
+		annotations = make(map[string]string)
+	}
+	annotations[LiveMigrationAnnotation] = ""
+
+	if err := unstructured.SetNestedStringMap(infraMachine.Object, annotations,
+		"spec", "virtualMachineTemplate", "spec", "template", "metadata", "annotations"); err != nil {
+		return fmt.Errorf("failed to set VMI template annotations: %w", err)
+	}
+
+	return nil
+}
+
+// enforceBridgeInterface ensures the VM uses bridge: {} binding on the default pod network.
+func enforceBridgeInterface(vmiSpec map[string]interface{}) error {
+	domain, ok := vmiSpec["domain"].(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("domain not found in VMI spec")
+	}
+	devices, ok := domain["devices"].(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("devices not found in domain")
+	}
+
+	bridgeBinding := map[string]interface{}{}
+
+	interfaces, ok := devices["interfaces"].([]interface{})
+	if !ok || len(interfaces) == 0 {
+		devices["interfaces"] = []interface{}{
+			map[string]interface{}{
+				"name":   "default",
+				"bridge": bridgeBinding,
+			},
+		}
+	} else {
+		for i, iface := range interfaces {
+			ifaceMap, ok := iface.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			delete(ifaceMap, "masquerade")
+			delete(ifaceMap, "binding")
+			ifaceMap["bridge"] = bridgeBinding
+			interfaces[i] = ifaceMap
+		}
+		devices["interfaces"] = interfaces
+	}
+
+	domain["devices"] = devices
+	vmiSpec["domain"] = domain
+
+	networks, ok := vmiSpec["networks"].([]interface{})
+	if !ok || len(networks) == 0 {
+		vmiSpec["networks"] = []interface{}{
+			map[string]interface{}{
+				"name": "default",
+				"pod":  map[string]interface{}{},
+			},
+		}
+	}
+
+	return nil
 }

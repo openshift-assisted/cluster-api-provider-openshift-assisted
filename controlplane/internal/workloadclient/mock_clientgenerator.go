@@ -35,20 +35,6 @@ func (m *MockClientGenerator) EXPECT() *MockClientGeneratorMockRecorder {
 	return m.recorder
 }
 
-// ForwardEtcdLeadership mocks base method.
-func (m *MockClientGenerator) ForwardEtcdLeadership(ctx context.Context, kubeconfig []byte, fromMemberName, toMemberName string) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ForwardEtcdLeadership", ctx, kubeconfig, fromMemberName, toMemberName)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// ForwardEtcdLeadership indicates an expected call of ForwardEtcdLeadership.
-func (mr *MockClientGeneratorMockRecorder) ForwardEtcdLeadership(ctx, kubeconfig, fromMemberName, toMemberName interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ForwardEtcdLeadership", reflect.TypeOf((*MockClientGenerator)(nil).ForwardEtcdLeadership), ctx, kubeconfig, fromMemberName, toMemberName)
-}
-
 // GetWorkloadClusterClient mocks base method.
 func (m *MockClientGenerator) GetWorkloadClusterClient(kubeconfig []byte) (client.Client, error) {
 	m.ctrl.T.Helper()
@@ -77,6 +63,20 @@ func (m *MockClientGenerator) ListEtcdMembers(ctx context.Context, kubeconfig []
 func (mr *MockClientGeneratorMockRecorder) ListEtcdMembers(ctx, kubeconfig interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEtcdMembers", reflect.TypeOf((*MockClientGenerator)(nil).ListEtcdMembers), ctx, kubeconfig)
+}
+
+// ProtectEtcdLeadership mocks base method.
+func (m *MockClientGenerator) ProtectEtcdLeadership(ctx context.Context, kubeconfig []byte, fromMemberName, toMemberName string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ProtectEtcdLeadership", ctx, kubeconfig, fromMemberName, toMemberName)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ProtectEtcdLeadership indicates an expected call of ProtectEtcdLeadership.
+func (mr *MockClientGeneratorMockRecorder) ProtectEtcdLeadership(ctx, kubeconfig, fromMemberName, toMemberName interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ProtectEtcdLeadership", reflect.TypeOf((*MockClientGenerator)(nil).ProtectEtcdLeadership), ctx, kubeconfig, fromMemberName, toMemberName)
 }
 
 // RemoveEtcdMember mocks base method.

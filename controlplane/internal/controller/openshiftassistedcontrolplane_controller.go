@@ -235,15 +235,17 @@ func (r *OpenshiftAssistedControlPlaneReconciler) Reconcile(ctx context.Context,
 		return ctrl.Result{}, err
 	}
 
+	// Process the pre-terminate hook before orphan reconciliation. Leadership or
+	// member-removal failures must leave the hook in place and block deletion.
+	hookResult, hookErr := r.reconcilePreTerminateHook(ctx, oacp, cluster)
+	if hookErr != nil || !hookResult.IsZero() {
+		return hookResult, hookErr
+	}
+
 	if conditions.IsTrue(oacp, string(controlplanev1alpha3.KubeconfigAvailableCondition)) {
 		if etcdResult, etcdErr := r.reconcileEtcdMembers(ctx, oacp, cluster); etcdErr != nil || !etcdResult.IsZero() {
 			return etcdResult, etcdErr
 		}
-	}
-
-	hookResult, hookErr := r.reconcilePreTerminateHook(ctx, oacp, cluster)
-	if hookErr != nil || !hookResult.IsZero() {
-		return hookResult, hookErr
 	}
 
 	return result, r.reconcileReplicas(ctx, oacp, cluster)
@@ -643,33 +645,34 @@ func (r *OpenshiftAssistedControlPlaneReconciler) reconcilePreTerminateHook(ctx 
 
 			kubeconfig, err := util.GetWorkloadKubeconfig(ctx, r.Client, cluster.Name, cluster.Namespace)
 			if err != nil {
-				return ctrl.Result{}, fmt.Errorf("failed to get workload kubeconfig: %w", err)
-			}
+				log.Error(err, "failed to get workload kubeconfig; clearing pre-terminate hook and relying on etcd member reconciliation", "machine", machineToProcess.Name)
+			} else {
+				ownerGK := schema.GroupKind{Group: controlplanev1alpha3.Group, Kind: openshiftAssistedControlPlaneKind}
+				allMachines, err := collections.GetFilteredMachinesForCluster(ctx, r.Client, cluster, collections.OwnedMachines(oacp, ownerGK), collections.ActiveMachines)
+				if err != nil {
+					log.Error(err, "failed to get active machines; clearing pre-terminate hook and relying on etcd member reconciliation", "machine", machineToProcess.Name)
+				} else {
+					replacementCandidateMachine := allMachines.Filter(
+						collections.And(
+							collections.HasNode(),
+							collections.Not(collections.HasDeletionTimestamp),
+						),
+					).Newest()
 
-			ownerGK := schema.GroupKind{Group: controlplanev1alpha3.Group, Kind: openshiftAssistedControlPlaneKind}
-			allMachines, err := collections.GetFilteredMachinesForCluster(ctx, r.Client, cluster, collections.OwnedMachines(oacp, ownerGK), collections.ActiveMachines)
-			if err != nil {
-				return ctrl.Result{}, fmt.Errorf("failed to get machines: %w", err)
-			}
+					if replacementCandidateMachine != nil && replacementCandidateMachine.Name != machineToProcess.Name {
+						toNodeName := replacementCandidateMachine.Status.NodeRef.Name
+						if err := r.WorkloadClientGenerator.ProtectEtcdLeadership(ctx, kubeconfig, nodeName, toNodeName); err != nil {
+							log.Error(err, "failed to ensure a safe etcd leadership state before member removal; retaining pre-terminate hook", "machine", machineToProcess.Name, "from", nodeName, "to", toNodeName)
+							return ctrl.Result{}, fmt.Errorf("failed to ensure a safe etcd leadership state before member removal: %w", err)
+						}
+					}
 
-			replacementCandidateMachine := allMachines.Filter(
-				collections.And(
-					collections.HasNode(),
-					collections.Not(collections.HasDeletionTimestamp),
-				),
-			).Newest()
-
-			if replacementCandidateMachine != nil && replacementCandidateMachine.Name != machineToProcess.Name {
-				toNodeName := replacementCandidateMachine.Status.NodeRef.Name
-				log.V(logutil.InfoLevel).Info("forwarding etcd leadership before member removal", "from", nodeName, "to", toNodeName)
-				if err := r.WorkloadClientGenerator.ForwardEtcdLeadership(ctx, kubeconfig, nodeName, toNodeName); err != nil {
-					return ctrl.Result{}, fmt.Errorf("failed to forward etcd leadership: %w", err)
+					log.V(logutil.InfoLevel).Info("removing etcd member for machine being deleted", "machine", machineToProcess.Name, "node", nodeName)
+					if err := r.WorkloadClientGenerator.RemoveEtcdMember(ctx, kubeconfig, nodeName); err != nil {
+						log.Error(err, "failed to remove etcd member; retaining pre-terminate hook", "machine", machineToProcess.Name, "node", nodeName)
+						return ctrl.Result{}, fmt.Errorf("failed to remove etcd member for node %s: %w", nodeName, err)
+					}
 				}
-			}
-
-			log.V(logutil.InfoLevel).Info("removing etcd member for machine being deleted", "machine", machineToProcess.Name, "node", nodeName)
-			if err := r.WorkloadClientGenerator.RemoveEtcdMember(ctx, kubeconfig, nodeName); err != nil {
-				return ctrl.Result{}, fmt.Errorf("failed to remove etcd member for node %s: %w", nodeName, err)
 			}
 		}
 	} else {

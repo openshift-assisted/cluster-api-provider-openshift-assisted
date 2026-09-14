@@ -13,7 +13,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-type WorkloadClusterClientGenerator struct{}
+type WorkloadClusterClientGenerator struct {
+	etcdConnectionFactory etcdConnectionFactory
+}
 
 type EtcdMember struct {
 	ID   uint64
@@ -26,11 +28,11 @@ type ClientGenerator interface {
 	RemoveEtcdMember(ctx context.Context, kubeconfig []byte, memberName string) error
 	ListEtcdMembers(ctx context.Context, kubeconfig []byte) ([]EtcdMember, error)
 	RemoveEtcdMemberByID(ctx context.Context, kubeconfig []byte, memberID uint64) error
-	ForwardEtcdLeadership(ctx context.Context, kubeconfig []byte, fromMemberName, toMemberName string) error
+	ProtectEtcdLeadership(ctx context.Context, kubeconfig []byte, fromMemberName, toMemberName string) error
 }
 
 func NewWorkloadClusterClientGenerator() *WorkloadClusterClientGenerator {
-	return &WorkloadClusterClientGenerator{}
+	return &WorkloadClusterClientGenerator{etcdConnectionFactory: defaultEtcdConnectionFactory}
 }
 
 func (w *WorkloadClusterClientGenerator) GetWorkloadClusterClient(kubeconfig []byte) (client.Client, error) {

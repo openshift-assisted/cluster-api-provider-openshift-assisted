@@ -199,10 +199,12 @@ spec:
                         cidr:
                           description: CIDR is the IP block address pool for machines
                             within the cluster.
+                          maxLength: 43
                           type: string
                       required:
                       - cidr
                       type: object
+                    maxItems: 32
                     type: array
                     x-kubernetes-validations:
                     - message: each machine network CIDR must be valid
@@ -888,10 +890,12 @@ spec:
                         cidr:
                           description: CIDR is the IP block address pool for machines
                             within the cluster.
+                          maxLength: 43
                           type: string
                       required:
                       - cidr
                       type: object
+                    maxItems: 32
                     type: array
                     x-kubernetes-validations:
                     - message: each machine network CIDR must be valid

@@ -110,6 +110,7 @@ type OpenshiftAssistedControlPlaneConfigSpec struct {
 	NetworkType string `json:"networkType,omitempty"`
 
 	// MachineNetwork is the list of IP address pools for machines.
+	// +kubebuilder:validation:MaxItems=32
 	// +kubebuilder:validation:XValidation:rule="self.all(x, isCIDR(x.cidr))",message="each machine network CIDR must be valid"
 	// +optional
 	MachineNetwork []hiveext.MachineNetworkEntry `json:"machineNetwork,omitempty"`

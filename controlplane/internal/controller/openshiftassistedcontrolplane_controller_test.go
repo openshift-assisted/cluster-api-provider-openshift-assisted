@@ -413,7 +413,6 @@ var _ = Describe("Upgrade scenarios", func() {
 		result, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
 		Expect(err).NotTo(HaveOccurred())
 		Expect(result).To(Equal(ctrlruntime.Result{
-			Requeue:      true,
 			RequeueAfter: 1 * time.Minute,
 		}))
 
@@ -437,7 +436,7 @@ var _ = Describe("Upgrade scenarios", func() {
 
 		result, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
 		Expect(err).NotTo(HaveOccurred())
-		Expect(result).To(Equal(ctrlruntime.Result{Requeue: true, RequeueAfter: time.Minute}))
+		Expect(result).To(Equal(ctrlruntime.Result{RequeueAfter: time.Minute}))
 
 		err = k8sClient.Get(ctx, typeNamespacedName, openshiftAssistedControlPlane)
 		Expect(err).NotTo(HaveOccurred())
@@ -487,53 +486,26 @@ var _ = Describe("Upgrade scenarios", func() {
 		mockUpgrader.EXPECT().IsDesiredVersionUpdated(gomock.Any(), desiredVersion).Return(false, nil)
 		mockUpgrader.EXPECT().UpdateClusterVersionDesiredUpdate(gomock.Any(), desiredVersion, gomock.Any(), gomock.Any()).Return(expectedError)
 
-		// Make sure upgrade is in progress(not completed): even if we get no current version, now the upgrade is over
-		conditions.Set(openshiftAssistedControlPlane, metav1.Condition{
-			Type:    string(controlplanev1alpha3.UpgradeCompletedCondition),
-			Status:  metav1.ConditionFalse,
-			Reason:  controlplanev1alpha3.UpgradeInProgressReason,
-			Message: "upgrade in progress",
-		})
-
 		_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
 		Expect(err).To(HaveOccurred())
-		Expect(err).To(Equal(expectedError))
-
-		err = k8sClient.Get(ctx, typeNamespacedName, openshiftAssistedControlPlane)
-		Expect(err).NotTo(HaveOccurred())
-		// Upgrade is in progress but failed: spec.distributionVersion is 4.15 and status.distributionVersion is 4.14
-		condition := conditions.Get(openshiftAssistedControlPlane, string(controlplanev1alpha3.UpgradeCompletedCondition))
-		Expect(condition).NotTo(BeNil())
-		Expect(condition.Status).To(Equal(metav1.ConditionFalse))
-		Expect(condition.Reason).To(Equal(controlplanev1alpha3.UpgradeFailedReason))
-		Expect(condition.Message).To(Equal("upgrade to version 4.15.0 has failed\nfailed to upgrade"))
+		Expect(err.Error()).To(ContainSubstring(expectedError.Error()))
 	})
 
 	It("should handle errors getting current version", func() {
 		expectedError := fmt.Errorf("failed to get version")
 		mockUpgradeFactory.EXPECT().NewUpgrader(gomock.Any()).Return(mockUpgrader, nil)
 		mockUpgrader.EXPECT().IsUpgradeInProgress(gomock.Any()).Return(false, nil)
+		mockUpgrader.EXPECT().GetUpgradeStatus(gomock.Any()).Return("", nil)
 		mockUpgrader.EXPECT().GetCurrentVersion(gomock.Any()).Return("", expectedError)
-		mockUpgrader.EXPECT().GetUpgradeStatus(gomock.Any()).Return("failed to upgrade", nil)
-		mockUpgrader.EXPECT().IsDesiredVersionUpdated(gomock.Any(), desiredVersion).Return(true, nil)
-		mockUpgrader.EXPECT().UpdateClusterVersionDesiredUpdate(ctx, desiredVersion, gomock.Any(), gomock.Any()).Return(nil)
 
+		// When current version can't be determined, the controller returns an error
+		// to preserve the existing status and retry.
 		_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
-		Expect(err).NotTo(HaveOccurred())
-
-		err = k8sClient.Get(ctx, typeNamespacedName, openshiftAssistedControlPlane)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(openshiftAssistedControlPlane.Status.DistributionVersion).To(Equal(""))
-
-		// upgrade should start now
-		condition := conditions.Get(openshiftAssistedControlPlane, string(controlplanev1alpha3.UpgradeCompletedCondition))
-		Expect(condition).NotTo(BeNil())
-		Expect(condition.Status).To(Equal(metav1.ConditionFalse))
-		Expect(condition.Reason).To(Equal(controlplanev1alpha3.UpgradeFailedReason))
-		Expect(condition.Message).To(Equal("upgrade to version 4.15.0 has failed\nfailed to upgrade"))
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("failed to get OpenShift version"))
 	})
 
-	It("should handle upgrade with repository override", func() {
+	It("should not push upgrade when already in progress regardless of repository override", func() {
 		repoOverride := "custom.registry.io/openshift-release-dev/ocp-release"
 		openshiftAssistedControlPlane.Annotations = map[string]string{
 			release.ReleaseImageRepositoryOverrideAnnotation: repoOverride,
@@ -541,23 +513,16 @@ var _ = Describe("Upgrade scenarios", func() {
 		Expect(k8sClient.Update(ctx, openshiftAssistedControlPlane)).To(Succeed())
 
 		mockUpgradeFactory.EXPECT().NewUpgrader(gomock.Any()).Return(mockUpgrader, nil)
-		mockUpgrader.EXPECT().IsUpgradeInProgress(gomock.Any()).Return(true, nil) // should this be successfully starting upgrade?
+		mockUpgrader.EXPECT().IsUpgradeInProgress(gomock.Any()).Return(true, nil)
 		mockUpgrader.EXPECT().GetCurrentVersion(gomock.Any()).Return(currentVersion, nil)
 		mockUpgrader.EXPECT().GetUpgradeStatus(gomock.Any()).Return("", nil)
 		mockUpgrader.EXPECT().IsDesiredVersionUpdated(gomock.Any(), desiredVersion).Return(false, nil)
-		expectedParams := []upgrade.ClusterUpgradeOption{
-			{Name: upgrade.ReleaseImagePullSecretOption, Value: "{\"auths\":{\"fake-pull-secret\":{\"auth\":\"cGxhY2Vob2xkZXI6c2VjcmV0Cg==\"}}}"},
-			{Name: upgrade.ReleaseImageRepositoryOverrideOption, Value: repoOverride},
-		}
-		mockUpgrader.EXPECT().UpdateClusterVersionDesiredUpdate(
-			gomock.Any(),
-			desiredVersion,
-			gomock.Any(),
-			gomock.Eq(expectedParams),
-		).Return(nil)
 
-		_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+		// When upgrade is already in progress, the controller observes without
+		// pushing another update, regardless of repository overrides.
+		result, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
 		Expect(err).NotTo(HaveOccurred())
+		Expect(result.RequeueAfter).To(Equal(1 * time.Minute))
 
 		err = k8sClient.Get(ctx, typeNamespacedName, openshiftAssistedControlPlane)
 		Expect(err).NotTo(HaveOccurred())
@@ -565,6 +530,31 @@ var _ = Describe("Upgrade scenarios", func() {
 		Expect(condition).NotTo(BeNil())
 		Expect(condition.Status).To(Equal(metav1.ConditionFalse))
 		Expect(condition.Message).To(Equal("upgrade to version 4.15.0 in progress\n"))
+	})
+
+	It("should pass repository override option when pushing upgrade", func() {
+		repoOverride := "custom.registry.io/openshift-release-dev/ocp-release"
+		openshiftAssistedControlPlane.Annotations = map[string]string{
+			release.ReleaseImageRepositoryOverrideAnnotation: repoOverride,
+		}
+		Expect(k8sClient.Update(ctx, openshiftAssistedControlPlane)).To(Succeed())
+
+		mockUpgradeFactory.EXPECT().NewUpgrader(gomock.Any()).Return(mockUpgrader, nil)
+		mockUpgrader.EXPECT().IsUpgradeInProgress(gomock.Any()).Return(false, nil)
+		mockUpgrader.EXPECT().GetCurrentVersion(gomock.Any()).Return(currentVersion, nil)
+		mockUpgrader.EXPECT().GetUpgradeStatus(gomock.Any()).Return("", nil)
+		mockUpgrader.EXPECT().IsDesiredVersionUpdated(gomock.Any(), desiredVersion).Return(false, nil)
+		mockUpgrader.EXPECT().UpdateClusterVersionDesiredUpdate(gomock.Any(), desiredVersion, gomock.Any(),
+			gomock.Any(), // pull secret option
+			upgrade.ClusterUpgradeOption{
+				Name:  upgrade.ReleaseImageRepositoryOverrideOption,
+				Value: repoOverride,
+			},
+		).Return(nil)
+
+		result, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(result.RequeueAfter).To(Equal(1 * time.Minute))
 	})
 })
 

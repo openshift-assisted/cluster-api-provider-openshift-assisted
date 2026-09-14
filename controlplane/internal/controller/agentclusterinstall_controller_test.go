@@ -92,6 +92,19 @@ var _ = Describe("AgentClusterInstall Controller", func() {
 			}
 			Expect(k8sClient.Create(ctx, openshiftAssistedControlPlane)).To(Succeed())
 
+			// Create the owner Cluster so GetOwnerCluster resolves it
+			cluster := &clusterv1.Cluster{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      clusterName,
+					Namespace: namespace,
+				},
+			}
+			Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
+
+			// Set the Cluster as the owner of the OACP
+			Expect(controllerutil.SetOwnerReference(cluster, openshiftAssistedControlPlane, k8sClient.Scheme())).To(Succeed())
+			Expect(k8sClient.Update(ctx, openshiftAssistedControlPlane)).To(Succeed())
+
 			ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespace}}
 			Expect(k8sClient.Create(ctx, ns)).To(Succeed())
 

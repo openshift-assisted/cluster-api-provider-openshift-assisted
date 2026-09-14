@@ -69,13 +69,13 @@ func EnsureExternalAccessServices(
 
 	if _, err := controllerutil.CreateOrUpdate(ctx, c, apiSvc, func() error {
 		apiSvc.Labels = map[string]string{
-			"app":                           clusterName + "-api",
-			"cluster.x-k8s.io/cluster-name": clusterName,
+			LabelApp:             clusterName + "-api",
+			LabelCAPIClusterName: clusterName,
 		}
 		apiSvc.Spec.Type = corev1.ServiceTypeClusterIP
 		apiSvc.Spec.Selector = map[string]string{
-			"cluster.x-k8s.io/cluster-name": clusterName,
-			"cluster.x-k8s.io/role":         "control-plane",
+			LabelCAPIClusterName:    clusterName,
+			LabelCAPIRole: "control-plane",
 		}
 		apiSvc.Spec.Ports = []corev1.ServicePort{
 			{
@@ -124,13 +124,13 @@ func EnsureExternalAccessServices(
 
 	if _, err := controllerutil.CreateOrUpdate(ctx, c, ingressSvc, func() error {
 		ingressSvc.Labels = map[string]string{
-			"app":                           clusterName + "-ingress",
-			"cluster.x-k8s.io/cluster-name": clusterName,
+			LabelApp:             clusterName + "-ingress",
+			LabelCAPIClusterName: clusterName,
 		}
 		ingressSvc.Spec.Type = corev1.ServiceTypeClusterIP
 		ingressSvc.Spec.Selector = map[string]string{
-			"cluster.x-k8s.io/cluster-name": clusterName,
-			"cluster.x-k8s.io/role":         "control-plane",
+			LabelCAPIClusterName:    clusterName,
+			LabelCAPIRole: "control-plane",
 		}
 		ingressSvc.Spec.Ports = []corev1.ServicePort{
 			{

@@ -4,13 +4,17 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"sync"
 	"time"
 
+	logutil "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/util/log"
 	"go.etcd.io/etcd/api/v3/etcdserverpb"
+	"go.etcd.io/etcd/api/v3/v3rpc/rpctypes"
 	clientv3 "go.etcd.io/etcd/client/v3"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -19,6 +23,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/tools/portforward"
 	"k8s.io/client-go/transport/spdy"
+	ctrl "sigs.k8s.io/controller-runtime"
 )
 
 const (
@@ -45,17 +50,52 @@ type podLister interface {
 }
 
 type etcdConnection struct {
-	client   *clientv3.Client
-	stopChn  chan struct{}
-	endpoint string
+	client    etcdMemberManager
+	stopChn   chan struct{}
+	endpoint  string
+	podName   string
+	nodeName  string
+	closeFunc func()
+	closeOnce sync.Once
 }
 
 func (c *etcdConnection) close() {
-	c.client.Close()
-	close(c.stopChn)
+	c.closeOnce.Do(func() {
+		if c.closeFunc != nil {
+			c.closeFunc()
+			return
+		}
+		if client, ok := c.client.(interface{ Close() error }); ok {
+			_ = client.Close()
+		}
+		if c.stopChn != nil {
+			close(c.stopChn)
+		}
+	})
+}
+
+type etcdConnectionFactory func(ctx context.Context, kubeconfig []byte, excludeNodeName, targetNodeName string) (*etcdConnection, error)
+
+func defaultEtcdConnectionFactory(ctx context.Context, kubeconfig []byte, excludeNodeName, targetNodeName string) (*etcdConnection, error) {
+	if targetNodeName != "" {
+		return connectToEtcdOnNode(ctx, kubeconfig, targetNodeName)
+	}
+	return connectToEtcd(ctx, kubeconfig, excludeNodeName)
 }
 
 func connectToEtcd(ctx context.Context, kubeconfig []byte, excludeNodeName string) (*etcdConnection, error) {
+	return connectToEtcdWithSelector(ctx, kubeconfig, func(selectionCtx context.Context, pods podLister) (*corev1.Pod, error) {
+		return selectRunningEtcdPod(selectionCtx, pods, excludeNodeName, "")
+	})
+}
+
+func connectToEtcdOnNode(ctx context.Context, kubeconfig []byte, nodeName string) (*etcdConnection, error) {
+	return connectToEtcdWithSelector(ctx, kubeconfig, func(selectionCtx context.Context, pods podLister) (*corev1.Pod, error) {
+		return selectRunningEtcdPod(selectionCtx, pods, "", nodeName)
+	})
+}
+
+func connectToEtcdWithSelector(ctx context.Context, kubeconfig []byte, selectPod func(context.Context, podLister) (*corev1.Pod, error)) (*etcdConnection, error) {
 	setupCtx, cancel := context.WithTimeout(ctx, etcdSetupTimeout)
 	defer cancel()
 
@@ -78,12 +118,15 @@ func connectToEtcd(ctx context.Context, kubeconfig []byte, excludeNodeName strin
 		return nil, fmt.Errorf("failed to build etcd TLS config: %w", err)
 	}
 
-	podName, err := findRunningEtcdPod(setupCtx, clientset.CoreV1().Pods(etcdPodNamespace), excludeNodeName)
+	pod, err := selectPod(setupCtx, clientset.CoreV1().Pods(etcdPodNamespace))
 	if err != nil {
 		return nil, fmt.Errorf("failed to find running etcd pod: %w", err)
 	}
 
-	localPort, stopChan, err := startPortForward(setupCtx, restConfig, clientset, podName)
+	log := ctrl.LoggerFrom(ctx)
+	log.V(logutil.DebugLevel).Info("selected etcd pod", "pod", pod.Name, "node", pod.Spec.NodeName)
+
+	localPort, stopChan, err := startPortForward(setupCtx, restConfig, clientset, pod.Name)
 	if err != nil {
 		return nil, fmt.Errorf("failed to start port-forward to etcd: %w", err)
 	}
@@ -99,11 +142,25 @@ func connectToEtcd(ctx context.Context, kubeconfig []byte, excludeNodeName strin
 		return nil, fmt.Errorf("failed to create etcd client: %w", err)
 	}
 
-	return &etcdConnection{client: etcdClient, stopChn: stopChan, endpoint: endpoint}, nil
+	return &etcdConnection{
+		client:   etcdClient,
+		stopChn:  stopChan,
+		endpoint: endpoint,
+		podName:  pod.Name,
+		nodeName: pod.Spec.NodeName,
+	}, nil
+}
+
+func (w *WorkloadClusterClientGenerator) connectToEtcd(ctx context.Context, kubeconfig []byte, excludeNodeName, targetNodeName string) (*etcdConnection, error) {
+	etcdConnectionFactory := w.etcdConnectionFactory
+	if etcdConnectionFactory == nil {
+		etcdConnectionFactory = defaultEtcdConnectionFactory
+	}
+	return etcdConnectionFactory(ctx, kubeconfig, excludeNodeName, targetNodeName)
 }
 
 func (w *WorkloadClusterClientGenerator) RemoveEtcdMember(ctx context.Context, kubeconfig []byte, memberName string) error {
-	conn, err := connectToEtcd(ctx, kubeconfig, memberName)
+	conn, err := w.connectToEtcd(ctx, kubeconfig, memberName, "")
 	if err != nil {
 		return err
 	}
@@ -116,7 +173,7 @@ func (w *WorkloadClusterClientGenerator) RemoveEtcdMember(ctx context.Context, k
 }
 
 func (w *WorkloadClusterClientGenerator) ListEtcdMembers(ctx context.Context, kubeconfig []byte) ([]EtcdMember, error) {
-	conn, err := connectToEtcd(ctx, kubeconfig, "")
+	conn, err := w.connectToEtcd(ctx, kubeconfig, "", "")
 	if err != nil {
 		return nil, err
 	}
@@ -129,7 +186,7 @@ func (w *WorkloadClusterClientGenerator) ListEtcdMembers(ctx context.Context, ku
 }
 
 func (w *WorkloadClusterClientGenerator) RemoveEtcdMemberByID(ctx context.Context, kubeconfig []byte, memberID uint64) error {
-	conn, err := connectToEtcd(ctx, kubeconfig, "")
+	conn, err := w.connectToEtcd(ctx, kubeconfig, "", "")
 	if err != nil {
 		return err
 	}
@@ -141,8 +198,9 @@ func (w *WorkloadClusterClientGenerator) RemoveEtcdMemberByID(ctx context.Contex
 	return removeMemberByID(opCtx, conn.client, memberID)
 }
 
-func (w *WorkloadClusterClientGenerator) ForwardEtcdLeadership(ctx context.Context, kubeconfig []byte, fromMemberName, toMemberName string) error {
-	conn, err := connectToEtcd(ctx, kubeconfig, "")
+// ProtectEtcdLeadership transfers leadership away from the source member before removal when needed, and otherwise no-ops.
+func (w *WorkloadClusterClientGenerator) ProtectEtcdLeadership(ctx context.Context, kubeconfig []byte, fromMemberName, toMemberName string) error {
+	conn, err := w.connectToEtcd(ctx, kubeconfig, "", "")
 	if err != nil {
 		return err
 	}
@@ -151,7 +209,9 @@ func (w *WorkloadClusterClientGenerator) ForwardEtcdLeadership(ctx context.Conte
 	opCtx, cancel := context.WithTimeout(ctx, etcdOpTimeout)
 	defer cancel()
 
-	return forwardLeadership(opCtx, conn.client, conn.endpoint, fromMemberName, toMemberName)
+	return protectEtcdLeadership(opCtx, conn, func(ctx context.Context, nodeName string) (*etcdConnection, error) {
+		return w.connectToEtcd(ctx, kubeconfig, "", nodeName)
+	}, fromMemberName, toMemberName)
 }
 
 func listMembers(ctx context.Context, client etcdMemberManager) ([]EtcdMember, error) {
@@ -159,9 +219,15 @@ func listMembers(ctx context.Context, client etcdMemberManager) ([]EtcdMember, e
 	if err != nil {
 		return nil, fmt.Errorf("failed to list etcd members: %w", err)
 	}
+	if resp == nil {
+		return nil, fmt.Errorf("failed to list etcd members: empty response")
+	}
 
 	members := make([]EtcdMember, 0, len(resp.Members))
 	for _, m := range resp.Members {
+		if m == nil {
+			continue
+		}
 		members = append(members, EtcdMember{ID: m.ID, Name: m.Name})
 	}
 	return members, nil
@@ -171,6 +237,9 @@ func removeMemberByID(ctx context.Context, client etcdMemberManager, memberID ui
 	memberListResp, err := client.MemberList(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to list etcd members: %w", err)
+	}
+	if memberListResp == nil {
+		return fmt.Errorf("failed to list etcd members: empty response")
 	}
 
 	if len(memberListResp.Members) == 1 {
@@ -200,10 +269,16 @@ func removeMemberByName(ctx context.Context, client etcdMemberManager, memberNam
 	if err != nil {
 		return fmt.Errorf("failed to list etcd members: %w", err)
 	}
+	if memberListResp == nil {
+		return fmt.Errorf("failed to list etcd members: empty response")
+	}
 
 	var targetMemberID uint64
 	found := false
 	for _, member := range memberListResp.Members {
+		if member == nil {
+			continue
+		}
 		if member.Name == memberName {
 			targetMemberID = member.ID
 			found = true
@@ -237,57 +312,143 @@ func removeMemberByName(ctx context.Context, client etcdMemberManager, memberNam
 	return nil
 }
 
-func forwardLeadership(ctx context.Context, client etcdMemberManager, endpoint, fromMemberName, toMemberName string) error {
-	memberListResp, err := client.MemberList(ctx)
+func protectEtcdLeadership(ctx context.Context, discoveryConn *etcdConnection, connectSource func(context.Context, string) (*etcdConnection, error), fromMemberName, toMemberName string) error {
+	memberListResp, err := discoveryConn.client.MemberList(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to list etcd members: %w", err)
 	}
-
-	var fromMemberID, toMemberID uint64
-	var currentLeaderID uint64
-	foundFrom := false
-	foundTo := false
-
-	for _, member := range memberListResp.Members {
-		if member.Name == fromMemberName {
-			fromMemberID = member.ID
-			foundFrom = true
-		}
-		if member.Name == toMemberName {
-			toMemberID = member.ID
-			foundTo = true
-		}
-		if foundFrom && foundTo {
-			break
-		}
+	if memberListResp == nil {
+		return fmt.Errorf("failed to list etcd members: empty response")
 	}
 
-	if !foundFrom {
+	fromMember := findEtcdMember(memberListResp.Members, fromMemberName)
+	if fromMember == nil {
 		// Source member not in etcd cluster - already removed or never joined.
 		// Nothing to forward, return success.
 		return nil
 	}
-	if !foundTo {
-		return fmt.Errorf("target member %q not found in etcd cluster", toMemberName)
-	}
 
-	statusResp, err := client.Status(ctx, endpoint)
+	statusResp, err := discoveryConn.client.Status(ctx, discoveryConn.endpoint)
 	if err != nil {
 		return fmt.Errorf("failed to get etcd status: %w", err)
 	}
-	currentLeaderID = statusResp.Leader
+	if statusResp == nil {
+		return fmt.Errorf("failed to get etcd status: empty response")
+	}
+	log := ctrl.LoggerFrom(ctx)
+	log.V(logutil.DebugLevel).Info("received etcd status", "pod", discoveryConn.podName, "node", discoveryConn.nodeName,
+		"memberID", statusMemberID(statusResp), "leaderID", statusResp.Leader,
+		"source", fromMemberName, "target", toMemberName)
 
-	if currentLeaderID != fromMemberID {
+	if statusResp.Leader == 0 {
+		return fmt.Errorf("etcd has no elected leader while protecting leadership from %q to %q", fromMemberName, toMemberName)
+	}
+	if statusResp.Leader != fromMember.ID {
 		// No-op: fromMember is not the current leader
 		return nil
 	}
 
-	_, err = client.MoveLeader(ctx, toMemberID)
+	// MoveLeader must be sent to the current leader. The discovery connection can
+	// be connected to any healthy member, so reconnect to the source member's pod.
+	discoveryConn.close()
+	sourceConn, err := connectSource(ctx, fromMemberName)
 	if err != nil {
+		return fmt.Errorf("failed to connect to etcd source member %q: %w", fromMemberName, err)
+	}
+	defer sourceConn.close()
+
+	refreshedMembers, err := sourceConn.client.MemberList(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to refresh etcd members through source member %q: %w", fromMemberName, err)
+	}
+	if refreshedMembers == nil {
+		return fmt.Errorf("failed to refresh etcd members through source member %q: empty response", fromMemberName)
+	}
+	refreshedSource := findEtcdMember(refreshedMembers.Members, fromMemberName)
+	if refreshedSource == nil {
+		return nil
+	}
+
+	statusResp, err = sourceConn.client.Status(ctx, sourceConn.endpoint)
+	if err != nil {
+		return fmt.Errorf("failed to get etcd source member %q status: %w", fromMemberName, err)
+	}
+	if statusResp == nil {
+		return fmt.Errorf("failed to get etcd source member %q status: empty response", fromMemberName)
+	}
+	log.V(logutil.DebugLevel).Info("received etcd source status", "pod", sourceConn.podName, "node", sourceConn.nodeName,
+		"memberID", statusMemberID(statusResp), "leaderID", statusResp.Leader,
+		"source", fromMemberName, "target", toMemberName)
+	if refreshedSource.ID == 0 || statusResp.Header == nil || statusResp.Header.MemberId == 0 || statusResp.Header.MemberId != refreshedSource.ID {
+		return fmt.Errorf("etcd status member ID %d does not match source member %q ID %d", statusMemberID(statusResp), fromMemberName, refreshedSource.ID)
+	}
+	if statusResp.Leader == 0 {
+		return fmt.Errorf("etcd has no elected leader while protecting leadership from %q to %q", fromMemberName, toMemberName)
+	}
+	if statusResp.Leader != refreshedSource.ID {
+		return nil
+	}
+
+	targetMember := findEtcdMember(refreshedMembers.Members, toMemberName)
+	if targetMember == nil {
+		return fmt.Errorf("target member %q not found in etcd cluster", toMemberName)
+	}
+	if targetMember.ID == 0 {
+		return fmt.Errorf("target member %q has invalid ID 0", toMemberName)
+	}
+	if targetMember.ID == refreshedSource.ID {
+		return fmt.Errorf("target member %q is the source member %q", toMemberName, fromMemberName)
+	}
+	if targetMember.IsLearner {
+		return fmt.Errorf("target member %q is a learner and cannot receive leadership", toMemberName)
+	}
+
+	log.V(logutil.InfoLevel).Info("transferring etcd leadership", "pod", sourceConn.podName, "node", sourceConn.nodeName,
+		"memberID", refreshedSource.ID, "leaderID", statusResp.Leader,
+		"source", fromMemberName, "target", toMemberName)
+	_, err = sourceConn.client.MoveLeader(ctx, targetMember.ID)
+	if err != nil {
+		if !errors.Is(err, rpctypes.ErrNotLeader) {
+			return fmt.Errorf("failed to move etcd leadership from %q to %q: %w", fromMemberName, toMemberName, err)
+		}
+
+		statusResp, statusErr := sourceConn.client.Status(ctx, sourceConn.endpoint)
+		if statusErr != nil {
+			return fmt.Errorf("failed to refresh etcd status after moving leadership from %q to %q: %w", fromMemberName, toMemberName, statusErr)
+		}
+		if statusResp == nil {
+			return fmt.Errorf("failed to refresh etcd status after moving leadership from %q to %q: empty response", fromMemberName, toMemberName)
+		}
+		log.V(logutil.DebugLevel).Info("received etcd status after failed leadership transfer", "pod", sourceConn.podName, "node", sourceConn.nodeName,
+			"memberID", statusMemberID(statusResp), "leaderID", statusResp.Leader,
+			"source", fromMemberName, "target", toMemberName)
+		if statusResp.Leader != 0 && statusResp.Leader != refreshedSource.ID {
+			return nil
+		}
+
 		return fmt.Errorf("failed to move etcd leadership from %q to %q: %w", fromMemberName, toMemberName, err)
 	}
 
 	return nil
+}
+
+func findEtcdMember(members []*etcdserverpb.Member, name string) *etcdserverpb.Member {
+	for _, member := range members {
+		if member == nil {
+			continue
+		}
+		if member.Name == name {
+			return member
+		}
+	}
+	return nil
+}
+
+func statusMemberID(status *clientv3.StatusResponse) uint64 {
+	if status == nil || status.Header == nil {
+		return 0
+	}
+	return status.Header.MemberId
 }
 
 func buildEtcdTLSConfig(ctx context.Context, clientset kubernetes.Interface) (*tls.Config, error) {
@@ -321,14 +482,30 @@ func buildEtcdTLSConfig(ctx context.Context, clientset kubernetes.Interface) (*t
 }
 
 func findRunningEtcdPod(ctx context.Context, pods podLister, excludeNodeName string) (string, error) {
+	pod, err := selectRunningEtcdPod(ctx, pods, excludeNodeName, "")
+	if err != nil {
+		return "", err
+	}
+	return pod.Name, nil
+}
+
+func findRunningEtcdPodOnNode(ctx context.Context, pods podLister, nodeName string) (string, error) {
+	pod, err := selectRunningEtcdPod(ctx, pods, "", nodeName)
+	if err != nil {
+		return "", err
+	}
+	return pod.Name, nil
+}
+
+func selectRunningEtcdPod(ctx context.Context, pods podLister, excludeNodeName, targetNodeName string) (*corev1.Pod, error) {
 	podList, err := pods.List(ctx, metav1.ListOptions{
 		LabelSelector: "app=etcd",
 	})
 	if err != nil {
-		return "", fmt.Errorf("failed to list etcd pods: %w", err)
+		return nil, fmt.Errorf("failed to list etcd pods: %w", err)
 	}
 
-	var fallback string
+	var fallback *corev1.Pod
 	for i := range podList.Items {
 		pod := &podList.Items[i]
 		if pod.Status.Phase != corev1.PodRunning || pod.DeletionTimestamp != nil {
@@ -337,18 +514,27 @@ func findRunningEtcdPod(ctx context.Context, pods podLister, excludeNodeName str
 		if !isPodReady(pod) {
 			continue
 		}
-		if pod.Spec.NodeName == excludeNodeName {
-			fallback = pod.Name
+		if targetNodeName != "" {
+			if pod.Spec.NodeName == targetNodeName {
+				return pod, nil
+			}
 			continue
 		}
-		return pod.Name, nil
+		if pod.Spec.NodeName == excludeNodeName {
+			fallback = pod
+			continue
+		}
+		return pod, nil
 	}
 
-	if fallback != "" {
+	if fallback != nil {
 		return fallback, nil
 	}
 
-	return "", fmt.Errorf("no running etcd pod found in namespace %s", etcdPodNamespace)
+	if targetNodeName != "" {
+		return nil, fmt.Errorf("no running etcd pod found on node %s in namespace %s", targetNodeName, etcdPodNamespace)
+	}
+	return nil, fmt.Errorf("no running etcd pod found in namespace %s", etcdPodNamespace)
 }
 
 func isPodReady(pod *corev1.Pod) bool {

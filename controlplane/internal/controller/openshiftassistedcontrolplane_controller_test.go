@@ -1190,6 +1190,9 @@ var _ = Describe("Pre-terminate hook and etcd cleanup", func() {
 			machineToDelete := &machineList.Items[0]
 			machineToDelete.Status.NodeRef = clusterv1.MachineNodeReference{Name: "node-0"}
 			Expect(k8sClient.Status().Update(ctx, machineToDelete)).To(Succeed())
+			replacementMachine := &machineList.Items[1]
+			replacementMachine.Status.NodeRef = clusterv1.MachineNodeReference{Name: "node-1"}
+			Expect(k8sClient.Status().Update(ctx, replacementMachine)).To(Succeed())
 
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: machineToDelete.Name, Namespace: namespace}, machineToDelete)).To(Succeed())
 			machineToDelete.Finalizers = append(machineToDelete.Finalizers, "test-finalizer")
@@ -1197,10 +1200,10 @@ var _ = Describe("Pre-terminate hook and etcd cleanup", func() {
 
 			Expect(k8sClient.Delete(ctx, machineToDelete)).To(Succeed())
 
-			mockClientGenerator.EXPECT().ListEtcdMembers(gomock.Any(), gomock.Any()).Return([]workloadclient.EtcdMember{
-				{ID: 1, Name: "node-0"},
-			}, nil).Times(1)
-			mockClientGenerator.EXPECT().RemoveEtcdMember(gomock.Any(), gomock.Any(), "node-0").Return(nil).Times(1)
+			gomock.InOrder(
+				mockClientGenerator.EXPECT().ProtectEtcdLeadership(gomock.Any(), gomock.Any(), "node-0", "node-1").Return(nil).Times(1),
+				mockClientGenerator.EXPECT().RemoveEtcdMember(gomock.Any(), gomock.Any(), "node-0").Return(nil).Times(1),
+			)
 
 			result, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
 			Expect(err).NotTo(HaveOccurred())
@@ -1242,7 +1245,7 @@ var _ = Describe("Pre-terminate hook and etcd cleanup", func() {
 	})
 
 	Context("reconcilePreTerminateHook error handling", func() {
-		It("should preserve hook annotation when RemoveEtcdMember fails", func() {
+		It("should retain the hook and block deletion when leadership forwarding fails", func() {
 			oacp.Spec.Replicas = 3
 			Expect(k8sClient.Create(ctx, oacp)).To(Succeed())
 
@@ -1258,6 +1261,43 @@ var _ = Describe("Pre-terminate hook and etcd cleanup", func() {
 			machineToDelete := &machineList.Items[0]
 			machineToDelete.Status.NodeRef = clusterv1.MachineNodeReference{Name: "node-0"}
 			Expect(k8sClient.Status().Update(ctx, machineToDelete)).To(Succeed())
+			replacementMachine := &machineList.Items[1]
+			replacementMachine.Status.NodeRef = clusterv1.MachineNodeReference{Name: "node-1"}
+			Expect(k8sClient.Status().Update(ctx, replacementMachine)).To(Succeed())
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: machineToDelete.Name, Namespace: namespace}, machineToDelete)).To(Succeed())
+			machineToDelete.Finalizers = append(machineToDelete.Finalizers, "test-finalizer")
+			Expect(k8sClient.Update(ctx, machineToDelete)).To(Succeed())
+			Expect(k8sClient.Delete(ctx, machineToDelete)).To(Succeed())
+
+			mockClientGenerator.EXPECT().ProtectEtcdLeadership(gomock.Any(), gomock.Any(), "node-0", "node-1").Return(fmt.Errorf("transfer failed")).Times(1)
+
+			result, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+			Expect(err).To(MatchError(ContainSubstring("failed to ensure a safe etcd leadership state before member removal")))
+			Expect(result).To(Equal(ctrlruntime.Result{}))
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: machineToDelete.Name, Namespace: namespace}, machineToDelete)).To(Succeed())
+			Expect(machineToDelete.Annotations).To(HaveKey(clusterv1.PreTerminateDeleteHookAnnotationPrefix + "/oacp-etcd-cleanup"))
+		})
+
+		It("should retain the hook and block deletion when RemoveEtcdMember fails", func() {
+			oacp.Spec.Replicas = 3
+			Expect(k8sClient.Create(ctx, oacp)).To(Succeed())
+
+			for i := 0; i < 3; i++ {
+				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+				Expect(err).NotTo(HaveOccurred())
+			}
+
+			machineList := &clusterv1.MachineList{}
+			Expect(k8sClient.List(ctx, machineList, client.InNamespace(namespace))).To(Succeed())
+			Expect(machineList.Items).To(HaveLen(3))
+
+			machineToDelete := &machineList.Items[0]
+			machineToDelete.Status.NodeRef = clusterv1.MachineNodeReference{Name: "node-0"}
+			Expect(k8sClient.Status().Update(ctx, machineToDelete)).To(Succeed())
+			replacementMachine := &machineList.Items[1]
+			replacementMachine.Status.NodeRef = clusterv1.MachineNodeReference{Name: "node-1"}
+			Expect(k8sClient.Status().Update(ctx, replacementMachine)).To(Succeed())
 
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: machineToDelete.Name, Namespace: namespace}, machineToDelete)).To(Succeed())
 			machineToDelete.Finalizers = append(machineToDelete.Finalizers, "test-finalizer")
@@ -1265,17 +1305,29 @@ var _ = Describe("Pre-terminate hook and etcd cleanup", func() {
 
 			Expect(k8sClient.Delete(ctx, machineToDelete)).To(Succeed())
 
-			mockClientGenerator.EXPECT().ListEtcdMembers(gomock.Any(), gomock.Any()).Return([]workloadclient.EtcdMember{
-				{ID: 1, Name: "node-0"},
-			}, nil).Times(1)
-			mockClientGenerator.EXPECT().RemoveEtcdMember(gomock.Any(), gomock.Any(), "node-0").Return(fmt.Errorf("connection refused")).Times(1)
+			gomock.InOrder(
+				mockClientGenerator.EXPECT().ProtectEtcdLeadership(gomock.Any(), gomock.Any(), "node-0", "node-1").Return(nil).Times(1),
+				mockClientGenerator.EXPECT().RemoveEtcdMember(gomock.Any(), gomock.Any(), "node-0").Return(fmt.Errorf("connection refused")).Times(1),
+			)
 
-			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("failed to remove etcd member"))
+			result, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+			Expect(err).To(MatchError(ContainSubstring("failed to remove etcd member for node node-0")))
+			Expect(result).To(Equal(ctrlruntime.Result{}))
 
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: machineToDelete.Name, Namespace: namespace}, machineToDelete)).To(Succeed())
 			Expect(machineToDelete.Annotations).To(HaveKey(clusterv1.PreTerminateDeleteHookAnnotationPrefix + "/oacp-etcd-cleanup"))
+
+			gomock.InOrder(
+				mockClientGenerator.EXPECT().ProtectEtcdLeadership(gomock.Any(), gomock.Any(), "node-0", "node-1").Return(nil).Times(1),
+				mockClientGenerator.EXPECT().RemoveEtcdMember(gomock.Any(), gomock.Any(), "node-0").Return(nil).Times(1),
+			)
+
+			result, err = controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).To(Equal(10 * time.Second))
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: machineToDelete.Name, Namespace: namespace}, machineToDelete)).To(Succeed())
+			Expect(machineToDelete.Annotations).NotTo(HaveKey(clusterv1.PreTerminateDeleteHookAnnotationPrefix + "/oacp-etcd-cleanup"))
 		})
 	})
 
@@ -1305,10 +1357,6 @@ var _ = Describe("Pre-terminate hook and etcd cleanup", func() {
 				Expect(k8sClient.Delete(ctx, machine)).To(Succeed())
 			}
 
-			mockClientGenerator.EXPECT().ListEtcdMembers(gomock.Any(), gomock.Any()).Return([]workloadclient.EtcdMember{
-				{ID: 1, Name: "node-0"},
-				{ID: 2, Name: "node-1"},
-			}, nil).Times(1)
 			mockClientGenerator.EXPECT().RemoveEtcdMember(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Times(1)
 
 			result, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})

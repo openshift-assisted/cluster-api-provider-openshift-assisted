@@ -352,3 +352,24 @@ func retryOnConflict(maxRetries int, fn func() error) error {
 	}
 	return err
 }
+
+const (
+	defaultInfraCoreDNSIP = "172.30.0.10"
+)
+
+// GetInfraCoreDNSIP resolves the infra cluster's CoreDNS ClusterIP by looking
+// up the dns-default Service in openshift-dns. Falls back to the standard
+// OpenShift default (172.30.0.10) if the lookup fails.
+func GetInfraCoreDNSIP(ctx context.Context, infraClient client.Client) string {
+	svc := &corev1.Service{}
+	if err := infraClient.Get(ctx, client.ObjectKey{
+		Name:      "dns-default",
+		Namespace: "openshift-dns",
+	}, svc); err != nil {
+		return defaultInfraCoreDNSIP
+	}
+	if svc.Spec.ClusterIP == "" || svc.Spec.ClusterIP == "None" {
+		return defaultInfraCoreDNSIP
+	}
+	return svc.Spec.ClusterIP
+}

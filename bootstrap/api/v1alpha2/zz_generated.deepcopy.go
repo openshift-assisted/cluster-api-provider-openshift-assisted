@@ -151,6 +151,11 @@ func (in *OpenshiftAssistedConfigSpec) DeepCopyInto(out *OpenshiftAssistedConfig
 		*out = make([]v1beta1.KernelArgument, len(*in))
 		copy(*out, *in)
 	}
+	if in.InstallerArgs != nil {
+		in, out := &in.InstallerArgs, &out.InstallerArgs
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
 	if in.PreBootstrapCommands != nil {
 		in, out := &in.PreBootstrapCommands, &out.PreBootstrapCommands
 		*out = make([]string, len(*in))

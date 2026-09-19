@@ -95,6 +95,10 @@ e2e-test-dependencies:
 e2e-test: e2e-test-dependencies
 	ansible-playbook $(PLAYBOOK_DIR)/run_test.yaml -i $(PLAYBOOK_DIR)/inventories/remote_host.yaml
 
+.PHONY: e2e-test-ocp
+e2e-test-ocp: e2e-test-dependencies
+	ansible-playbook $(PLAYBOOK_DIR)/run_test_ocp.yaml -i $(PLAYBOOK_DIR)/inventories/ocp_host.yaml
+
 .PHONY: versions-management-dependencies
 versions-management-dependencies:
 	pip install -r hack/versions-management/requirements.txt

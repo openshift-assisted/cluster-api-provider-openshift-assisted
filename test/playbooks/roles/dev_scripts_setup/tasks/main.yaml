@@ -1,0 +1,70 @@
+---
+- name: Install dev-scripts dependencies
+  ansible.builtin.dnf:
+    name:
+      - git
+      - make
+    state: present
+
+- name: Clone dev-scripts
+  ansible.builtin.git:
+    repo: "{{ dev_scripts_repo }}"
+    dest: "{{ dev_scripts_dir }}"
+    version: "{{ dev_scripts_branch }}"
+    force: true
+
+- name: Write pull secret file
+  ansible.builtin.copy:
+    content: "{{ pullsecret | b64decode }}"
+    dest: "{{ dev_scripts_dir }}/pull_secret.json"
+    mode: '0600'
+
+- name: Generate dev-scripts config
+  ansible.builtin.template:
+    src: config.sh.j2
+    dest: "{{ dev_scripts_dir }}/config_{{ ansible_user }}.sh"
+    mode: '0755'
+
+- name: Display dev-scripts configuration
+  ansible.builtin.debug:
+    msg: >-
+      Deploying OCP {{ dev_scripts_ocp_version }} via dev-scripts
+      (topology: {{ dev_scripts_topology }},
+      masters: {{ dev_scripts_topologies[dev_scripts_topology].num_masters }},
+      workers: {{ dev_scripts_topologies[dev_scripts_topology].num_workers }})
+
+- name: Run dev-scripts
+  ansible.builtin.command:
+    cmd: make
+    chdir: "{{ dev_scripts_dir }}"
+  changed_when: true
+  timeout: 7200
+
+- name: Locate kubeconfig
+  ansible.builtin.stat:
+    path: "{{ dev_scripts_dir }}/ocp/{{ dev_scripts_cluster_name }}/auth/kubeconfig"
+  register: kubeconfig_stat
+
+- name: Fail if kubeconfig not found
+  ansible.builtin.fail:
+    msg: >-
+      dev-scripts kubeconfig not found at
+      {{ dev_scripts_dir }}/ocp/{{ dev_scripts_cluster_name }}/auth/kubeconfig
+  when: not kubeconfig_stat.stat.exists
+
+- name: Copy kubeconfig to standard location
+  ansible.builtin.copy:
+    src: "{{ dev_scripts_dir }}/ocp/{{ dev_scripts_cluster_name }}/auth/kubeconfig"
+    dest: /tmp/ocp-kubeconfig
+    mode: '0600'
+    remote_src: true
+
+- name: Validate OCP cluster is ready
+  ansible.builtin.command: kubectl get clusterversion
+  environment:
+    KUBECONFIG: /tmp/ocp-kubeconfig
+  register: cv_result
+  changed_when: false
+  retries: "{{ medium_retries | int }}"
+  delay: "{{ medium_delay | int }}"
+  until: cv_result.rc == 0

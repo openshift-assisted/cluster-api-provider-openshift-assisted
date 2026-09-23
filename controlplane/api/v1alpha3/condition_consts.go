@@ -39,6 +39,14 @@ const (
 	// UpgradeFailedReason (Severity=Error) documents that an upgrade has failed.
 	UpgradeFailedReason = "UpgradeFailed"
 
+	// ExternalUpgradeBlockedReason (Severity=Warning) documents that an external
+	// upgrade attempt was detected and reverted by the controller.
+	ExternalUpgradeBlockedReason = "ExternalUpgradeBlocked"
+
+	// VersionDriftDetectedReason (Severity=Warning) documents that the tenant cluster
+	// version differs from spec.distributionVersion due to an external upgrade.
+	VersionDriftDetectedReason = "VersionDriftDetected"
+
 	// UpgradeImageUnavailableReason (Severity=Error) documents whether an upgrade image is available
 	UpgradeImageUnavailableReason = "UpgradeImageUnavailable"
 

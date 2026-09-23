@@ -1102,6 +1102,15 @@ spec:
                     description: CpuArchitecture specifies the target CPU architecture.
                       Default is x86_64
                     type: string
+                  installerArgs:
+                    description: |-
+                      InstallerArgs is the additional installer arguments to be passed to the host at install time.
+                      They are appended to the arguments derived from KernelArguments, and are restricted to the
+                      flags assisted-service allows.
+                    items:
+                      type: string
+                    type: array
+                    x-kubernetes-list-type: atomic
                   kernelArguments:
                     description: |-
                       KernelArguments is the additional kernel arguments to be passed during boot time of the discovery image.

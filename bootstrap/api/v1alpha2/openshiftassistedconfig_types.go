@@ -68,6 +68,13 @@ type OpenshiftAssistedConfigSpec struct {
 	// +optional
 	KernelArguments []aiv1beta1.KernelArgument `json:"kernelArguments,omitempty"`
 
+	// InstallerArgs is the additional installer arguments to be passed to the host at install time.
+	// They are appended to the arguments derived from KernelArguments, and are restricted to the
+	// flags assisted-service allows.
+	// +optional
+	// +listType=atomic
+	InstallerArgs []string `json:"installerArgs,omitempty"`
+
 	// PEM-encoded X.509 certificate bundle. Hosts discovered by this
 	// infra-env will trust the certificates in this bundle. Clusters formed
 	// from the hosts discovered by this infra-env will also trust the

@@ -4,9 +4,33 @@
   register: hostname_output
   changed_when: false
 
+# Collect candidate internal IPs, most-preferred first. Prefer a private
+# (RFC1918) address from `hostname -I` -- the BMH libvirt VMs reach the kind
+# API server over the host-local network, not a public IP. Accept the full
+# private space (10/8, 172.16/12, 192.168/16) rather than only 10.0.0.0/8, so
+# hosts whose provisioning NIC is on a different private range still work.
+# Fall back to the default-route address only when no private IP is present.
+- name: Build internal IP candidate list
+  ansible.builtin.set_fact:
+    internal_ip_candidates: >-
+      {{
+        ((hostname_output.stdout.split()
+          | select('match', '^(10\\.|172\\.(1[6-9]|2[0-9]|3[01])\\.|192\\.168\\.)\\d{1,3}(\\.\\d{1,3}){1,2}$')
+          | list)
+         + [(ansible_default_ipv4 | default({})).address | default('', true)])
+        | select | list
+      }}
+
+- name: Fail when no internal IP could be determined
+  ansible.builtin.fail:
+    msg: >-
+      Could not determine an internal IP. Default-route address is unavailable
+      and `hostname -I` returned no private address: {{ hostname_output.stdout }}
+  when: internal_ip_candidates | length == 0
+
 - name: Set internal IP fact
   ansible.builtin.set_fact:
-    internal_ip: "{{ hostname_output.stdout.split() | select('match', '^10\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}$') | first }}"
+    internal_ip: "{{ internal_ip_candidates | first }}"
 
 - name: Get host DNS servers from NetworkManager
   ansible.builtin.command: nmcli --terse --get-values IP4.DNS device show

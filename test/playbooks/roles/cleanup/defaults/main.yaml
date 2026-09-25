@@ -1,0 +1,5 @@
+---
+# Highest VM index to clean up. Defaults to the largest topology (7) so a
+# SNO run on a host previously used for multinode still removes all VMs,
+# without the caller needing to pass anything.
+max_number_of_nodes: 7

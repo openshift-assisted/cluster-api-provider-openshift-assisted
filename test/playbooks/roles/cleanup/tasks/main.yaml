@@ -4,18 +4,36 @@
     name: sushy-tools
     state: absent
 
-# remove kind cluster
+# remove kind cluster. Guarded and non-fatal so cleanup still tears down the
+# VMs below on a fresh host where kind is not installed yet, or when the delete
+# itself errors.
+- name: Check whether kind is installed
+  ansible.builtin.command: which kind
+  register: kind_binary
+  changed_when: false
+  failed_when: false
+
 - name: Delete kind cluster
   ansible.builtin.command: "kind delete cluster --name {{ kind_cluster_name }}"
   changed_when: true
+  failed_when: false
+  when: kind_binary.rc == 0
 
+# Clean up to the maximum possible node count (see role defaults), not just this
+# run's number of nodes, so leftover VMs from a previous larger (e.g. multinode)
+# run on a reused host are not orphaned when the current run is SNO.
 - name: Destroy VMs
   community.libvirt.virt:
     name: "bmh-vm-{{ item }}"
     state: destroyed
-  with_sequence:
-    count: "{{ number_of_nodes }}"
-    format: "%02x"
+  with_sequence: "count={{ max_number_of_nodes }} format=%02x"
+  failed_when: false
+
+- name: Undefine VMs and remove storage
+  ansible.builtin.command: >-
+    virsh undefine --domain bmh-vm-{{ item }} --remove-all-storage --nvram
+  with_sequence: "count={{ max_number_of_nodes }} format=%02x"
+  changed_when: true
   failed_when: false
 
 - name: Remove existing network if present

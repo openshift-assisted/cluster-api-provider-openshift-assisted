@@ -4,6 +4,10 @@
   vars:
     src_dir: "/tmp/capbcoa"
     kind_cluster_name: capi-baremetal-provider
+    # Highest VM index to clean up. Defaults to the largest topology (7) so a
+    # SNO run on a host previously used for multinode still removes all VMs.
+    # Override with -e max_number_of_nodes=N or the MAX_NUMBER_OF_NODES env var.
+    max_number_of_nodes: "{{ lookup('ansible.builtin.env', 'MAX_NUMBER_OF_NODES', default='7') }}"
 
   roles:
     - cleanup

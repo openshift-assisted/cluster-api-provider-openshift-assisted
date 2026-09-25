@@ -33,8 +33,11 @@
     cert_manager_version: v1.5.3
     remote_manifests_path: /tmp/manifests
     test_namespace: test-capi
-    number_of_nodes: "{{ lookup('ansible.builtin.env', 'NUMBER_OF_NODES', default='7') }}"
     cluster_topology: "{{ lookup('ansible.builtin.env', 'CLUSTER_TOPOLOGY', default='multinode') }}"
+    # Default to a single node for SNO topologies so we don't provision (and
+    # leave behind) 7 heavy VMs for a 1-node cluster. An explicit
+    # NUMBER_OF_NODES always overrides.
+    number_of_nodes: "{{ lookup('ansible.builtin.env', 'NUMBER_OF_NODES', default=('1' if cluster_topology.startswith('sno') else '7')) }}"
     example_manifest: "{{ cluster_topology }}-example.yaml.j2"
     default_assisted_service_image: "quay.io/edge-infrastructure/assisted-service"
     default_infrastructure_operator_image: "quay.io/edge-infrastructure/assisted-service"

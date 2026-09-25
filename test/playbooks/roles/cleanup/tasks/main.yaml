@@ -9,13 +9,25 @@
   ansible.builtin.command: "kind delete cluster --name {{ kind_cluster_name }}"
   changed_when: true
 
+# Clean up to the maximum possible node count, not just this run's
+# number_of_nodes, so leftover VMs from a previous larger (e.g. multinode) run
+# on a reused host are not orphaned when the current run is SNO.
 - name: Destroy VMs
   community.libvirt.virt:
     name: "bmh-vm-{{ item }}"
     state: destroyed
   with_sequence:
-    count: "{{ number_of_nodes }}"
+    count: "{{ max_number_of_nodes }}"
     format: "%02x"
+  failed_when: false
+
+- name: Undefine VMs and remove storage
+  ansible.builtin.command: >-
+    virsh undefine --domain bmh-vm-{{ item }} --remove-all-storage --nvram
+  with_sequence:
+    count: "{{ max_number_of_nodes }}"
+    format: "%02x"
+  changed_when: true
   failed_when: false
 
 - name: Remove existing network if present

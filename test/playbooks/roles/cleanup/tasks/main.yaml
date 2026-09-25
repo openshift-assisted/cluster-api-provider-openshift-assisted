@@ -26,17 +26,13 @@
   community.libvirt.virt:
     name: "bmh-vm-{{ item }}"
     state: destroyed
-  with_sequence:
-    count: "{{ max_number_of_nodes }}"
-    format: "%02x"
+  with_sequence: "count={{ max_number_of_nodes }} format=%02x"
   failed_when: false
 
 - name: Undefine VMs and remove storage
   ansible.builtin.command: >-
     virsh undefine --domain bmh-vm-{{ item }} --remove-all-storage --nvram
-  with_sequence:
-    count: "{{ max_number_of_nodes }}"
-    format: "%02x"
+  with_sequence: "count={{ max_number_of_nodes }} format=%02x"
   changed_when: true
   failed_when: false
 

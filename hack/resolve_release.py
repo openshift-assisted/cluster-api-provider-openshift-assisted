@@ -59,16 +59,42 @@ def _get(url):
 
 
 def _version_key(name):
-    """Split a version string into a sortable list so rc.10 > rc.2."""
-    return [int(p) if p.isdigit() else p for p in re.split(r"[.\-]", name)]
+    """
+    SemVer-aware sort key so latest resolves correctly.
+
+    Splits into the release part and an optional pre-release part (the first
+    "-"). Numeric identifiers compare numerically (so rc.10 > rc.2, z-stream
+    15 > 8), and each identifier is type-tagged so Python 3 never compares a
+    str against an int (e.g. "4.10.0-0.nightly-*" vs "4.10.0-fc.1"). Per
+    SemVer a version with no pre-release outranks the same version with one,
+    so a GA "5.0.0" sorts after "5.0.0-rc.10".
+    """
+    def _ident(part):
+        return (0, int(part)) if part.isdigit() else (1, part)
+
+    release, _, pre = name.partition("-")
+    release_key = tuple(_ident(p) for p in release.split("."))
+    # An empty pre-release must rank highest; tag it above any real pre-id.
+    pre_key = (
+        ((2,),) if not pre
+        else tuple(_ident(p) for p in re.split(r"[.\-]", pre))
+    )
+    return (release_key, pre_key)
 
 
 def _latest_dir(base_url, prefix):
-    """Return highest version-sorted dir under base_url matching prefix."""
+    """Return highest version-sorted dir under base_url matching prefix.
+
+    The prefix must be followed by a dot so "5.1" matches "5.1.0" but not
+    "5.11". Directories flagged for deletion ("*-to-delete") are excluded so
+    they can never be selected as latest.
+    """
     body = _get(base_url + "/")
     if not body:
         return None
-    dirs = re.findall(r'href="(' + re.escape(prefix) + r'[^"/]*)/"', body)
+    dirs = re.findall(
+        r'href="(' + re.escape(prefix) + r'\.[^"/]+)/"', body)
+    dirs = [d for d in dirs if not d.endswith("-to-delete")]
     if not dirs:
         return None
     return sorted(dirs, key=_version_key)[-1]
@@ -118,34 +144,35 @@ def resolve_rhcos_url(major_minor):
         "{mirror}/pre-release".format(mirror=RHCOS_MIRROR),
     ]
 
-    files_base = None
-    version_dir = None
     for base in candidates:
         version_dir = _latest_dir(base, major_minor)
-        if version_dir:
-            files_base = base
-            if base.endswith("pre-release"):
-                logger.info("Using pre-release RHCOS mirror")
-            break
+        if not version_dir:
+            continue
 
-    if not version_dir:
-        logger.error(
-            "No RHCOS version found for %s in stable or pre-release mirrors "
-            "(pre-release images may not be published yet)", major_minor)
-        return None
+        # Only accept a directory that actually contains the nutanix image we
+        # want; otherwise fall back to the next candidate rather than settling
+        # for the first release dir that happens to exist.
+        files_url = "{base}/{ver}/".format(base=base, ver=version_dir)
+        body = _get(files_url)
+        if not body:
+            continue
+        match = re.search(r'href="(rhcos-[^"]*-nutanix[^"]*\.qcow2)"', body)
+        if not match:
+            logger.info(
+                "No RHCOS nutanix qcow2 image at %s, trying next candidate",
+                files_url)
+            continue
 
-    files_url = "{base}/{ver}/".format(base=files_base, ver=version_dir)
-    body = _get(files_url)
-    if not body:
-        return None
-    match = re.search(r'href="(rhcos-[^"]*-nutanix[^"]*\.qcow2)"', body)
-    if not match:
-        logger.error("No RHCOS nutanix qcow2 image found at %s", files_url)
-        return None
+        if base.endswith("pre-release"):
+            logger.info("Using pre-release RHCOS mirror")
+        url = files_url + match.group(1)
+        logger.info("RHCOS Image URL: %s", url)
+        return url
 
-    url = files_url + match.group(1)
-    logger.info("RHCOS Image URL: %s", url)
-    return url
+    logger.error(
+        "No RHCOS nutanix qcow2 image found for %s in stable or pre-release "
+        "mirrors (pre-release images may not be published yet)", major_minor)
+    return None
 
 
 def _major_minor(version):

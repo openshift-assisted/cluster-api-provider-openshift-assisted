@@ -286,6 +286,72 @@ var _ = Describe("Agent Controller", func() {
 			})
 		})
 
+		When("a bootstrap config has configured installer args", func() {
+			It("should reconcile with a valid coreos install args", func() {
+				oac := testutils.NewOpenshiftAssistedConfig(namespace, oacName, clusterName)
+				oac.Spec.InstallerArgs = []string{"--copy-network"}
+				Expect(k8sClient.Create(ctx, oac)).To(Succeed())
+
+				machine := testutils.NewMachine(namespace, machineName, clusterName)
+				machine.Spec.Bootstrap.ConfigRef = clusterv1.ContractVersionedObjectReference{
+					Name: oacName,
+				}
+				machine.Labels[clusterv1.MachineControlPlaneLabel] = "control-plane"
+				Expect(k8sClient.Create(ctx, machine)).To(Succeed())
+
+				infraEnv := testutils.NewInfraEnv(namespace, machineName)
+				Expect(controllerutil.SetOwnerReference(machine, infraEnv, testScheme)).To(Succeed())
+				Expect(k8sClient.Create(ctx, infraEnv)).To(Succeed())
+
+				agent := testutils.NewAgentWithInfraEnvLabel(namespace, agentName, machineName)
+				Expect(k8sClient.Create(ctx, agent)).To(Succeed())
+
+				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: client.ObjectKeyFromObject(agent),
+				})
+				Expect(err).NotTo(HaveOccurred())
+
+				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(agent), agent)).To(Succeed())
+				Expect(agent.Spec.InstallerArgs).To(Equal(`["--copy-network"]`))
+			})
+		})
+
+		When("a bootstrap config has configured both kernel args and installer args", func() {
+			It("should reconcile with the installer args appended after the kernel args", func() {
+				oac := testutils.NewOpenshiftAssistedConfig(namespace, oacName, clusterName)
+				oac.Spec.KernelArguments = []aiv1beta1.KernelArgument{
+					{
+						Operation: "append",
+						Value:     "rd.neednet=1",
+					},
+				}
+				oac.Spec.InstallerArgs = []string{"--copy-network"}
+				Expect(k8sClient.Create(ctx, oac)).To(Succeed())
+
+				machine := testutils.NewMachine(namespace, machineName, clusterName)
+				machine.Spec.Bootstrap.ConfigRef = clusterv1.ContractVersionedObjectReference{
+					Name: oacName,
+				}
+				machine.Labels[clusterv1.MachineControlPlaneLabel] = "control-plane"
+				Expect(k8sClient.Create(ctx, machine)).To(Succeed())
+
+				infraEnv := testutils.NewInfraEnv(namespace, machineName)
+				Expect(controllerutil.SetOwnerReference(machine, infraEnv, testScheme)).To(Succeed())
+				Expect(k8sClient.Create(ctx, infraEnv)).To(Succeed())
+
+				agent := testutils.NewAgentWithInfraEnvLabel(namespace, agentName, machineName)
+				Expect(k8sClient.Create(ctx, agent)).To(Succeed())
+
+				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: client.ObjectKeyFromObject(agent),
+				})
+				Expect(err).NotTo(HaveOccurred())
+
+				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(agent), agent)).To(Succeed())
+				Expect(agent.Spec.InstallerArgs).To(Equal(`["--append-karg","rd.neednet=1","--copy-network"]`))
+			})
+		})
+
 		When("an Agent resource exists with another approved agent using the same infraenv", func() {
 			It("should not approve the new agent", func() {
 				By("Creating first agent with infraenv")

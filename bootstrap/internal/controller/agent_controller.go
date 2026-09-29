@@ -94,9 +94,16 @@ func (r *AgentReconciler) setAgentFields(ctx context.Context, agent *aiv1beta1.A
 		return err
 	}
 
+	installerArgs, err := getInstallerArgs(config)
+	if err != nil {
+		logger.V(logutil.DebugLevel).Info("failed to marshal installer args", "error", err)
+		return err
+	}
+
 	specModified := agent.Spec.Role != role ||
 		agent.Spec.IgnitionConfigOverrides != ignitionConfigOverrides ||
-		agent.Spec.Approved != approvable
+		agent.Spec.Approved != approvable ||
+		agent.Spec.InstallerArgs != installerArgs
 
 	if !specModified {
 		return nil
@@ -105,19 +112,23 @@ func (r *AgentReconciler) setAgentFields(ctx context.Context, agent *aiv1beta1.A
 	agent.Spec.Role = role
 	agent.Spec.IgnitionConfigOverrides = ignitionConfigOverrides
 	agent.Spec.Approved = approvable
-	installerArgs := make([]string, 0, len(config.Spec.KernelArguments))
+	agent.Spec.InstallerArgs = installerArgs
+	return r.Update(ctx, agent)
+}
+
+func getInstallerArgs(config *bootstrapv1alpha2.OpenshiftAssistedConfig) (string, error) {
+	installerArgs := make([]string, 0, 2*len(config.Spec.KernelArguments)+len(config.Spec.InstallerArgs))
 	for _, karg := range config.Spec.KernelArguments {
 		arg := fmt.Sprintf("--%s-karg", karg.Operation)
 		installerArgs = append(installerArgs, arg, karg.Value)
 	}
+	installerArgs = append(installerArgs, config.Spec.InstallerArgs...)
+
 	jsonBytes, err := json.Marshal(installerArgs)
 	if err != nil {
-		logger.V(logutil.DebugLevel).Info("failed to marshal installer args", "error", err)
-		return r.Update(ctx, agent)
+		return "", err
 	}
-
-	agent.Spec.InstallerArgs = string(jsonBytes)
-	return r.Update(ctx, agent)
+	return string(jsonBytes), nil
 }
 
 func (r *AgentReconciler) canApproveAgent(ctx context.Context, agent *aiv1beta1.Agent) (bool, error) {

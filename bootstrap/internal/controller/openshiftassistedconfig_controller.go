@@ -35,6 +35,7 @@ import (
 	"github.com/pkg/errors"
 
 	logutil "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/util/log"
+	capoutil "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/util"
 
 	hivev1 "github.com/openshift/hive/apis/hive/v1"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
@@ -62,6 +63,7 @@ import (
 
 const (
 	openshiftAssistedConfigFinalizer = "openshiftassistedconfig." + bootstrapv1alpha2.Group + "/deprovision"
+	openshiftAssistedConfigKind      = "OpenshiftAssistedConfig"
 	retryAfterHigh                   = 60 * time.Second
 )
 
@@ -143,20 +145,20 @@ func (r *OpenshiftAssistedConfigReconciler) Reconcile(ctx context.Context, req c
 		log.V(logutil.DebugLevel).Info("finished reconciling OpenshiftAssistedConfig")
 	}()
 
-	// Look up the owner of this openshiftassistedconfig if there is one
+	// Look up the owner of this openshiftassistedconfig if there is one.
 	configOwner, err := bsutil.GetTypedConfigOwner(ctx, r.Client, config)
 	if apierrors.IsNotFound(err) {
-		// Could not find the owner yet, this is not an error and will re-reconcile when the owner gets set.
 		log.V(logutil.DebugLevel).Info("config owner not found")
 		return ctrl.Result{}, nil
 	}
 	if err != nil {
 		return ctrl.Result{}, errors.Wrapf(err, "failed to get owner")
 	}
+
 	if configOwner == nil {
+		log.V(logutil.DebugLevel).Info("waiting for config to be owned by a Machine")
 		return ctrl.Result{}, nil
 	}
-
 	log.V(logutil.TraceLevel).Info("config owner found", "name", configOwner.GetName())
 
 	machine, err := capiutil.GetOwnerMachine(ctx, r.Client, config.ObjectMeta)
@@ -165,7 +167,7 @@ func (r *OpenshiftAssistedConfigReconciler) Reconcile(ctx context.Context, req c
 		return ctrl.Result{}, err
 	}
 	if machine == nil {
-		log.V(logutil.DebugLevel).Info("waiting for machine owner to be set")
+		log.V(logutil.DebugLevel).Info("waiting for machine to own this config")
 		return ctrl.Result{}, nil
 	}
 
@@ -177,11 +179,12 @@ func (r *OpenshiftAssistedConfigReconciler) Reconcile(ctx context.Context, req c
 		controllerutil.AddFinalizer(config, openshiftAssistedConfigFinalizer)
 	}
 
-	cluster, err := capiutil.GetClusterByName(ctx, r.Client, configOwner.GetNamespace(), configOwner.ClusterName())
+	clusterName := configOwner.ClusterName()
+	cluster, err := capiutil.GetClusterByName(ctx, r.Client, configOwner.GetNamespace(), clusterName)
 	if err != nil {
 		if errors.Cause(err) == capiutil.ErrNoCluster {
 			log.V(logutil.DebugLevel).
-				Info(fmt.Sprintf("%s does not belong to a cluster yet, waiting until it's part of a cluster", configOwner.GetKind()))
+				Info("config does not belong to a cluster yet, waiting until it's part of a cluster")
 			return ctrl.Result{}, nil
 		}
 
@@ -208,16 +211,25 @@ func (r *OpenshiftAssistedConfigReconciler) Reconcile(ctx context.Context, req c
 
 	// make sure Assisted Installer resources are reconciled. When they are, we'll get the infraEnv
 	// as it's necessary to retrieve ignition from it
-	infraEnv, result, err := r.reconcileAssistedResources(ctx, config, cluster)
+	infraEnv, result, err := r.reconcileAssistedResources(ctx, config, cluster, machine)
 	if infraEnv == nil {
 		return result, err
 	}
 
 	secretCreated := config.Status.Initialization.DataSecretCreated != nil && *(config.Status.Initialization.DataSecretCreated)
-	s := &corev1.Secret{}
-	if err := r.Get(ctx, getSecretObjectKey(config), s); !apierrors.IsNotFound(err) && secretCreated {
-		log.V(logutil.DebugLevel).Info("bootstrap config ready and secret already created")
-		return ctrl.Result{}, nil
+	if secretCreated {
+		s := &corev1.Secret{}
+		err := r.Get(ctx, getSecretObjectKey(config), s)
+		switch {
+		case err == nil:
+			log.V(logutil.DebugLevel).Info("bootstrap config ready and secret already created")
+			return ctrl.Result{}, nil
+		case apierrors.IsNotFound(err):
+			log.V(logutil.DebugLevel).Info("data secret was deleted, regenerating")
+			config.Status.Initialization.DataSecretCreated = nil
+		default:
+			return ctrl.Result{}, err
+		}
 	}
 
 	if infraEnv.Status.InfraEnvDebugInfo.EventsURL == "" {
@@ -260,6 +272,14 @@ func (r *OpenshiftAssistedConfigReconciler) Reconcile(ctx context.Context, req c
 		return ctrl.Result{}, err
 	}
 
+	// Merge discovery-specific components (e.g., fallback agent-start service
+	// for KubeVirt environments where normal Ignition enablement may fail).
+	ignition, err = ign.MergeDiscoveryIgnitionConfig(log, ignition)
+	if err != nil {
+		log.Error(err, "failed to merge discovery ignition config")
+		return ctrl.Result{}, err
+	}
+
 	secret, err := r.createUserDataSecret(ctx, config, ignition)
 	if err != nil {
 		log.Error(err, "could not create user data secret", "name", config.Name)
@@ -296,7 +316,10 @@ func (r *OpenshiftAssistedConfigReconciler) getIgnition(ctx context.Context, inf
 }
 
 func isInfrastructureProvisioned(cluster *clusterv1.Cluster) bool {
-	return cluster.Status.Initialization.InfrastructureProvisioned != nil && *(cluster.Status.Initialization.InfrastructureProvisioned)
+	if cluster.Status.Initialization.InfrastructureProvisioned != nil {
+		return *cluster.Status.Initialization.InfrastructureProvisioned
+	}
+	return false
 }
 
 // getHTTPClient returns a lazily-loaded HTTP client or the pre-set test client
@@ -472,10 +495,8 @@ func getSecretObjectKey(config *bootstrapv1alpha2.OpenshiftAssistedConfig) clien
 func (r *OpenshiftAssistedConfigReconciler) handleDeletion(ctx context.Context, config *bootstrapv1alpha2.OpenshiftAssistedConfig, owner *bsutil.ConfigOwner, machine *clusterv1.Machine) error {
 	log := ctrl.LoggerFrom(ctx)
 	if controllerutil.ContainsFinalizer(config, openshiftAssistedConfigFinalizer) {
-		// Check if it's a control plane node and if that cluster is being deleted
 		if _, isControlPlane := config.Labels[clusterv1.MachineControlPlaneLabel]; isControlPlane &&
 			owner.GetDeletionTimestamp().IsZero() {
-			// Don't remove finalizer if the controlplane is not being deleted
 			err := fmt.Errorf("agent bootstrap config belongs to control plane that's not being deleted")
 			log.Error(err, "unable to delete bootstrap config", "config", config.Namespace+"/"+config.Name)
 			return err
@@ -490,7 +511,6 @@ func (r *OpenshiftAssistedConfigReconciler) handleDeletion(ctx context.Context, 
 				return err
 			}
 		}
-		// Agent will be cascade deleted by removing the infraenv
 		controllerutil.RemoveFinalizer(config, openshiftAssistedConfigFinalizer)
 	}
 	return nil
@@ -535,7 +555,7 @@ func (r *OpenshiftAssistedConfigReconciler) FilterInfraEnv(ctx context.Context, 
 	result := []ctrl.Request{}
 	for _, ref := range o.GetOwnerReferences() {
 		refGV, _ := schema.ParseGroupVersion(ref.APIVersion)
-		if refGV.Group == bootstrapv1alpha2.Group && ref.Kind == "OpenshiftAssistedConfig" {
+		if refGV.Group == bootstrapv1alpha2.Group && ref.Kind == openshiftAssistedConfigKind {
 			result = append(result, ctrl.Request{
 				NamespacedName: types.NamespacedName{
 					Namespace: o.GetNamespace(),
@@ -566,17 +586,32 @@ func (r *OpenshiftAssistedConfigReconciler) FilterMachine(ctx context.Context, o
 }
 
 func isOpenshiftAssistedConfig(ref *clusterv1.ContractVersionedObjectReference) bool {
-	return ref.IsDefined() && ref.APIGroup == bootstrapv1alpha2.Group && ref.Kind == "OpenshiftAssistedConfig"
+	return ref.IsDefined() && ref.APIGroup == bootstrapv1alpha2.Group && ref.Kind == openshiftAssistedConfigKind
 }
 
-func (r *OpenshiftAssistedConfigReconciler) reconcileAssistedResources(ctx context.Context, config *bootstrapv1alpha2.OpenshiftAssistedConfig, cluster *clusterv1.Cluster) (*aiv1beta1.InfraEnv, ctrl.Result, error) {
-	logger := log.FromContext(ctx)
-	// Get the Machine that owns this openshiftassistedconfig
-	machine, err := capiutil.GetOwnerMachine(ctx, r.Client, config.ObjectMeta)
-	if err != nil {
-		logger.Error(err, "could not get machine associated with openshiftassistedconfig", "name", config.Name)
-		return nil, ctrl.Result{}, err
+// isDay0WorkerState returns true when a worker machine should be treated as day-0
+// (boot from InfraEnv ISO alongside masters) rather than day-2 (wait for install complete).
+// The allowed states match the assisted-service's AcceptRegistration logic.
+// For KubeVirt, workers also join during "ready" state since all nodes boot the
+// same InfraEnv ISO and register with the assisted-service together.
+func isDay0WorkerState(aci *v1beta1.AgentClusterInstall, cluster *clusterv1.Cluster) bool {
+	state := aci.Status.DebugInfo.State
+	if state == aimodels.ClusterStatusPendingForInput ||
+		state == aimodels.ClusterStatusInsufficient ||
+		state == aimodels.ClusterStatusAddingHosts ||
+		state == "" {
+		return true
 	}
+
+	if capoutil.IsKubeVirtPlatform(cluster) && state == aimodels.ClusterStatusReady {
+		return true
+	}
+
+	return false
+}
+
+func (r *OpenshiftAssistedConfigReconciler) reconcileAssistedResources(ctx context.Context, config *bootstrapv1alpha2.OpenshiftAssistedConfig, cluster *clusterv1.Cluster, machine *clusterv1.Machine) (*aiv1beta1.InfraEnv, ctrl.Result, error) {
+	logger := log.FromContext(ctx)
 
 	clusterDeployment, err := r.getClusterDeployment(ctx, cluster.GetName())
 	if err != nil {
@@ -605,8 +640,7 @@ func (r *OpenshiftAssistedConfigReconciler) reconcileAssistedResources(ctx conte
 	}
 
 	// if added worker after start install, will be treated as day2
-	if !capiutil.IsControlPlaneMachine(machine) &&
-		!(aci.Status.DebugInfo.State == aimodels.ClusterStatusAddingHosts || aci.Status.DebugInfo.State == aimodels.ClusterStatusPendingForInput || aci.Status.DebugInfo.State == aimodels.ClusterStatusInsufficient || aci.Status.DebugInfo.State == "") {
+	if !capiutil.IsControlPlaneMachine(machine) && !isDay0WorkerState(aci, cluster) {
 		logger.V(logutil.DebugLevel).Info("not controlplane machine and installation already started, requeuing")
 		v1beta1conditions.MarkFalse(
 			config,

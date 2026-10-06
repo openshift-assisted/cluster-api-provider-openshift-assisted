@@ -122,3 +122,9 @@ func GetWorkloadKubeconfig(
 	}
 	return kubeconfig, nil
 }
+
+// IsKubeVirtPlatform returns true if the Cluster uses KubevirtCluster as its
+// infrastructure provider.
+func IsKubeVirtPlatform(cluster *clusterv1.Cluster) bool {
+	return cluster != nil && cluster.Spec.InfrastructureRef.Kind == "KubevirtCluster"
+}

@@ -272,7 +272,7 @@ var _ = Describe("OpenshiftAssistedConfig Controller", func() {
 			func() {
 				It("should create data secret", func() {
 					// http://assisted-service.assisted-installer.com/api/assisted-install/v2/infra-envs/e6f55793-95f8-484e-83f3-ac33f05f274b/downloads/files?api_key=eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJpbmZyYV9lbnZfaWQiOiJlNmY1NTc5My05NWY4LTQ4NGUtODNmMy1hYzMzZjA1ZjI3NGIifQ.HCwlge7dTI8tUR2FC3YPhfIk7hG2p0tcbV1AzaZ2V_o-5lackqPHV18Ai3wPYnUPFLSgtW4-SnL28QsZRW82Vg&file_name=discovery.ign
-					mockResponse := `{"fake":"ignition"}`
+					mockResponse := `{"ignition":{"version":"3.1.0"},"storage":{},"systemd":{}}`
 					server := httptest.NewServer(http.HandlerFunc(
 						func(w http.ResponseWriter, r *http.Request) {
 							w.WriteHeader(http.StatusOK)
@@ -307,7 +307,7 @@ var _ = Describe("OpenshiftAssistedConfig Controller", func() {
 					ignition, ok := secret.Data["value"]
 					Expect(ok).To(BeTrue())
 					Expect(string(ignition)).ToNot(BeEmpty())
-					Expect(string(ignition)).To(Equal(mockResponse))
+					Expect(string(ignition)).To(ContainSubstring("ensure-agent.service"))
 
 				})
 			},
@@ -351,7 +351,7 @@ var _ = Describe("OpenshiftAssistedConfig Controller", func() {
 			func() {
 				It("should create data secret", func() {
 					// http://assisted-service.assisted-installer.com/api/assisted-install/v2/infra-envs/e6f55793-95f8-484e-83f3-ac33f05f274b/downloads/files?api_key=eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJpbmZyYV9lbnZfaWQiOiJlNmY1NTc5My05NWY4LTQ4NGUtODNmMy1hYzMzZjA1ZjI3NGIifQ.HCwlge7dTI8tUR2FC3YPhfIk7hG2p0tcbV1AzaZ2V_o-5lackqPHV18Ai3wPYnUPFLSgtW4-SnL28QsZRW82Vg&file_name=discovery.ign
-					mockResponse := `{"fake":"ignition"}`
+					mockResponse := `{"ignition":{"version":"3.1.0"},"storage":{},"systemd":{}}`
 
 					mockHandler := func(req *http.Request) (*http.Response, error) {
 						if req.URL.Host != "assisted-service.assisted-installer.com" {
@@ -397,7 +397,7 @@ var _ = Describe("OpenshiftAssistedConfig Controller", func() {
 					ignition, ok := secret.Data["value"]
 					Expect(ok).To(BeTrue())
 					Expect(string(ignition)).ToNot(BeEmpty())
-					Expect(string(ignition)).To(Equal(mockResponse))
+					Expect(string(ignition)).To(ContainSubstring("ensure-agent.service"))
 
 				})
 			})

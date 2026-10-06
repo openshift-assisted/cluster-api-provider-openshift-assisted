@@ -565,3 +565,53 @@ func MergeIgnitionConfigStrings(baseIgnition, overrideIgnition string) (string, 
 	}
 	return string(out), nil
 }
+
+// MergeDiscoveryIgnitionConfig merges discovery-specific systemd units into the
+// base ignition config. This adds an "ensure-agent" service that acts as a
+// safety net for environments where Ignition's normal unit enablement may
+// partially fail (e.g., KubeVirt VMs with config drive delivery).
+// Uses version-aware parsing to safely handle compatible Ignition versions.
+func MergeDiscoveryIgnitionConfig(log logr.Logger, baseIgnition []byte) ([]byte, error) {
+	config, _, err := v3_1.ParseCompatibleVersion(baseIgnition)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse ignition config: %w", err)
+	}
+
+	ensureAgentOverride := config_types.Config{
+		Ignition: config_types.Ignition{Version: config.Ignition.Version},
+		Systemd: config_types.Systemd{
+			Units: []config_types.Unit{getEnsureAgentUnit()},
+		},
+	}
+	config = v3_1.Merge(config, ensureAgentOverride)
+
+	return json.Marshal(config)
+}
+
+// getEnsureAgentUnit returns a systemd unit that verifies the assisted-installer
+// agent is running after boot. On KubeVirt VMs that use config-drive delivery
+// instead of the standard Ignition firstboot mechanism, the agent.service unit
+// may not be started automatically. This unit acts as a safety net: it waits
+// for networking, then checks if agent.service is active and starts it if not.
+func getEnsureAgentUnit() config_types.Unit {
+	contents := `[Unit]
+Description=Ensure assisted-installer agent is running
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStartPre=/bin/bash -c 'sleep 30'
+ExecStart=/bin/bash -c 'systemctl is-active agent.service >/dev/null 2>&1 && exit 0; systemctl enable agent.service 2>/dev/null || true; systemctl start agent.service'
+RemainAfterExit=true
+
+[Install]
+WantedBy=multi-user.target
+`
+	enabled := true
+	return config_types.Unit{
+		Contents: &contents,
+		Enabled:  &enabled,
+		Name:     "ensure-agent.service",
+	}
+}

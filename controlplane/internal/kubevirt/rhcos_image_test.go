@@ -8,6 +8,7 @@ import (
 
 	controlplanev1alpha3 "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/api/v1alpha3"
 	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/internal/kubevirt"
+	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -35,6 +36,7 @@ var _ = Describe("RHCOS Golden PVC", func() {
 		scheme = runtime.NewScheme()
 		utilruntime.Must(corev1.AddToScheme(scheme))
 		utilruntime.Must(batchv1.AddToScheme(scheme))
+		utilruntime.Must(appsv1.AddToScheme(scheme))
 		utilruntime.Must(controlplanev1alpha3.AddToScheme(scheme))
 
 		oacp = &controlplanev1alpha3.OpenshiftAssistedControlPlane{
@@ -213,6 +215,66 @@ var _ = Describe("RHCOS Golden PVC", func() {
 				Expect(job.Spec.Template.Spec.Containers[0].Env[0].Value).To(Equal("quay.io/release:4.22"))
 			})
 		})
+
+		Context("When the import Job needs to be created", func() {
+			It("should resolve the CDI importer image and create the import Job", func() {
+				cm := &corev1.ConfigMap{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "capoa-rhcos-url-4.22",
+						Namespace: namespace,
+					},
+					Data: map[string]string{
+						kubevirt.RHCOSURLConfigMapKey: "https://example.com/rhcos.ociarchive",
+					},
+				}
+				pvc := &corev1.PersistentVolumeClaim{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "rhcos-golden-4.22",
+						Namespace: namespace,
+					},
+				}
+				cdiDeploy := newCDIDeployment("registry.example.com/cdi-importer:v4.22")
+				fakeClient = fake.NewClientBuilder().WithScheme(scheme).WithObjects(oacp).Build()
+				infraClient = fake.NewClientBuilder().WithScheme(scheme).WithObjects(cm, pvc, cdiDeploy).Build()
+
+				ready, err := kubevirt.EnsureRHCOSGoldenPVC(ctx, fakeClient, infraClient, oacp,
+					"quay.io/release:4.22", "pull-secret", namespace, "")
+				Expect(err).NotTo(HaveOccurred())
+				Expect(ready).To(BeFalse())
+
+				job := &batchv1.Job{}
+				err = infraClient.Get(ctx, client.ObjectKey{Name: "rhcos-import-4.22", Namespace: namespace}, job)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(job.Spec.Template.Spec.Containers[0].Image).To(Equal("registry.example.com/cdi-importer:v4.22"))
+				Expect(job.Spec.Template.Spec.Containers[0].Command[0]).To(Equal("/bin/sh"))
+				Expect(job.Spec.Template.Spec.Containers[0].Command[2]).To(ContainSubstring("qemu-img convert -O raw"))
+			})
+
+			It("should return an error when CDI deployment is not found", func() {
+				cm := &corev1.ConfigMap{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "capoa-rhcos-url-4.22",
+						Namespace: namespace,
+					},
+					Data: map[string]string{
+						kubevirt.RHCOSURLConfigMapKey: "https://example.com/rhcos.ociarchive",
+					},
+				}
+				pvc := &corev1.PersistentVolumeClaim{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "rhcos-golden-4.22",
+						Namespace: namespace,
+					},
+				}
+				fakeClient = fake.NewClientBuilder().WithScheme(scheme).WithObjects(oacp).Build()
+				infraClient = fake.NewClientBuilder().WithScheme(scheme).WithObjects(cm, pvc).Build()
+
+				_, err := kubevirt.EnsureRHCOSGoldenPVC(ctx, fakeClient, infraClient, oacp,
+					"quay.io/release:4.22", "pull-secret", namespace, "")
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("failed to resolve CDI importer image"))
+			})
+		})
 	})
 })
 var _ = Describe("readURLFromJobPod", func() {
@@ -269,3 +331,101 @@ var _ = Describe("readURLFromJobPod", func() {
 		})
 	})
 })
+
+var _ = Describe("ResolveCDIImporterImage", func() {
+	var (
+		ctx    context.Context
+		scheme *runtime.Scheme
+	)
+
+	BeforeEach(func() {
+		ctx = context.Background()
+		scheme = runtime.NewScheme()
+		utilruntime.Must(appsv1.AddToScheme(scheme))
+		utilruntime.Must(corev1.AddToScheme(scheme))
+	})
+
+	Context("When the CDI deployment exists with IMPORTER_IMAGE env var", func() {
+		It("should return the importer image", func() {
+			deploy := newCDIDeployment("registry.example.com/cdi-importer:v4.22")
+			c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy).Build()
+
+			image, err := kubevirt.ResolveCDIImporterImage(ctx, c)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(image).To(Equal("registry.example.com/cdi-importer:v4.22"))
+		})
+	})
+
+	Context("When the CDI deployment does not exist", func() {
+		It("should return an error", func() {
+			c := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+			_, err := kubevirt.ResolveCDIImporterImage(ctx, c)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("CDI deployment openshift-cnv/cdi-deployment not found"))
+		})
+	})
+
+	Context("When the CDI deployment has no IMPORTER_IMAGE env var", func() {
+		It("should return an error", func() {
+			deploy := &appsv1.Deployment{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "cdi-deployment",
+					Namespace: "openshift-cnv",
+				},
+				Spec: appsv1.DeploymentSpec{
+					Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "cdi"}},
+					Template: corev1.PodTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "cdi"}},
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{Name: "cdi-operator", Env: []corev1.EnvVar{{Name: "OTHER_VAR", Value: "foo"}}},
+							},
+						},
+					},
+				},
+			}
+			c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy).Build()
+
+			_, err := kubevirt.ResolveCDIImporterImage(ctx, c)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("IMPORTER_IMAGE env var not found in CDI deployment openshift-cnv/cdi-deployment"))
+		})
+	})
+
+	Context("When IMPORTER_IMAGE env var is empty string", func() {
+		It("should return an error", func() {
+			deploy := newCDIDeployment("")
+			c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy).Build()
+
+			_, err := kubevirt.ResolveCDIImporterImage(ctx, c)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("IMPORTER_IMAGE env var not found in CDI deployment openshift-cnv/cdi-deployment"))
+		})
+	})
+})
+
+func newCDIDeployment(importerImage string) *appsv1.Deployment {
+	return &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "cdi-deployment",
+			Namespace: "openshift-cnv",
+		},
+		Spec: appsv1.DeploymentSpec{
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "cdi"}},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "cdi"}},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name: "cdi-operator",
+							Env: []corev1.EnvVar{
+								{Name: "IMPORTER_IMAGE", Value: importerImage},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+}

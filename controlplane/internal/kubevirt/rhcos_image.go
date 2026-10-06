@@ -24,6 +24,7 @@ import (
 	"time"
 
 	controlplanev1alpha3 "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/api/v1alpha3"
+	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -69,6 +70,11 @@ const (
 	// RelatedImageCLIEnvVar is the env var injected by OLM (via CSV RELATED_IMAGES)
 	// to provide a mirrored CLI/tools image for disconnected environments.
 	RelatedImageCLIEnvVar = "RELATED_IMAGE_CLI"
+
+	// CDI deployment coordinates for resolving the importer image at runtime.
+	cdiDeploymentName      = "cdi-deployment"
+	cdiDeploymentNamespace = "openshift-cnv"
+	cdiImporterImageEnvVar = "IMPORTER_IMAGE"
 )
 
 // GoldenPVCName returns the name of the golden PVC for a given OCP version.
@@ -85,11 +91,9 @@ func GoldenPVCName(version string) string {
 // The approach uses two Jobs:
 //  1. A URL-resolution Job extracts the RHCOS ociarchive download URL from the release
 //     payload's coreos-stream.json and writes it to /dev/termination-log.
-//  2. An import Job downloads the ociarchive, parses the OCI layout to find the disk
-//     layer, and streams the qcow2 directly to a block-mode PVC.
-//
-// No CDI, no container registry push, no qemu-img — only standard POSIX tools plus jq.
-// KubeVirt auto-detects qcow2 format on block PVCs.
+//  2. An import Job downloads the ociarchive, parses the OCI layout, extracts the
+//     qcow2 disk, and converts it to raw format using qemu-img (from the CDI importer
+//     image, resolved dynamically from the running CNV installation).
 //
 // Returns true when the golden PVC is ready (import Job succeeded).
 func EnsureRHCOSGoldenPVC(
@@ -177,7 +181,11 @@ func EnsureRHCOSGoldenPVC(
 		return false, fmt.Errorf("failed to check RHCOS import Job: %w", err)
 	}
 
-	job := buildRHCOSImportJob(jobName, namespace, pvcName, rhcosURL, GetJobImage(resolvedCliImage))
+	importImage, imgErr := ResolveCDIImporterImage(ctx, infraClient)
+	if imgErr != nil {
+		return false, fmt.Errorf("failed to resolve CDI importer image: %w", imgErr)
+	}
+	job := buildRHCOSImportJob(jobName, namespace, pvcName, rhcosURL, importImage)
 	if err := infraClient.Create(ctx, job); err != nil {
 		if errors.IsAlreadyExists(err) {
 			return false, nil
@@ -212,6 +220,25 @@ func setJobFailureCooldown(oacp *controlplanev1alpha3.OpenshiftAssistedControlPl
 	oacp.Annotations[jobFailedCooldownAnnotation] = time.Now().UTC().Format(time.RFC3339)
 }
 
+// ResolveCDIImporterImage dynamically resolves the CDI importer image from the
+// running CDI deployment. The CDI importer has qemu-img which is needed for
+// qcow2-to-raw conversion. CNV (and therefore CDI) is a prerequisite for
+// KubeVirt VM provisioning.
+func ResolveCDIImporterImage(ctx context.Context, c client.Client) (string, error) {
+	deploy := &appsv1.Deployment{}
+	if err := c.Get(ctx, client.ObjectKey{Name: cdiDeploymentName, Namespace: cdiDeploymentNamespace}, deploy); err != nil {
+		return "", fmt.Errorf("CDI deployment %s/%s not found: %w", cdiDeploymentNamespace, cdiDeploymentName, err)
+	}
+	for _, container := range deploy.Spec.Template.Spec.Containers {
+		for _, env := range container.Env {
+			if env.Name == cdiImporterImageEnvVar && env.Value != "" {
+				return env.Value, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("%s env var not found in CDI deployment %s/%s", cdiImporterImageEnvVar, cdiDeploymentNamespace, cdiDeploymentName)
+}
+
 func buildGoldenPVC(name, namespace string, oacp *controlplanev1alpha3.OpenshiftAssistedControlPlane) *corev1.PersistentVolumeClaim {
 	volumeMode := corev1.PersistentVolumeBlock
 	pvc := &corev1.PersistentVolumeClaim{
@@ -242,65 +269,70 @@ func buildGoldenPVC(name, namespace string, oacp *controlplanev1alpha3.Openshift
 
 func buildRHCOSImportJob(name, namespace, pvcName, rhcosURL, jobImage string) *batchv1.Job {
 	// The RHCOS kubevirt ociarchive is ~1GB compressed. The script extracts
-	// the disk filename from the OCI layer's tar listing, then streams the
-	// disk directly to the block device in a single decompression pass.
-	script := `#!/bin/bash
-set -euo pipefail
+	// the qcow2 disk from the OCI layer and converts it to raw format using
+	// qemu-img (available in the CDI importer image, resolved dynamically from
+	// the running CNV installation). Block PVCs require raw format because
+	// KubeVirt mounts them with driver type='raw'.
+	// Note: CDI importer image has sh (not bash), curl, tar, sed, grep, qemu-img
+	// but NOT jq, python3, or bash.
+	script := `#!/bin/sh
+set -eu
 
 WORKDIR=$(mktemp -d)
-cleanup() { rm -rf "$WORKDIR"; }
-trap cleanup EXIT
-
+EXTRACT_DIR=""
+trap 'rm -rf "$WORKDIR" "$EXTRACT_DIR" 2>/dev/null' EXIT
 cd "$WORKDIR"
 
 echo "Downloading ociarchive from $RHCOS_URL..."
 curl -fsSL --retry 3 --retry-delay 5 "$RHCOS_URL" -o rhcos.ociarchive
-echo "Download complete ($(du -h rhcos.ociarchive | cut -f1))"
+echo "Download complete"
 
 echo "Extracting ociarchive..."
 tar xf rhcos.ociarchive
 rm -f rhcos.ociarchive
 
 if [ ! -f index.json ]; then
-  echo "ERROR: Not a valid OCI archive — index.json missing" >&2
-  ls -la >&2
+  echo "ERROR: Not a valid OCI archive" >&2
   exit 1
 fi
 
 echo "Parsing OCI layout..."
-MANIFEST_DIGEST=$(jq -r '.manifests[0].digest' index.json | sed 's/sha256://')
-if [ -z "$MANIFEST_DIGEST" ] || [ "$MANIFEST_DIGEST" = "null" ]; then
+# Extract the first manifest digest from "manifests" array in index.json.
+# OCI index.json has a top-level "manifests" array; we grep for "digest" lines
+# only after seeing "manifests", taking the first match.
+MANIFEST_DIGEST=$(sed -n '/"manifests"/,/\]/{ s/.*"digest"[[:space:]]*:[[:space:]]*"sha256:\([a-f0-9]*\)".*/\1/p; }' index.json | head -1)
+if [ -z "$MANIFEST_DIGEST" ]; then
   echo "ERROR: Could not parse manifest digest from index.json" >&2
   cat index.json >&2
   exit 1
 fi
 MANIFEST_PATH="blobs/sha256/$MANIFEST_DIGEST"
 
-LAYER_DIGEST=$(jq -r '.layers[-1].digest' "$MANIFEST_PATH" | sed 's/sha256://')
-if [ -z "$LAYER_DIGEST" ] || [ "$LAYER_DIGEST" = "null" ]; then
+# Extract the last layer digest from the "layers" array in the manifest.
+# The disk layer is typically the last (or only) layer in RHCOS ociarchives.
+LAYER_DIGEST=$(sed -n '/"layers"/,/\]/{ s/.*"digest"[[:space:]]*:[[:space:]]*"sha256:\([a-f0-9]*\)".*/\1/p; }' "$MANIFEST_PATH" | tail -1)
+if [ -z "$LAYER_DIGEST" ]; then
   echo "ERROR: Could not parse layer digest from manifest" >&2
-  jq . "$MANIFEST_PATH" >&2
+  cat "$MANIFEST_PATH" >&2
   exit 1
 fi
 LAYER_PATH="blobs/sha256/$LAYER_DIGEST"
 echo "  manifest=$MANIFEST_DIGEST"
-echo "  disk_layer=$LAYER_DIGEST ($(du -h "$LAYER_PATH" | cut -f1))"
+echo "  layer=$LAYER_DIGEST"
 
-echo "Identifying disk file in layer..."
-# Extract filename from OCI manifest annotations if available, fall back to tar listing
-DISK_NAME=$(jq -r '.layers[-1].annotations["org.opencontainers.image.title"] // empty' "$MANIFEST_PATH" 2>/dev/null)
-if [ -z "$DISK_NAME" ] || ! echo "$DISK_NAME" | grep -qE '\.(qcow2|raw|img)$'; then
-  DISK_NAME=$(gunzip -c "$LAYER_PATH" | tar -tf - | grep -E '\.(qcow2|raw|img)$' | head -1)
-fi
-if [ -z "$DISK_NAME" ]; then
+echo "Extracting disk from layer..."
+EXTRACT_DIR=$(mktemp -d)
+gunzip -c "$LAYER_PATH" | tar -xf - -C "$EXTRACT_DIR"
+
+DISK_FILE=$(find "$EXTRACT_DIR" -type f \( -name "*.qcow2" -o -name "*.raw" -o -name "*.img" \) | head -1)
+if [ -z "$DISK_FILE" ]; then
   echo "ERROR: No disk file found in layer" >&2
-  gunzip -c "$LAYER_PATH" | tar -tf - >&2
   exit 1
 fi
-echo "  disk_file=$DISK_NAME"
+echo "  disk=$DISK_FILE"
 
-echo "Streaming disk to /dev/disk..."
-gunzip -c "$LAYER_PATH" | tar -xf - --to-stdout "$DISK_NAME" | dd of=/dev/disk bs=4M status=progress
+echo "Converting disk to raw on block device /dev/disk..."
+qemu-img convert -O raw -t none "$DISK_FILE" /dev/disk
 
 echo "Disk write complete."
 `
@@ -321,7 +353,7 @@ echo "Disk write complete."
 						{
 							Name:    "import-rhcos",
 							Image:   jobImage,
-							Command: []string{"/bin/bash", "-c", script},
+							Command: []string{"/bin/sh", "-c", script},
 							Env: []corev1.EnvVar{
 								{Name: "RHCOS_URL", Value: rhcosURL},
 							},

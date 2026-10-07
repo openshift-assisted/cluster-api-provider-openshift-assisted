@@ -656,12 +656,15 @@ func (r *OpenshiftAssistedControlPlaneReconciler) upgradeWorkloadCluster(ctx con
 		return ctrl.Result{}, err
 	}
 
-	// Always sync the tenant's actual running version into status
+	// Sync the tenant's actual running version into status.
+	// During initial installation the ClusterVersion may have no completed history yet,
+	// so we tolerate the error and keep the previous status value.
 	currentVersion, err := upgrader.GetCurrentVersion(ctx)
 	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("failed to get OpenShift version from ClusterVersion: %w", err)
+		log.Info("could not retrieve current version from ClusterVersion (cluster may still be installing)", "error", err)
+	} else {
+		oacp.Status.DistributionVersion = currentVersion
 	}
-	oacp.Status.DistributionVersion = currentVersion
 
 	specVersion, specErr := semver.ParseTolerant(oacp.Spec.DistributionVersion)
 	statusVersion, statusErr := semver.ParseTolerant(oacp.Status.DistributionVersion)
@@ -1127,7 +1130,10 @@ func (r *OpenshiftAssistedControlPlaneReconciler) reconcileEtcdMembers(ctx conte
 
 	etcdMembers, err := r.WorkloadClientGenerator.ListEtcdMembers(ctx, kubeconfig)
 	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("failed to list etcd members: %w", err)
+		// During initial installation the etcd-client secret may not exist yet.
+		// Log and skip rather than blocking the reconcile loop.
+		log.Info("could not list etcd members (cluster may still be installing)", "error", err)
+		return ctrl.Result{}, nil
 	}
 
 	if len(etcdMembers) == 0 {
@@ -1547,12 +1553,11 @@ func (r *OpenshiftAssistedControlPlaneReconciler) generateOpenshiftAssistedConfi
 		// Only inject DNS/resolv.conf config for pod networking (no VIPs).
 		// Bridge networking VMs get DNS from DHCP and don't need the infra CoreDNS.
 		discoveryAPIServiceIP := apiServiceIP
+		infraCoreDNSAddr := infraCoreDNSIP
 		if kubevirt.IsBridgeNetworking(oacp.Spec.Config.APIVIPs, oacp.Spec.Config.IngressVIPs) {
 			discoveryAPIServiceIP = ""
-		}
-
-		infraCoreDNSAddr := infraCoreDNSIP
-		if infraCoreDNSAddr == "" {
+			infraCoreDNSAddr = ""
+		} else if infraCoreDNSAddr == "" {
 			infraCoreDNSAddr = "172.30.0.10"
 		}
 

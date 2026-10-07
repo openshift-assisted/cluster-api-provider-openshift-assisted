@@ -158,18 +158,23 @@ WantedBy=multi-user.target
 // KubeVirtInstallIgnitionOverride generates the install-time ignition override for
 // KubeVirt platform. This configures:
 //   - SSH key for core user
-//   - DNS resolution pointing to infra cluster's CoreDNS
-//   - NetworkManager configured to not override /etc/resolv.conf
-//   - IPv4 preference over IPv6 (avoids AAAA lookup failures in dual-stack)
 //   - Placeholder manifests to prevent bootkube crash on empty manifest dirs
+//
+// DNS resolution for the installed OS is handled entirely by the MachineConfig
+// (00-fix-dns-pod-network) rendered by the MCS, which provides /etc/resolv.conf
+// with proper search domains and ndots, /etc/NetworkManager dns=none, and the
+// capoa-hosts-entry systemd service. Adding DNS files here would conflict with
+// and override the MCS-rendered files (Ignition parent config takes precedence
+// over merged config), breaking DNS resolution on the installed node.
 func KubeVirtInstallIgnitionOverride(sshKey string) (string, error) {
-	// Install ignition: only include files that don't conflict with the MCS-served config.
-	// DNS resolution for api-int is handled by the DNS forwarding rule (CoreDNS -> DNS proxy),
-	// so no /etc/resolv.conf, /etc/hosts, or NetworkManager overrides are needed here.
-	files := []ignFile{
-		{Path: "/opt/openshift/manifests/placeholder.yaml", Mode: 0644, Overwrite: true, Contents: &ignContents{Source: dataURL(placeholderManifest)}},
-		{Path: "/opt/openshift/openshift/placeholder.yaml", Mode: 0644, Overwrite: true, Contents: &ignContents{Source: dataURL(placeholderManifest)}},
-	}
+	files := make([]ignFile, 0, 2)
+
+	files = append(files,
+		ignFile{Path: "/opt/openshift/manifests/placeholder.yaml", Mode: 0644, Overwrite: true,
+			Contents: &ignContents{Source: dataURL(placeholderManifest)}},
+		ignFile{Path: "/opt/openshift/openshift/placeholder.yaml", Mode: 0644, Overwrite: true,
+			Contents: &ignContents{Source: dataURL(placeholderManifest)}},
+	)
 
 	config := ignitionConfig{
 		Ignition: ignitionVersion{Version: "3.1.0"},

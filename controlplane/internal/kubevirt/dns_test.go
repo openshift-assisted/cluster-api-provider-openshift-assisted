@@ -58,11 +58,26 @@ var _ = Describe("Ignition Overrides", func() {
 	})
 
 	Describe("KubeVirtInstallIgnitionOverride", func() {
-		It("should generate valid ignition JSON with SSH key", func() {
+		It("should generate valid ignition JSON with SSH key and placeholder manifests", func() {
 			override, err := kubevirt.KubeVirtInstallIgnitionOverride("ssh-rsa AAAA...")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(override).To(ContainSubstring("ignition"))
 			Expect(override).To(ContainSubstring("ssh-rsa AAAA..."))
+			Expect(override).To(ContainSubstring("placeholder"))
+			// DNS files must NOT be in install ignition — the MachineConfig rendered
+			// by MCS provides the correct DNS config; adding them here would override
+			// the MCS files due to Ignition parent-config-takes-precedence merge semantics.
+			Expect(override).NotTo(ContainSubstring("resolv.conf"))
+			Expect(override).NotTo(ContainSubstring("99-capoa-dns"))
+			Expect(override).NotTo(ContainSubstring("gai.conf"))
+		})
+
+		It("should generate valid ignition JSON without SSH key", func() {
+			override, err := kubevirt.KubeVirtInstallIgnitionOverride("")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(override).To(ContainSubstring("ignition"))
+			Expect(override).To(ContainSubstring("placeholder"))
+			Expect(override).NotTo(ContainSubstring("resolv.conf"))
 		})
 	})
 })

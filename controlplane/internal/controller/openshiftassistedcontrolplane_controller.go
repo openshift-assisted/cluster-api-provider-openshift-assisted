@@ -1249,12 +1249,11 @@ func (r *OpenshiftAssistedControlPlaneReconciler) generateOpenshiftAssistedConfi
 		// Only inject DNS/resolv.conf config for pod networking (no VIPs).
 		// Bridge networking VMs get DNS from DHCP and don't need the infra CoreDNS.
 		discoveryAPIServiceIP := apiServiceIP
+		infraCoreDNSAddr := infraCoreDNSIP
 		if kubevirt.IsBridgeNetworking(oacp.Spec.Config.APIVIPs, oacp.Spec.Config.IngressVIPs) {
 			discoveryAPIServiceIP = ""
-		}
-
-		infraCoreDNSAddr := infraCoreDNSIP
-		if infraCoreDNSAddr == "" {
+			infraCoreDNSAddr = ""
+		} else if infraCoreDNSAddr == "" {
 			infraCoreDNSAddr = "172.30.0.10"
 		}
 
@@ -1265,7 +1264,7 @@ func (r *OpenshiftAssistedControlPlaneReconciler) generateOpenshiftAssistedConfi
 		}
 
 		if _, exists := annotations[bootstrapv1alpha2.IgnitionOverrideAnnotation]; !exists {
-			if override, err := kubevirt.KubeVirtInstallIgnitionOverride(sshKey); err == nil && override != "" {
+			if override, err := kubevirt.KubeVirtInstallIgnitionOverride(sshKey, infraCoreDNSAddr); err == nil && override != "" {
 				annotations[bootstrapv1alpha2.IgnitionOverrideAnnotation] = override
 			}
 		}

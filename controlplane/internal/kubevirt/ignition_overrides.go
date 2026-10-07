@@ -158,18 +158,33 @@ WantedBy=multi-user.target
 // KubeVirtInstallIgnitionOverride generates the install-time ignition override for
 // KubeVirt platform. This configures:
 //   - SSH key for core user
-//   - DNS resolution pointing to infra cluster's CoreDNS
-//   - NetworkManager configured to not override /etc/resolv.conf
-//   - IPv4 preference over IPv6 (avoids AAAA lookup failures in dual-stack)
+//   - DNS resolution pointing to infra cluster's CoreDNS (when infraDNSIP is provided)
+//   - NetworkManager configured to not override /etc/resolv.conf (when infraDNSIP is provided)
+//   - IPv4 preference over IPv6 (when infraDNSIP is provided)
 //   - Placeholder manifests to prevent bootkube crash on empty manifest dirs
-func KubeVirtInstallIgnitionOverride(sshKey string) (string, error) {
-	// Install ignition: only include files that don't conflict with the MCS-served config.
-	// DNS resolution for api-int is handled by the DNS forwarding rule (CoreDNS -> DNS proxy),
-	// so no /etc/resolv.conf, /etc/hosts, or NetworkManager overrides are needed here.
-	files := []ignFile{
-		{Path: "/opt/openshift/manifests/placeholder.yaml", Mode: 0644, Overwrite: true, Contents: &ignContents{Source: dataURL(placeholderManifest)}},
-		{Path: "/opt/openshift/openshift/placeholder.yaml", Mode: 0644, Overwrite: true, Contents: &ignContents{Source: dataURL(placeholderManifest)}},
+//
+// When infraDNSIP is empty, DNS files are omitted (e.g. bridge-networking VMs
+// that get DNS from DHCP).
+func KubeVirtInstallIgnitionOverride(sshKey, infraDNSIP string) (string, error) {
+	var files []ignFile
+
+	if infraDNSIP != "" {
+		files = append(files,
+			ignFile{Path: "/etc/resolv.conf", Mode: 0644, Overwrite: true,
+				Contents: &ignContents{Source: dataURL(fmt.Sprintf("nameserver %s\n", infraDNSIP))}},
+			ignFile{Path: "/etc/NetworkManager/conf.d/99-capoa-dns.conf", Mode: 0644, Overwrite: true,
+				Contents: &ignContents{Source: dataURL("[main]\ndns=none\n")}},
+			ignFile{Path: "/etc/gai.conf", Mode: 0644, Overwrite: true,
+				Contents: &ignContents{Source: dataURL("precedence ::ffff:0/0 100\n")}},
+		)
 	}
+
+	files = append(files,
+		ignFile{Path: "/opt/openshift/manifests/placeholder.yaml", Mode: 0644, Overwrite: true,
+			Contents: &ignContents{Source: dataURL(placeholderManifest)}},
+		ignFile{Path: "/opt/openshift/openshift/placeholder.yaml", Mode: 0644, Overwrite: true,
+			Contents: &ignContents{Source: dataURL(placeholderManifest)}},
+	)
 
 	config := ignitionConfig{
 		Ignition: ignitionVersion{Version: "3.1.0"},

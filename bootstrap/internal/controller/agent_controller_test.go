@@ -38,6 +38,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
+const controlPlaneLabel = "control-plane"
+
 var _ = Describe("Agent Controller", func() {
 	Context("When reconciling a resource", func() {
 		ctx := context.Background()
@@ -223,7 +225,7 @@ var _ = Describe("Agent Controller", func() {
 				machine.Spec.Bootstrap.ConfigRef = clusterv1.ContractVersionedObjectReference{
 					Name: oacName,
 				}
-				machine.Labels[clusterv1.MachineControlPlaneLabel] = "control-plane"
+				machine.Labels[clusterv1.MachineControlPlaneLabel] = controlPlaneLabel
 				Expect(k8sClient.Create(ctx, machine)).To(Succeed())
 
 				By("Creating the matching InfraEnv")
@@ -266,7 +268,7 @@ var _ = Describe("Agent Controller", func() {
 				machine.Spec.Bootstrap.ConfigRef = clusterv1.ContractVersionedObjectReference{
 					Name: oacName,
 				}
-				machine.Labels[clusterv1.MachineControlPlaneLabel] = "control-plane"
+				machine.Labels[clusterv1.MachineControlPlaneLabel] = controlPlaneLabel
 				Expect(k8sClient.Create(ctx, machine)).To(Succeed())
 
 				infraEnv := testutils.NewInfraEnv(namespace, machineName)
@@ -296,7 +298,7 @@ var _ = Describe("Agent Controller", func() {
 				machine.Spec.Bootstrap.ConfigRef = clusterv1.ContractVersionedObjectReference{
 					Name: oacName,
 				}
-				machine.Labels[clusterv1.MachineControlPlaneLabel] = "control-plane"
+				machine.Labels[clusterv1.MachineControlPlaneLabel] = controlPlaneLabel
 				Expect(k8sClient.Create(ctx, machine)).To(Succeed())
 
 				infraEnv := testutils.NewInfraEnv(namespace, machineName)
@@ -332,7 +334,7 @@ var _ = Describe("Agent Controller", func() {
 				machine.Spec.Bootstrap.ConfigRef = clusterv1.ContractVersionedObjectReference{
 					Name: oacName,
 				}
-				machine.Labels[clusterv1.MachineControlPlaneLabel] = "control-plane"
+				machine.Labels[clusterv1.MachineControlPlaneLabel] = controlPlaneLabel
 				Expect(k8sClient.Create(ctx, machine)).To(Succeed())
 
 				infraEnv := testutils.NewInfraEnv(namespace, machineName)

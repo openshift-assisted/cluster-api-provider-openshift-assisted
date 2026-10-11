@@ -498,11 +498,14 @@ var _ = Describe("Upgrade scenarios", func() {
 		mockUpgrader.EXPECT().GetUpgradeStatus(gomock.Any()).Return("", nil)
 		mockUpgrader.EXPECT().GetCurrentVersion(gomock.Any()).Return("", expectedError)
 
-		// When current version can't be determined, the controller returns an error
-		// to preserve the existing status and retry.
-		_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
-		Expect(err).To(HaveOccurred())
-		Expect(err.Error()).To(ContainSubstring("failed to get OpenShift version"))
+		// When current version can't be determined (cluster may still be installing,
+		// e.g. ClusterVersion has no completed history entry yet), the controller
+		// defers upgrade reconciliation gracefully rather than treating this as a
+		// hard error, and crucially must not fall through to the upgrade-push logic
+		// with a stale/empty status.DistributionVersion.
+		result, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(result.RequeueAfter).To(Equal(30 * time.Second))
 	})
 
 	It("should not push upgrade when already in progress regardless of repository override", func() {

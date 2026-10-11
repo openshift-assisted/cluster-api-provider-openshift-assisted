@@ -657,14 +657,20 @@ func (r *OpenshiftAssistedControlPlaneReconciler) upgradeWorkloadCluster(ctx con
 	}
 
 	// Sync the tenant's actual running version into status.
-	// During initial installation the ClusterVersion may have no completed history yet,
-	// so we tolerate the error and keep the previous status value.
+	// During initial installation the ClusterVersion may have no completed history yet.
+	// We must not fall through to the upgrade-push logic below with a stale/empty
+	// status.DistributionVersion: the "already at desired version" and "don't push a
+	// downgrade" guards both short-circuit on a successful semver parse of the status
+	// version, so an unknown status would otherwise fall through to unconditionally
+	// pushing spec.DistributionVersion as a "new" upgrade on every reconcile during
+	// install, even when spec and the version about to complete installing are
+	// identical.
 	currentVersion, err := upgrader.GetCurrentVersion(ctx)
 	if err != nil {
-		log.Info("could not retrieve current version from ClusterVersion (cluster may still be installing)", "error", err)
-	} else {
-		oacp.Status.DistributionVersion = currentVersion
+		log.Info("could not retrieve current version from ClusterVersion (cluster may still be installing), deferring upgrade reconciliation", "error", err)
+		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 	}
+	oacp.Status.DistributionVersion = currentVersion
 
 	specVersion, specErr := semver.ParseTolerant(oacp.Spec.DistributionVersion)
 	statusVersion, statusErr := semver.ParseTolerant(oacp.Status.DistributionVersion)
@@ -710,12 +716,14 @@ func (r *OpenshiftAssistedControlPlaneReconciler) upgradeWorkloadCluster(ctx con
 			"spec", oacp.Spec.DistributionVersion, "status", oacp.Status.DistributionVersion)
 	}
 
-	if isDesiredVersionUpdated && isUpdateInProgress {
-		log.V(logutil.DebugLevel).Info("desired version is updated, but did not complete upgrade yet, re-reconciling")
-		return ctrl.Result{
-			Requeue:      true,
-			RequeueAfter: 1 * time.Minute,
-		}, nil
+	// If an upgrade is already in progress (and wasn't just reverted above as an
+	// external upgrade), never push another desiredUpdate on top of it — regardless
+	// of whether it happens to match what we want yet. Pushing while CVO is mid-flight
+	// risks redirecting/restarting an update that's already underway. Just observe.
+	if isUpdateInProgress {
+		log.V(logutil.DebugLevel).Info("upgrade already in progress, re-reconciling",
+			"desiredVersionUpdated", isDesiredVersionUpdated)
+		return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
 	}
 
 	if isWorkloadClusterRunningDesiredVersion(oacp) && !isUpdateInProgress {
@@ -733,10 +741,7 @@ func (r *OpenshiftAssistedControlPlaneReconciler) upgradeWorkloadCluster(ctx con
 	}
 
 	// Push controller-initiated upgrade
-	return ctrl.Result{
-			Requeue:      true,
-			RequeueAfter: 1 * time.Minute,
-		},
+	return ctrl.Result{RequeueAfter: 1 * time.Minute},
 		upgrader.UpdateClusterVersionDesiredUpdate(
 			ctx,
 			oacp.Spec.DistributionVersion,

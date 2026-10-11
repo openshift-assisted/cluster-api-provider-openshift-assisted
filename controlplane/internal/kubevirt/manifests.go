@@ -79,13 +79,30 @@ spec:
 //
 // 1. DNS fix: Ensures /etc/resolv.conf points to the infra CoreDNS IP so that
 //    kubelet can resolve api-int and join the cluster during bootstrap.
+//    DNS resolution goes through: resolv.conf → infra CoreDNS (172.30.0.10) →
+//    DNS proxy → bootstrap pod IP (during installation) or service ClusterIP
+//    (post-install). We deliberately do NOT add /etc/hosts entries for api-int
+//    because /etc/hosts takes precedence over DNS and would bypass the DNS proxy's
+//    bootstrap-aware routing. The DNS proxy correctly routes api-int to the
+//    bootstrap pod's direct IP during installation, avoiding the service ClusterIP
+//    which load-balances across all VM pods (including those not yet running
+//    kube-apiserver).
 //
 // 2. TX checksum/TSO fix: Disables TX checksum offloading and TSO on the guest NIC.
 //    KubeVirt 1.8+ (CNV 4.22+) enables TX checksum on the k6t bridge, causing packets
 //    with CHECKSUM_PARTIAL to reach the VM. OVS inside the VM (used by OVN-Kubernetes)
 //    can't handle partial checksums on raw AF_PACKET sockets, preventing Geneve tunnel
 //    establishment and breaking nested OVN bootstrap.
-func GeneratePodNetworkDNSFixManifests(clusterName, baseDomain, apiClusterIP, infraCoreDNSIP string) []ManifestEntry {
+//
+//    This is applied via a udev rule (not a systemd service ordered after
+//    NetworkManager-wait-online.service) so it takes effect the instant the NIC is
+//    created by the kernel — before NetworkManager ever starts DHCP on it and long
+//    before ovs-configuration.service runs. Applying this later, against a live
+//    already-addressed interface, lets `ethtool -K` momentarily reset the NIC; that
+//    reset can race with ovs-configuration.service reading the interface's IP to
+//    migrate it onto br-ex, occasionally leaving the node with no usable address on
+//    either interface until the VM is rebooted.
+func GeneratePodNetworkDNSFixManifests(clusterName, baseDomain, _, infraCoreDNSIP string) []ManifestEntry {
 	if infraCoreDNSIP == "" {
 		infraCoreDNSIP = defaultInfraCoreDNSIP
 	}
@@ -93,51 +110,15 @@ func GeneratePodNetworkDNSFixManifests(clusterName, baseDomain, apiClusterIP, in
 	resolvConf := fmt.Sprintf("nameserver %s\nsearch cluster.local svc.cluster.local\noptions ndots:5\n", infraCoreDNSIP)
 	resolvConfB64 := base64.StdEncoding.EncodeToString([]byte(resolvConf))
 
-	apiIntHostname := fmt.Sprintf("api-int.%s.%s", clusterName, baseDomain)
-	apiHostname := fmt.Sprintf("api.%s.%s", clusterName, baseDomain)
-
-	hostsLine := ""
-	if apiClusterIP != "" {
-		hostsLine = fmt.Sprintf("%s %s %s\n", apiClusterIP, apiIntHostname, apiHostname)
-	}
-
-	hostsServiceUnit := ""
-	if hostsLine != "" {
-		hostsServiceUnit = fmt.Sprintf(`      - name: capoa-hosts-entry.service
-        enabled: true
-        contents: |
-          [Unit]
-          Description=Add api-int hosts entry for KubeVirt pod-networking
-          Before=kubelet.service crio.service
-          After=NetworkManager-wait-online.service
-
-          [Service]
-          Type=oneshot
-          ExecStart=/bin/bash -c 'grep -q "%s" /etc/hosts || echo "%s %s %s" >> /etc/hosts'
-
-          [Install]
-          WantedBy=multi-user.target
-`, apiIntHostname, apiClusterIP, apiIntHostname, apiHostname)
-	}
-
-	// ethtool unit disables TX checksum offloading and TSO on the guest NIC to fix
-	// nested OVN bootstrap on KubeVirt 1.8+ where the k6t bridge enables TX checksum.
-	ethtoolUnit := `      - name: capoa-fix-tx-offload.service
-        enabled: true
-        contents: |
-          [Unit]
-          Description=Disable TX checksum and TSO offload for KubeVirt guest NIC
-          After=NetworkManager-wait-online.service
-          Before=ovs-configuration.service openvswitch.service
-
-          [Service]
-          Type=oneshot
-          ExecStart=/usr/sbin/ethtool -K enp1s0 tx-checksum-ip-generic off tx off tso off
-          RemainAfterExit=true
-
-          [Install]
-          WantedBy=multi-user.target
+	// udev rule disables TX checksum offloading and TSO on the guest NIC the instant
+	// it's created, to fix nested OVN bootstrap on KubeVirt 1.8+ where the k6t bridge
+	// enables TX checksum. Running this at udev-time (rather than via a systemd
+	// service ordered after NetworkManager-wait-online.service) avoids resetting an
+	// already-addressed interface, which could otherwise race with
+	// ovs-configuration.service and leave the node without a usable IP.
+	ethtoolUdevRule := `ACTION=="add", SUBSYSTEM=="net", NAME=="enp1s0", RUN+="/usr/sbin/ethtool -K enp1s0 tx-checksum-ip-generic off tx off tso off"
 `
+	ethtoolUdevRuleB64 := base64.StdEncoding.EncodeToString([]byte(ethtoolUdevRule))
 
 	return []ManifestEntry{
 		{
@@ -164,9 +145,14 @@ spec:
         overwrite: true
         contents:
           source: "data:text/plain;charset=utf-8;base64,W21haW5dCmRucz1ub25lCg=="
+      - path: /etc/udev/rules.d/99-capoa-fix-tx-offload.rules
+        mode: 0644
+        overwrite: true
+        contents:
+          source: "data:text/plain;charset=utf-8;base64,%s"
     systemd:
       units:
-%s%s      - name: nodeip-configuration.service
+      - name: nodeip-configuration.service
         enabled: false
       - name: set-node-ip.service
         enabled: true
@@ -182,7 +168,7 @@ spec:
 
           [Install]
           RequiredBy=kubelet-dependencies.target
-`, resolvConfB64, hostsServiceUnit, ethtoolUnit),
+`, resolvConfB64, ethtoolUdevRuleB64),
 		},
 		{
 			Filename: "00-fix-dns-pod-network-worker.yaml",
@@ -208,9 +194,14 @@ spec:
         overwrite: true
         contents:
           source: "data:text/plain;charset=utf-8;base64,W21haW5dCmRucz1ub25lCg=="
+      - path: /etc/udev/rules.d/99-capoa-fix-tx-offload.rules
+        mode: 0644
+        overwrite: true
+        contents:
+          source: "data:text/plain;charset=utf-8;base64,%s"
     systemd:
       units:
-%s%s      - name: nodeip-configuration.service
+      - name: nodeip-configuration.service
         enabled: false
       - name: set-node-ip.service
         enabled: true
@@ -226,7 +217,7 @@ spec:
 
           [Install]
           RequiredBy=kubelet-dependencies.target
-`, resolvConfB64, hostsServiceUnit, ethtoolUnit),
+`, resolvConfB64, ethtoolUdevRuleB64),
 		},
 	}
 }

@@ -162,10 +162,12 @@ WantedBy=multi-user.target
 //
 // DNS resolution for the installed OS is handled entirely by the MachineConfig
 // (00-fix-dns-pod-network) rendered by the MCS, which provides /etc/resolv.conf
-// with proper search domains and ndots, /etc/NetworkManager dns=none, and the
-// capoa-hosts-entry systemd service. Adding DNS files here would conflict with
-// and override the MCS-rendered files (Ignition parent config takes precedence
-// over merged config), breaking DNS resolution on the installed node.
+// pointing to the infra CoreDNS and /etc/NetworkManager dns=none. DNS queries
+// for api-int are resolved by the infra CoreDNS → DNS proxy chain, which routes
+// to the bootstrap pod IP during installation. We do NOT use /etc/hosts entries
+// because they would override DNS and bypass the DNS proxy's bootstrap-aware
+// routing, causing the API service ClusterIP to load-balance across all VM pods
+// (including those not yet running kube-apiserver).
 func KubeVirtInstallIgnitionOverride(sshKey string) (string, error) {
 	files := make([]ignFile, 0, 2)
 

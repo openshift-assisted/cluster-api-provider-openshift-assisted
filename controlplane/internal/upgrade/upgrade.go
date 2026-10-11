@@ -204,8 +204,11 @@ func getOption(optionName string, options ...ClusterUpgradeOption) string {
 
 // checks whether the current proposed version is a GA release
 func isGARelease(desiredVersion, repositoryOverride string) bool {
-	// if override is not the default repos
-	if !slices.Contains([]string{release.OCPRepository, release.OKDRepository}, repositoryOverride) {
+	// An empty repositoryOverride means the default OCP/OKD repository is used
+	// (see release.GetReleaseImage). Only a repositoryOverride pointing somewhere
+	// else disqualifies the version from being treated as a GA release, since CVO
+	// can't resolve a version-only desiredUpdate against a non-default repository.
+	if repositoryOverride != "" && !slices.Contains([]string{release.OCPRepository, release.OKDRepository}, repositoryOverride) {
 		return false
 	}
 	return release.IsGA(desiredVersion)

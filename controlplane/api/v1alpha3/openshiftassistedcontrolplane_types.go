@@ -68,6 +68,32 @@ type OpenshiftAssistedControlPlaneSpec struct {
 type OpenshiftAssistedControlPlaneConfigSpec struct {
 	// From AgentClusterInstall https://github.com/openshift/assisted-service/blob/master/api/hiveextension/v1beta1/agentclusterinstall_types.go
 
+	// InfraClusterRef references a Secret containing the kubeconfig for the
+	// infrastructure cluster where workload VMs and supporting resources
+	// (Services, Routes, DNS proxy, golden PVC) are created.
+	// If not set, the controller assumes the management cluster IS the infra
+	// cluster (local-infra topology).
+	// +optional
+	InfraClusterRef *corev1.LocalObjectReference `json:"infraClusterRef,omitempty"`
+
+	// CloudControllerManager configures the cloud controller manager for the cluster.
+	// When enabled, the controller deploys the platform-appropriate CCM on the
+	// workload cluster (e.g. kubevirt-cloud-controller-manager for KubeVirt).
+	// +optional
+	CloudControllerManager *CCMSpec `json:"cloudControllerManager,omitempty"`
+
+	// CSIDriver configures the platform-specific CSI driver for the cluster.
+	// When enabled, the controller deploys the appropriate CSI driver stack on
+	// the workload cluster (e.g. kubevirt-csi-driver for KubeVirt).
+	// +optional
+	CSIDriver *CSIDriverSpec `json:"csiDriver,omitempty"`
+
+	// Network configures the workload cluster's network parameters.
+	// When set, the controller generates the appropriate Network operator manifest
+	// and injects it via ManifestsConfigMapRefs during installation.
+	// +optional
+	Network *WorkloadClusterNetworkSpec `json:"network,omitempty"`
+
 	// APIVIPs are the virtual IPs used to reach the OpenShift cluster's API.
 	// Enter one IP address for single-stack clusters, or up to two for dual-stack clusters (at
 	// most one IP address per IP stack used). The order of stacks should be the same as order
@@ -270,6 +296,58 @@ const (
 	// If the tenant upgrades independently, a condition is surfaced but no action is taken.
 	UpgradePolicyUnrestricted UpgradePolicyType = "Unrestricted"
 )
+
+// CCMSpec configures the cloud controller manager for the cluster.
+type CCMSpec struct {
+	// Enabled controls whether the platform-appropriate cloud controller manager
+	// is deployed on the workload cluster. Defaults to false.
+	// +optional
+	Enabled bool `json:"enabled,omitempty"`
+}
+
+// CSIDriverSpec configures the platform-specific CSI driver for the cluster.
+// +kubebuilder:validation:XValidation:rule="!self.enabled || self.infraStorageClass != ''",message="infraStorageClass is required when CSI driver is enabled"
+type CSIDriverSpec struct {
+	// Enabled controls whether the platform-appropriate CSI driver is deployed
+	// on the workload cluster. Defaults to false.
+	// +optional
+	Enabled bool `json:"enabled,omitempty"`
+
+	// InfraStorageClass is the StorageClass on the infra cluster used to back
+	// workload cluster PersistentVolumeClaims. Required when Enabled is true.
+	// +optional
+	InfraStorageClass string `json:"infraStorageClass,omitempty"`
+}
+
+// WorkloadClusterNetworkSpec configures networking parameters for the workload cluster.
+// When set, the controller generates the appropriate Network operator manifest and
+// injects it during installation. This is useful for KubeVirt environments where the
+// default MTU causes issues due to double encapsulation (infra Geneve + tenant Geneve).
+type WorkloadClusterNetworkSpec struct {
+	// OVNKubernetes configures OVN-Kubernetes specific network parameters.
+	// +optional
+	OVNKubernetes *OVNKubernetesConfig `json:"ovnKubernetes,omitempty"`
+}
+
+// OVNKubernetesConfig holds OVN-Kubernetes network configuration for the workload cluster.
+type OVNKubernetesConfig struct {
+	// MTU is the maximum transmission unit for the workload cluster's pod network.
+	// For KubeVirt environments with bridge networking, this should be lower than
+	// the infra cluster's pod MTU to account for double Geneve encapsulation.
+	// Typical value: 1300 (safe for Azure/AWS/bare-metal with 1500 physical MTU).
+	// +optional
+	// +kubebuilder:validation:Minimum=576
+	// +kubebuilder:validation:Maximum=9000
+	MTU *uint32 `json:"mtu,omitempty"`
+
+	// GenevePort is the UDP port for Geneve tunnel traffic in the workload cluster.
+	// Must differ from the infra cluster's Geneve port (default 6081) to avoid conflicts.
+	// Typical value: 9880.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=65535
+	GenevePort *uint32 `json:"genevePort,omitempty"`
+}
 
 func init() {
 	SchemeBuilder.Register(&OpenshiftAssistedControlPlane{}, &OpenshiftAssistedControlPlaneList{})

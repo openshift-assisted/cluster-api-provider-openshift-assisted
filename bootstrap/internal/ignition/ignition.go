@@ -1,7 +1,6 @@
 package ignition
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"path/filepath"
@@ -10,6 +9,7 @@ import (
 	"github.com/coreos/ignition/v2/config/v3_1"
 	config_types "github.com/coreos/ignition/v2/config/v3_1/types"
 	"github.com/go-logr/logr"
+	ignutil "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/pkg/ignition"
 	logutil "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/util/log"
 )
 
@@ -33,8 +33,8 @@ cat $config_dir/openstack/latest/meta_data.json | jq -r '. | keys[]' | while rea
 `
 
 func getConfigdriveMetadataFile() config_types.File {
-	return CreateIgnitionFile("/usr/local/bin/configdrive_metadata",
-		"root", "data:text/plain;charset=utf-8;base64,"+base64Encode(configdriveMetadataScript), 493, true)
+	return ignutil.CreateFile("/usr/local/bin/configdrive_metadata",
+		"root", "data:text/plain;charset=utf-8;base64,"+ignutil.Base64Encode(configdriveMetadataScript), 493, true)
 }
 
 func getConfigdriveMetadataSystemdUnit() config_types.Unit {
@@ -221,8 +221,8 @@ WantedBy=multi-user.target
 		Name:     name + ".service",
 	}
 
-	file := CreateIgnitionFile(scriptPath,
-		"root", "data:text/plain;charset=utf-8;base64,"+base64Encode(sb.String()), 0700, true)
+	file := ignutil.CreateFile(scriptPath,
+		"root", "data:text/plain;charset=utf-8;base64,"+ignutil.Base64Encode(sb.String()), 0700, true)
 
 	return unit, file
 }
@@ -323,8 +323,8 @@ WantedBy=multi-user.target
 		Name:     name + ".service",
 	}
 
-	file := CreateIgnitionFile(scriptPath,
-		"root", "data:text/plain;charset=utf-8;base64,"+base64Encode(sb.String()), 0700, true)
+	file := ignutil.CreateFile(scriptPath,
+		"root", "data:text/plain;charset=utf-8;base64,"+ignutil.Base64Encode(sb.String()), 0700, true)
 
 	return unit, file
 }
@@ -399,14 +399,15 @@ WantedBy=multi-user.target
 		Name:     "set-hostname.service",
 	}
 
-	file := CreateIgnitionFile("/usr/local/bin/set_hostname",
-		"root", "data:text/plain;charset=utf-8;base64,"+base64Encode(scriptContent), 493, true)
+	file := ignutil.CreateFile("/usr/local/bin/set_hostname",
+		"root", "data:text/plain;charset=utf-8;base64,"+ignutil.Base64Encode(scriptContent), 493, true)
 
 	return unit, file
 }
 
-func base64Encode(s string) string {
-	return base64.StdEncoding.EncodeToString([]byte(s))
+// CreateIgnitionFile is a convenience wrapper around ignutil.CreateFile for backward compatibility.
+func CreateIgnitionFile(path, user, content string, mode int, overwrite bool) config_types.File {
+	return ignutil.CreateFile(path, user, content, mode, overwrite)
 }
 
 // MergeIgnitionConfig merges installed-node units and files into an existing ignition
@@ -440,23 +441,6 @@ func MergeIgnitionConfig(log logr.Logger, baseIgnition []byte, opts IgnitionOpti
 	config.Storage.Files = append(config.Storage.Files, files...)
 
 	return json.Marshal(config)
-}
-
-func CreateIgnitionFile(path, user, content string, mode int, overwrite bool) config_types.File {
-	return config_types.File{
-		Node: config_types.Node{
-			Path:      path,
-			Overwrite: &overwrite,
-			User:      config_types.NodeUser{Name: &user},
-		},
-		FileEmbedded1: config_types.FileEmbedded1{
-			Append: []config_types.Resource{},
-			Contents: config_types.Resource{
-				Source: &content,
-			},
-			Mode: &mode,
-		},
-	}
 }
 
 const injectProviderIDScript = `#!/bin/bash
@@ -551,8 +535,8 @@ WantedBy=multi-user.target
 		Name:     "capoa-inject-provider-id.service",
 	}
 
-	file := CreateIgnitionFile("/usr/local/bin/inject-provider-id",
-		"root", "data:text/plain;charset=utf-8;base64,"+base64Encode(injectProviderIDScript), 493, true)
+	file := ignutil.CreateFile("/usr/local/bin/inject-provider-id",
+		"root", "data:text/plain;charset=utf-8;base64,"+ignutil.Base64Encode(injectProviderIDScript), 493, true)
 
 	return unit, file
 }
@@ -580,4 +564,54 @@ func MergeIgnitionConfigStrings(baseIgnition, overrideIgnition string) (string, 
 		return "", err
 	}
 	return string(out), nil
+}
+
+// MergeDiscoveryIgnitionConfig merges discovery-specific systemd units into the
+// base ignition config. This adds an "ensure-agent" service that acts as a
+// safety net for environments where Ignition's normal unit enablement may
+// partially fail (e.g., KubeVirt VMs with config drive delivery).
+// Uses version-aware parsing to safely handle compatible Ignition versions.
+func MergeDiscoveryIgnitionConfig(log logr.Logger, baseIgnition []byte) ([]byte, error) {
+	config, _, err := v3_1.ParseCompatibleVersion(baseIgnition)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse ignition config: %w", err)
+	}
+
+	ensureAgentOverride := config_types.Config{
+		Ignition: config_types.Ignition{Version: config.Ignition.Version},
+		Systemd: config_types.Systemd{
+			Units: []config_types.Unit{getEnsureAgentUnit()},
+		},
+	}
+	config = v3_1.Merge(config, ensureAgentOverride)
+
+	return json.Marshal(config)
+}
+
+// getEnsureAgentUnit returns a systemd unit that verifies the assisted-installer
+// agent is running after boot. On KubeVirt VMs that use config-drive delivery
+// instead of the standard Ignition firstboot mechanism, the agent.service unit
+// may not be started automatically. This unit acts as a safety net: it waits
+// for networking, then checks if agent.service is active and starts it if not.
+func getEnsureAgentUnit() config_types.Unit {
+	contents := `[Unit]
+Description=Ensure assisted-installer agent is running
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStartPre=/bin/bash -c 'sleep 30'
+ExecStart=/bin/bash -c 'systemctl is-active agent.service >/dev/null 2>&1 && exit 0; systemctl enable agent.service 2>/dev/null || true; systemctl start agent.service'
+RemainAfterExit=true
+
+[Install]
+WantedBy=multi-user.target
+`
+	enabled := true
+	return config_types.Unit{
+		Contents: &contents,
+		Enabled:  &enabled,
+		Name:     "ensure-agent.service",
+	}
 }

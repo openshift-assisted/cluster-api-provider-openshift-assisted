@@ -165,4 +165,3 @@ var _ = Describe("SetupSecurityProfileWatcher", func() {
 		Expect(called).To(BeFalse())
 	})
 })
-

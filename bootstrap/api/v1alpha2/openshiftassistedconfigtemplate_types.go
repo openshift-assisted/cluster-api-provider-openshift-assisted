@@ -64,5 +64,5 @@ type OpenshiftAssistedConfigTemplateList struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&OpenshiftAssistedConfigTemplate{}, &OpenshiftAssistedConfigTemplateList{})
+	objectTypes = append(objectTypes, &OpenshiftAssistedConfigTemplate{}, &OpenshiftAssistedConfigTemplateList{})
 }

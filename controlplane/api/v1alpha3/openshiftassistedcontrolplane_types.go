@@ -350,7 +350,7 @@ type OVNKubernetesConfig struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&OpenshiftAssistedControlPlane{}, &OpenshiftAssistedControlPlaneList{})
+	objectTypes = append(objectTypes, &OpenshiftAssistedControlPlane{}, &OpenshiftAssistedControlPlaneList{})
 }
 
 // GetConditions returns the set of conditions for this object.

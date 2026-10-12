@@ -103,13 +103,9 @@ func resolveOpenShiftTLSConfig(ctx context.Context, k8sClient client.Client) (TL
 		"minTLSVersion", profileSpec.MinTLSVersion)
 
 	tlsConfig, unsupported := crtls.NewTLSConfigFromProfile(profileSpec)
-	supportedCiphers := len(profileSpec.Ciphers) - len(unsupported)
 	if len(unsupported) > 0 {
-		log.Info("some ciphers from the cluster TLS profile are not supported",
-			"unsupportedCiphers", unsupported, "supportedCiphers", supportedCiphers)
-	}
-	if supportedCiphers == 0 && len(profileSpec.Ciphers) > 0 {
-		return TLSConfigResult{}, fmt.Errorf("none of the ciphers from the cluster TLS profile are supported: %v", unsupported)
+		log.Info("some ciphers and/or groups from the cluster TLS profile are not supported",
+			"unsupported", unsupported)
 	}
 
 	return TLSConfigResult{

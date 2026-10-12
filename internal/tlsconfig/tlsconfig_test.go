@@ -133,29 +133,6 @@ var _ = Describe("resolveOpenShiftTLSConfig", func() {
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("fetching TLS adherence policy from APIServer"))
 	})
-
-	It("should return an error when no ciphers from the cluster profile are supported", func() {
-		apiServer := &configv1.APIServer{
-			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
-			Spec: configv1.APIServerSpec{
-				TLSSecurityProfile: &configv1.TLSSecurityProfile{
-					Type: configv1.TLSProfileCustomType,
-					Custom: &configv1.CustomTLSProfile{
-						TLSProfileSpec: configv1.TLSProfileSpec{
-							Ciphers:       []string{"BOGUS_CIPHER_1", "BOGUS_CIPHER_2"},
-							MinTLSVersion: configv1.VersionTLS12,
-						},
-					},
-				},
-				TLSAdherence: configv1.TLSAdherencePolicyStrictAllComponents,
-			},
-		}
-		k8sClient := newFakeControllerClient(apiServer)
-
-		_, err := resolveOpenShiftTLSConfig(ctx, k8sClient)
-		Expect(err).To(HaveOccurred())
-		Expect(err.Error()).To(ContainSubstring("none of the ciphers from the cluster TLS profile are supported"))
-	})
 })
 
 var _ = Describe("Transient API errors during TLS resolution", func() {

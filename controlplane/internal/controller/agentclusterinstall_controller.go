@@ -23,6 +23,7 @@ import (
 	"time"
 
 	controlplanev1alpha3 "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/api/v1alpha3"
+	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/internal/kubevirt"
 	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/util"
 	logutil "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/util/log"
 	hiveext "github.com/openshift/assisted-service/api/hiveextension/v1beta1"
@@ -181,10 +182,10 @@ func (r *AgentClusterInstallReconciler) createKubeconfig(
 		return fmt.Errorf("kubeconfig with key `%s` not found in secret %s", kubeconfigSecretKey, kubeconfigSecret.Name)
 	}
 
-	// When using Route-based access (KubeVirt), rewrite the kubeconfig server URL
-	// from port 6443 to port 443 so it goes through the infra router's passthrough Route.
-	// The hostname stays the same (api.<cluster>.<baseDomain>), preserving TLS validity.
-	if isKubeVirtInfra(cluster) {
+	if isKubeVirtInfra(cluster) && kubevirt.IsPodNetworking(
+		acp.Spec.Config.APIVIPs,
+		acp.Spec.Config.IngressVIPs,
+	) {
 		kubeconfig = rewriteKubeconfigPort(kubeconfig)
 	}
 

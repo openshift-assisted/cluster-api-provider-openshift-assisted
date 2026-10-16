@@ -30,6 +30,8 @@ import (
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/clientcmd"
+	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	fakeclient "sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -249,6 +251,68 @@ var _ = Describe("AgentClusterInstall Controller", func() {
 			Expect(*acp.Status.Initialization.ControlPlaneInitialized).To(BeTrue())
 		})
 
+		It("should preserve port 6443 for KubeVirt bridge networking", func() {
+			By("Configuring a KubeVirt bridge-networking cluster")
+			cluster := &clusterv1.Cluster{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: clusterName, Namespace: namespace}, cluster)).To(Succeed())
+			cluster.Spec.InfrastructureRef.Kind = "KubevirtCluster"
+			Expect(k8sClient.Update(ctx, cluster)).To(Succeed())
+
+			openshiftAssistedControlPlane.Spec.Config.APIVIPs = []string{"10.0.0.1"}
+			openshiftAssistedControlPlane.Spec.Config.IngressVIPs = []string{"10.0.0.2"}
+			Expect(k8sClient.Update(ctx, openshiftAssistedControlPlane)).To(Succeed())
+
+			Expect(controllerutil.SetOwnerReference(openshiftAssistedControlPlane, aci, k8sClient.Scheme())).To(Succeed())
+			aci.Spec.ClusterMetadata = &hivev1.ClusterMetadata{
+				AdminKubeconfigSecretRef: corev1.LocalObjectReference{Name: adminKubeconfigSecret},
+			}
+			Expect(k8sClient.Update(ctx, aci)).To(Succeed())
+
+			secret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Name: adminKubeconfigSecret, Namespace: namespace},
+				Data: map[string][]byte{
+					"kubeconfig": generateKubeconfig("https://api.test-cluster.example.com:6443"),
+				},
+			}
+			Expect(k8sClient.Create(ctx, secret)).To(Succeed())
+
+			_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: aciNamespacedName})
+			Expect(err).NotTo(HaveOccurred())
+
+			generatedSecret := &corev1.Secret{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: kubeconfigSecret, Namespace: namespace}, generatedSecret)).To(Succeed())
+			Expect(kubeconfigServer(generatedSecret.Data["value"])).To(Equal("https://api.test-cluster.example.com:6443"))
+		})
+
+		It("should rewrite port 6443 to 443 for KubeVirt pod networking", func() {
+			By("Configuring a KubeVirt pod-networking cluster")
+			cluster := &clusterv1.Cluster{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: clusterName, Namespace: namespace}, cluster)).To(Succeed())
+			cluster.Spec.InfrastructureRef.Kind = "KubevirtCluster"
+			Expect(k8sClient.Update(ctx, cluster)).To(Succeed())
+
+			Expect(controllerutil.SetOwnerReference(openshiftAssistedControlPlane, aci, k8sClient.Scheme())).To(Succeed())
+			aci.Spec.ClusterMetadata = &hivev1.ClusterMetadata{
+				AdminKubeconfigSecretRef: corev1.LocalObjectReference{Name: adminKubeconfigSecret},
+			}
+			Expect(k8sClient.Update(ctx, aci)).To(Succeed())
+
+			secret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Name: adminKubeconfigSecret, Namespace: namespace},
+				Data: map[string][]byte{
+					"kubeconfig": generateKubeconfig("https://api.test-cluster.example.com:6443"),
+				},
+			}
+			Expect(k8sClient.Create(ctx, secret)).To(Succeed())
+
+			_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: aciNamespacedName})
+			Expect(err).NotTo(HaveOccurred())
+
+			generatedSecret := &corev1.Secret{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: kubeconfigSecret, Namespace: namespace}, generatedSecret)).To(Succeed())
+			Expect(kubeconfigServer(generatedSecret.Data["value"])).To(Equal("https://api.test-cluster.example.com:443"))
+		})
+
 		It("should set the OpenshiftAssistedControlPlane to ready when the AgentClusterInstall has finished installing", func() {
 			By("Updating the AgentClusterInstall's kubeconfig reference")
 			Expect(controllerutil.SetOwnerReference(openshiftAssistedControlPlane, aci, k8sClient.Scheme())).To(Succeed())
@@ -301,4 +365,25 @@ func generateAgentClusterInstall(name, namespace string) *hiveext.AgentClusterIn
 		Spec: hiveext.AgentClusterInstallSpec{},
 	}
 	return aci
+}
+
+func generateKubeconfig(server string) []byte {
+	config := clientcmdapi.NewConfig()
+	config.Clusters["test-cluster"] = &clientcmdapi.Cluster{Server: server}
+	config.AuthInfos["test-user"] = &clientcmdapi.AuthInfo{}
+	config.Contexts["test-context"] = &clientcmdapi.Context{
+		Cluster:  "test-cluster",
+		AuthInfo: "test-user",
+	}
+	config.CurrentContext = "test-context"
+
+	data, err := clientcmd.Write(*config)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred())
+	return data
+}
+
+func kubeconfigServer(data []byte) string {
+	config, err := clientcmd.Load(data)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred())
+	return config.Clusters["test-cluster"].Server
 }

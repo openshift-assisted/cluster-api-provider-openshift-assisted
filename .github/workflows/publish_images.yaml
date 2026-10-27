@@ -41,6 +41,12 @@ jobs:
           fi
           echo "IMAGE_TAG=${TAG#v}" >> $GITHUB_ENV
           echo "Releasing ${TAG}"
+      - name: Login to Red Hat registry
+        uses: docker/login-action@v3
+        with:
+          registry: registry.redhat.io
+          username: ${{ secrets.REDHAT_REGISTRY_USERNAME }}
+          password: ${{ secrets.REDHAT_REGISTRY_PASSWORD }}
       - name: Login to Quay.io
         uses: docker/login-action@v3
         with:

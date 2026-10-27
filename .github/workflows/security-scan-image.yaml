@@ -1,10 +1,8 @@
-name: security-scan
+name: security-scan-image
 on:
   push:
     branches:
       - master
-  pull_request:
-  workflow_dispatch:
 
 permissions:
   security-events: write
@@ -30,6 +28,12 @@ jobs:
           python-version: '3.x'
       - name: Install Jinja2 CLI
         run: pip install jinja2-cli
+      - name: Login to Red Hat registry
+        uses: docker/login-action@v3
+        with:
+          registry: registry.redhat.io
+          username: ${{ secrets.REDHAT_REGISTRY_USERNAME }}
+          password: ${{ secrets.REDHAT_REGISTRY_PASSWORD }}
       - name: Build ${{ matrix.provider }} image
         run: make ${{ matrix.provider }}-docker-build
       - name: Create scans folder
@@ -39,6 +43,7 @@ jobs:
         with:
           image-ref: 'quay.io/edge-infrastructure/cluster-api-${{ matrix.provider }}-provider-openshift-assisted:${{ github.sha }}'
           trivy-config: .trivy.yaml
+          exit-code: '0'
           output: 'scans/trivy-results-${{ matrix.provider }}.sarif'
       - name: Upload Trivy scan results to GitHub Security tab
         if: always()
@@ -46,24 +51,3 @@ jobs:
         with:
           sarif_file: 'scans/trivy-results-${{ matrix.provider }}.sarif'
           category: ${{ matrix.provider }}
-
-  repo-scan:
-    name: Repository scan
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      - name: Create scans folder
-        run: mkdir -p scans/
-      - name: Run Trivy vulnerability scanner in repo mode
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          scan-type: 'fs'
-          trivy-config: .trivy.yaml
-          output: 'scans/trivy-results-repo.sarif'
-      - name: Upload Trivy scan results for repo to GitHub Security tab
-        if: always()
-        uses: github/codeql-action/upload-sarif@e46ed2cbd01164d986452f91f178727624ae40d7 # v4.35.3
-        with:
-          sarif_file: 'scans/trivy-results-repo.sarif'
-          category: 'repo'

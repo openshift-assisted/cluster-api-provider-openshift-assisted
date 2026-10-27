@@ -1,0 +1,33 @@
+name: security-scan-repository
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  security-events: write
+  contents: read
+
+jobs:
+  repo-scan:
+    name: Repository scan
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Create scans folder
+        run: mkdir -p scans/
+      - name: Run Trivy vulnerability scanner in repo mode
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: 'fs'
+          trivy-config: .trivy.yaml
+          output: 'scans/trivy-results-repo.sarif'
+      - name: Upload Trivy scan results for repo to GitHub Security tab
+        if: always()
+        uses: github/codeql-action/upload-sarif@e46ed2cbd01164d986452f91f178727624ae40d7 # v4.35.3
+        with:
+          sarif_file: 'scans/trivy-results-repo.sarif'
+          category: 'repo'

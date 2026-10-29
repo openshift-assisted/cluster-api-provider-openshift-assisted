@@ -1,0 +1,153 @@
+---
+- name: Wait for the KubevirtCluster to become ready
+  kubernetes.core.k8s_info:
+    api_version: infrastructure.cluster.x-k8s.io/v1alpha1
+    kind: KubevirtCluster
+    name: "{{ assert_cluster_name }}"
+    namespace: "{{ assert_namespace }}"
+  register: kubevirt_cluster
+  until: >-
+    (kubevirt_cluster.resources | default([])) | length == 1 and
+    (kubevirt_cluster.resources | default([]))[0].status.conditions is defined and
+    (kubevirt_cluster.resources | default([]))[0].status.conditions |
+    selectattr('type', 'equalto', 'Ready') |
+    selectattr('status', 'equalto', 'True') |
+    list | length > 0
+  retries: "{{ high_retries | int }}"
+  delay: "{{ high_delay | int }}"
+
+- name: Wait for all KubevirtMachines to become ready
+  kubernetes.core.k8s_info:
+    api_version: infrastructure.cluster.x-k8s.io/v1alpha1
+    kind: KubevirtMachine
+    namespace: "{{ assert_namespace }}"
+    label_selectors:
+      - cluster.x-k8s.io/cluster-name={{ assert_cluster_name }}
+  register: kubevirt_machines
+  until: >-
+    (kubevirt_machines.resources | default([])) | length == control_plane_replicas and
+    (kubevirt_machines.resources | default([])) | selectattr('status.conditions', 'defined') | list | length == control_plane_replicas and
+    (kubevirt_machines.resources | default([])) |
+    map(attribute='status.conditions') | flatten |
+    selectattr('type', 'equalto', 'Ready') |
+    selectattr('status', 'equalto', 'True') |
+    list | length == control_plane_replicas
+  retries: "{{ high_retries | int }}"
+  delay: "{{ high_delay | int }}"
+
+- name: Wait for all tenant VMIs to be created
+  kubernetes.core.k8s_info:
+    api_version: kubevirt.io/v1
+    kind: VirtualMachineInstance
+    namespace: "{{ assert_namespace }}"
+    label_selectors:
+      - cluster.x-k8s.io/cluster-name={{ assert_cluster_name }}
+  register: tenant_vmis
+  until: >-
+    (tenant_vmis.resources | default([])) | length == control_plane_replicas
+  retries: "{{ high_retries | int }}"
+  delay: "{{ high_delay | int }}"
+
+- name: Wait for all tenant VMs to become ready
+  kubernetes.core.k8s_info:
+    api_version: kubevirt.io/v1
+    kind: VirtualMachine
+    namespace: "{{ assert_namespace }}"
+    label_selectors:
+      - cluster.x-k8s.io/cluster-name={{ assert_cluster_name }}
+  register: tenant_vms
+  until: >-
+    (tenant_vms.resources | default([])) | length == control_plane_replicas and
+    (tenant_vms.resources | default([])) | selectattr('status.ready', 'defined') | list | length == control_plane_replicas and
+    (tenant_vms.resources | default([])) | selectattr('status.ready', 'equalto', true) | list | length == control_plane_replicas
+  retries: "{{ high_retries | int }}"
+  delay: "{{ high_delay | int }}"
+
+- name: Wait for all CAPI Machines to run
+  kubernetes.core.k8s_info:
+    api_version: cluster.x-k8s.io/v1beta2
+    kind: Machine
+    namespace: "{{ assert_namespace }}"
+    label_selectors:
+      - cluster.x-k8s.io/cluster-name={{ assert_cluster_name }}
+  register: capi_machines
+  until: >-
+    (capi_machines.resources | default([])) | length == control_plane_replicas and
+    (capi_machines.resources | default([])) | selectattr('status.phase', 'defined') | list | length == control_plane_replicas and
+    (capi_machines.resources | default([])) | selectattr('status.phase', 'equalto', 'Running') | list | length == control_plane_replicas
+  retries: "{{ high_retries | int }}"
+  delay: "{{ high_delay | int }}"
+
+- name: Wait for the CAPOA control plane to become available
+  kubernetes.core.k8s_info:
+    api_version: controlplane.cluster.x-k8s.io/v1alpha3
+    kind: OpenshiftAssistedControlPlane
+    name: "{{ assert_cluster_name }}"
+    namespace: "{{ assert_namespace }}"
+  register: openshift_assisted_control_plane
+  until: >-
+    (openshift_assisted_control_plane.resources | default([])) | length == 1 and
+    (openshift_assisted_control_plane.resources | default([]))[0].status.conditions is defined and
+    (openshift_assisted_control_plane.resources | default([]))[0].status.conditions |
+    selectattr('type', 'equalto', 'Available') |
+    selectattr('status', 'equalto', 'True') |
+    list | length > 0
+  retries: "{{ high_retries | int }}"
+  delay: "{{ high_delay | int }}"
+
+- name: Wait for AgentClusterInstall to complete
+  kubernetes.core.k8s_info:
+    api_version: extensions.hive.openshift.io/v1beta1
+    kind: AgentClusterInstall
+    name: "{{ assert_cluster_name }}"
+    namespace: "{{ assert_namespace }}"
+  register: agent_cluster_install
+  until: >-
+    (agent_cluster_install.resources | default([])) | length == 1 and
+    (agent_cluster_install.resources | default([]))[0].status.conditions is defined and
+    (agent_cluster_install.resources | default([]))[0].status.conditions |
+    selectattr('type', 'equalto', 'Completed') |
+    selectattr('status', 'equalto', 'True') |
+    list | length > 0
+  retries: "{{ high_retries | int }}"
+  delay: "{{ high_delay | int }}"
+
+- name: Read the tenant kubeconfig
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Secret
+    name: "{{ assert_cluster_name }}-kubeconfig"
+    namespace: "{{ assert_namespace }}"
+  register: tenant_kubeconfig_secret
+  failed_when: >-
+    tenant_kubeconfig_secret.resources | length != 1 or
+    tenant_kubeconfig_secret.resources[0].data.value is not defined
+
+- name: Write the tenant kubeconfig
+  no_log: true
+  ansible.builtin.copy:
+    content: "{{ tenant_kubeconfig_secret.resources[0].data.value | b64decode }}"
+    dest: /tmp/capoa-kubevirt-tenant-kubeconfig
+    mode: '0600'
+
+- name: Verify tenant API connectivity
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - --kubeconfig
+      - /tmp/capoa-kubevirt-tenant-kubeconfig
+      - get
+      - nodes
+      - -o
+      - json
+  register: tenant_nodes
+  changed_when: false
+
+- name: Assert that every tenant node is ready
+  ansible.builtin.assert:
+    that:
+      - tenant_nodes.stdout | from_json | community.general.json_query('items') | length == control_plane_replicas
+      - >-
+        tenant_nodes.stdout | from_json |
+        community.general.json_query('items[?status.conditions[?type==`Ready` && status==`True`]]') |
+        length == control_plane_replicas

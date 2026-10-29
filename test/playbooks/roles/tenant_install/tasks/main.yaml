@@ -1,0 +1,52 @@
+---
+- name: Read the management-cluster pull secret
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Secret
+    name: pull-secret
+    namespace: openshift-config
+  register: management_pull_secret
+  failed_when: management_pull_secret.resources | length != 1
+
+- name: Read the management-cluster ingress domain
+  kubernetes.core.k8s_info:
+    api_version: operator.openshift.io/v1
+    kind: IngressController
+    name: default
+    namespace: openshift-ingress-operator
+  register: management_ingress_controller
+  failed_when: >-
+    management_ingress_controller.resources | length != 1 or
+    management_ingress_controller.resources[0].status.domain is not defined
+
+- name: Create the tenant namespace
+  kubernetes.core.k8s:
+    api_version: v1
+    kind: Namespace
+    name: "{{ tenant_namespace }}"
+    state: present
+
+- name: Create the infra-cluster credentials secret
+  kubernetes.core.k8s:
+    state: present
+    apply: true
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: infra-cluster-credentials
+        namespace: "{{ tenant_namespace }}"
+      type: Opaque
+      stringData:
+        kubeconfig: "{{ lookup('ansible.builtin.file', lookup('ansible.builtin.env', 'KUBECONFIG')) }}"
+        namespace: "{{ tenant_namespace }}"
+  no_log: true
+
+- name: Apply the compact KubeVirt tenant manifest
+  kubernetes.core.k8s:
+    state: present
+    apply: true
+    definition: "{{ lookup('template', 'compact-tenant.yaml.j2') }}"
+  vars:
+    pull_secret_data: "{{ management_pull_secret.resources[0].data['.dockerconfigjson'] }}"
+    management_apps_domain: "{{ management_ingress_controller.resources[0].status.domain }}"

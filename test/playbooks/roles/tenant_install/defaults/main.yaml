@@ -1,0 +1,5 @@
+---
+tenant_cluster_name: "{{ cluster_name }}"
+tenant_namespace: "{{ cluster_namespace }}"
+tenant_storage_class: "{{ storage_class }}"
+tenant_openshift_version: "{{ openshift_version }}"

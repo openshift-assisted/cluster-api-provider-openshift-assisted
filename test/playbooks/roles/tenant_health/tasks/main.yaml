@@ -1,0 +1,91 @@
+---
+- name: Wait for the tenant ClusterVersion to become available
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ health_kubeconfig }}"
+    api_version: config.openshift.io/v1
+    kind: ClusterVersion
+    name: version
+  register: cluster_version
+  until: >-
+    (cluster_version.resources | default([])) | length == 1 and
+    (cluster_version.resources | default([]))[0].status.conditions | default([]) |
+    selectattr('type', 'equalto', 'Available') |
+    selectattr('status', 'equalto', 'True') |
+    list | length > 0
+  retries: "{{ high_retries | int }}"
+  delay: "{{ high_delay | int }}"
+
+- name: Assert that the tenant ClusterVersion is stable
+  ansible.builtin.assert:
+    that:
+      - >-
+        cluster_version.resources[0].status.conditions |
+        selectattr('type', 'equalto', 'Progressing') |
+        selectattr('status', 'equalto', 'True') | list | length == 0
+      - >-
+        cluster_version.resources[0].status.conditions |
+        selectattr('type', 'equalto', 'Degraded') |
+        selectattr('status', 'equalto', 'True') | list | length == 0
+      - cluster_version.resources[0].status.conditions | selectattr('type', 'equalto', 'Failing') | selectattr('status', 'equalto', 'True') | list | length == 0
+
+- name: Wait for every tenant ClusterOperator to become stable
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ health_kubeconfig }}"
+    api_version: config.openshift.io/v1
+    kind: ClusterOperator
+  register: cluster_operators
+  until: >-
+    (cluster_operators.resources | default([]) | length) > 0 and
+    ((cluster_operators.resources | default([]) |
+      community.general.json_query('[?status.conditions[?type==`Available` && status==`True`]]') |
+      length) == (cluster_operators.resources | default([]) | length)) and
+    ((cluster_operators.resources | default([]) |
+      community.general.json_query('[?status.conditions[?type==`Progressing` && status==`True`]]') |
+      length) == 0) and
+    ((cluster_operators.resources | default([]) |
+      community.general.json_query('[?status.conditions[?type==`Degraded` && status==`True`]]') |
+      length) == 0)
+  retries: "{{ high_retries | int }}"
+  delay: "{{ high_delay | int }}"
+
+- name: Assert that every tenant ClusterOperator is healthy
+  ansible.builtin.assert:
+    that:
+      - item.status.conditions | default([]) | selectattr('type', 'equalto', 'Available') | selectattr('status', 'equalto', 'True') | list | length == 1
+      - item.status.conditions | default([]) | selectattr('type', 'equalto', 'Progressing') | selectattr('status', 'equalto', 'True') | list | length == 0
+      - item.status.conditions | default([]) | selectattr('type', 'equalto', 'Degraded') | selectattr('status', 'equalto', 'True') | list | length == 0
+    quiet: true
+  loop: "{{ cluster_operators.resources }}"
+  loop_control:
+    label: "{{ item.metadata.name }}"
+
+- name: Wait for every tenant MachineConfigPool to become stable
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ health_kubeconfig }}"
+    api_version: machineconfiguration.openshift.io/v1
+    kind: MachineConfigPool
+  register: machine_config_pools
+  until: >-
+    (machine_config_pools.resources | default([]) | length) > 0 and
+    ((machine_config_pools.resources | default([]) |
+      community.general.json_query('[?status.conditions[?type==`Updated` && status==`True`]]') |
+      length) == (machine_config_pools.resources | default([]) | length)) and
+    ((machine_config_pools.resources | default([]) |
+      community.general.json_query('[?status.conditions[?type==`Updating` && status==`False`]]') |
+      length) == (machine_config_pools.resources | default([]) | length)) and
+    ((machine_config_pools.resources | default([]) |
+      community.general.json_query('[?status.conditions[?type==`Degraded` && status==`False`]]') |
+      length) == (machine_config_pools.resources | default([]) | length))
+  retries: "{{ high_retries | int }}"
+  delay: "{{ high_delay | int }}"
+
+- name: Assert that every tenant MachineConfigPool is healthy
+  ansible.builtin.assert:
+    that:
+      - item.status.conditions | default([]) | selectattr('type', 'equalto', 'Updated') | selectattr('status', 'equalto', 'True') | list | length == 1
+      - item.status.conditions | default([]) | selectattr('type', 'equalto', 'Updating') | selectattr('status', 'equalto', 'False') | list | length == 1
+      - item.status.conditions | default([]) | selectattr('type', 'equalto', 'Degraded') | selectattr('status', 'equalto', 'False') | list | length == 1
+    quiet: true
+  loop: "{{ machine_config_pools.resources }}"
+  loop_control:
+    label: "{{ item.metadata.name }}"

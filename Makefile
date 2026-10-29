@@ -89,11 +89,20 @@ lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
 
 .PHONY: e2e-test-dependencies
 e2e-test-dependencies:
+	pip install --user -r $(PLAYBOOK_DIR)/../ansible-python-requirements.txt
 	ansible-galaxy collection install -r $(PLAYBOOK_DIR)/../ansible-requirements.yaml
 
 .PHONY: e2e-test
 e2e-test: e2e-test-dependencies
 	ansible-playbook $(PLAYBOOK_DIR)/run_test.yaml -i $(PLAYBOOK_DIR)/inventories/remote_host.yaml
+
+.PHONY: e2e-kubevirt-test
+e2e-kubevirt-test: e2e-test-dependencies
+	ANSIBLE_LOCAL_TEMP=/tmp/.ansible-local \
+	ANSIBLE_REMOTE_TEMP=/tmp/.ansible-remote \
+	K8S_AUTH_KUBECONFIG="$(KUBECONFIG)" \
+	ANSIBLE_ROLES_PATH=$(CURDIR)/$(PLAYBOOK_DIR)/roles \
+	ansible-playbook $(PLAYBOOK_DIR)/kubevirt/run_test.yaml -i $(PLAYBOOK_DIR)/inventories/local_host.yaml
 
 .PHONY: versions-management-dependencies
 versions-management-dependencies:
@@ -113,7 +122,7 @@ tags-reconciliation: versions-management-dependencies
 
 .PHONY: ansible-lint
 ansible-lint:
-	ansible-lint $(PLAYBOOK_DIR)
+	ANSIBLE_ROLES_PATH=$(CURDIR)/$(PLAYBOOK_DIR)/roles ansible-lint $(PLAYBOOK_DIR)
 
 ##@ Build
 

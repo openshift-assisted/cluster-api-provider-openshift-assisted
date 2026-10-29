@@ -79,6 +79,7 @@ const (
 // OpenshiftAssistedControlPlaneReconciler reconciles a OpenshiftAssistedControlPlane object
 type OpenshiftAssistedControlPlaneReconciler struct {
 	client.Client
+	APIReader               client.Reader
 	K8sVersionDetector      version.KubernetesVersionDetector
 	Scheme                  *runtime.Scheme
 	UpgradeFactory          upgrade.ClusterUpgradeFactory
@@ -101,13 +102,13 @@ func isKubeVirtInfra(cluster *clusterv1.Cluster) bool {
 func resolveInfraVersion(ref clusterv1.ContractVersionedObjectReference) string {
 	type groupKind struct{ group, kind string }
 	knownVersions := map[groupKind]string{
-		{"infrastructure.cluster.x-k8s.io", "KubevirtCluster"}:         "v1alpha1",
-		{"infrastructure.cluster.x-k8s.io", "KubevirtMachine"}:         "v1alpha1",
-		{"infrastructure.cluster.x-k8s.io", "KubevirtMachineTemplate"}: "v1alpha1",
-		{"infrastructure.cluster.x-k8s.io", "Metal3Cluster"}:           "v1beta1",
-		{"infrastructure.cluster.x-k8s.io", "Metal3Machine"}:           "v1beta1",
-		{"infrastructure.cluster.x-k8s.io", "Metal3MachineTemplate"}:   "v1beta1",
-		{"bootstrap.cluster.x-k8s.io", "OpenshiftAssistedConfig"}:      "v1alpha2",
+		{"infrastructure.cluster.x-k8s.io", "KubevirtCluster"}:             "v1alpha1",
+		{"infrastructure.cluster.x-k8s.io", "KubevirtMachine"}:             "v1alpha1",
+		{"infrastructure.cluster.x-k8s.io", "KubevirtMachineTemplate"}:     "v1alpha1",
+		{"infrastructure.cluster.x-k8s.io", "Metal3Cluster"}:               "v1beta1",
+		{"infrastructure.cluster.x-k8s.io", "Metal3Machine"}:               "v1beta1",
+		{"infrastructure.cluster.x-k8s.io", "Metal3MachineTemplate"}:       "v1beta1",
+		{"bootstrap.cluster.x-k8s.io", "OpenshiftAssistedConfig"}:          "v1alpha2",
 		{"controlplane.cluster.x-k8s.io", "OpenshiftAssistedControlPlane"}: "v1alpha3",
 	}
 	if v, ok := knownVersions[groupKind{ref.APIGroup, ref.Kind}]; ok {
@@ -1206,7 +1207,7 @@ func clusterDeploymentPlatform() hivev1.Platform {
 func (r *OpenshiftAssistedControlPlaneReconciler) reconcileReplicas(ctx context.Context, oacp *controlplanev1alpha3.OpenshiftAssistedControlPlane, cluster *clusterv1.Cluster) error {
 	log := ctrl.LoggerFrom(ctx)
 	ownerGK := schema.GroupKind{Group: controlplanev1alpha3.Group, Kind: "OpenshiftAssistedControlPlane"}
-	machines, err := collections.GetFilteredMachinesForCluster(ctx, r.Client, cluster, collections.OwnedMachines(oacp, ownerGK), collections.ActiveMachines)
+	machines, err := collections.GetFilteredMachinesForCluster(ctx, r.machineReader(cluster), cluster, collections.OwnedMachines(oacp, ownerGK), collections.ActiveMachines)
 	if err != nil {
 		return err
 	}
@@ -1272,6 +1273,13 @@ func (r *OpenshiftAssistedControlPlaneReconciler) reconcileReplicas(ctx context.
 
 	r.updateReplicaStatus(ctx, oacp, machines)
 	return nil
+}
+
+func (r *OpenshiftAssistedControlPlaneReconciler) machineReader(cluster *clusterv1.Cluster) client.Reader {
+	if isKubeVirtInfra(cluster) && r.APIReader != nil {
+		return r.APIReader
+	}
+	return r.Client
 }
 
 func (r *OpenshiftAssistedControlPlaneReconciler) scaleUpControlPlane(ctx context.Context, oacp *controlplanev1alpha3.OpenshiftAssistedControlPlane, cluster *clusterv1.Cluster, failureDomain string) (*clusterv1.Machine, error) {
@@ -1515,7 +1523,6 @@ func inheritKubeVirtConfigDefaults(spec *bootstrapv1alpha2.OpenshiftAssistedConf
 		spec.SSHAuthorizedKey = oacp.Spec.Config.SSHAuthorizedKey
 	}
 }
-
 
 func (r *OpenshiftAssistedControlPlaneReconciler) generateOpenshiftAssistedConfig(oacp *controlplanev1alpha3.OpenshiftAssistedControlPlane, clusterName string, name string, apiServiceIP string, infraCoreDNSIP string, cluster *clusterv1.Cluster) *bootstrapv1alpha2.OpenshiftAssistedConfig {
 	labels := util.ControlPlaneMachineLabelsForCluster(oacp, clusterName)

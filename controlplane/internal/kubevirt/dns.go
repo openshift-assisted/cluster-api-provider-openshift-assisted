@@ -37,7 +37,7 @@ func GenerateDNSProxyManifests(
 	namespace string,
 	infraClusterDNSServiceIP string,
 ) []ManifestEntry {
-	return GenerateDNSProxyManifestsWithIPs(clusterName, baseDomain, namespace, infraClusterDNSServiceIP, nil, nil)
+	return GenerateDNSProxyManifestsWithIPs(clusterName, baseDomain, namespace, infraClusterDNSServiceIP, nil, "")
 }
 
 // GenerateDNSProxyManifestsWithIPs generates the manifests for the DNS proxy DaemonSet
@@ -49,31 +49,27 @@ func GenerateDNSProxyManifests(
 // connect on port 22623, and the service routes to the bootstrap node running MCS.
 //
 // Lessons learned from production debugging:
-// - CoreDNS template plugin wildcard entries MUST use Go template syntax {{ .Name }}
-//   (NOT {[.Name]} which produces malformed DNS responses that resolvers silently ignore)
-// - The dns-proxy pods must use the infra cluster DNS service IP (typically 172.30.0.10)
-//   as their upstream, not node IPs (which may be unreachable from pods in bridge mode)
-// - api-int MUST resolve to the API service ClusterIP (not individual VM IPs) to ensure
-//   MCS traffic reaches the bootstrap node during installation via Kubernetes service routing
+//   - CoreDNS template plugin wildcard entries MUST use Go template syntax {{ .Name }}
+//     (NOT {[.Name]} which produces malformed DNS responses that resolvers silently ignore)
+//   - The dns-proxy pods must use the infra cluster DNS service IP (typically 172.30.0.10)
+//     as their upstream, not node IPs (which may be unreachable from pods in bridge mode)
+//   - api-int MUST resolve to the API service ClusterIP (not individual VM IPs) to ensure
+//     MCS traffic reaches the bootstrap node during installation via Kubernetes service routing
 func GenerateDNSProxyManifestsWithIPs(
 	clusterName string,
 	baseDomain string,
 	namespace string,
 	infraClusterDNSServiceIP string,
 	apiIPs []string,
-	ingressIPs []string,
+	ingressTarget string,
 ) []ManifestEntry {
 	fqdn := fmt.Sprintf("%s.%s", clusterName, baseDomain)
 
 	manifests := make([]ManifestEntry, 0, 2)
 
-	corefile := generateCorefile(fqdn, infraClusterDNSServiceIP, apiIPs, ingressIPs)
-	// Always include the apps server block so CoreDNS loads the file plugin at
-	// startup. When IngressIPs become available later, the file plugin's built-in
-	// zone reload (triggered by SOA serial change) picks up new records without
-	// requiring a pod restart.
-	corefileContent := generateAppsCorefile(fqdn) + corefile
-	appsDbContent := generateAppsZoneFile(fqdn, ingressIPs)
+	corefile := generateCorefile(fqdn, infraClusterDNSServiceIP, apiIPs)
+	corefileContent := generateAppsCorefile(fqdn, infraClusterDNSServiceIP) + corefile
+	appsDbContent := generateAppsZoneFile(fqdn, ingressTarget)
 
 	cmData := fmt.Sprintf(`apiVersion: v1
 kind: ConfigMap
@@ -158,25 +154,12 @@ spec:
 // across all CoreDNS versions.
 //
 // apiIPs: IP addresses for api/api-int resolution
-// ingressIPs: IP addresses for *.apps ingress resolution
-func generateCorefile(fqdn string, upstreamDNS string, apiIPs []string, ingressIPs []string) string {
+// Unknown names in the main tenant zone are not answered by this server block.
+func generateCorefile(fqdn string, upstreamDNS string, apiIPs []string) string {
 	escapedFQDN := strings.ReplaceAll(fqdn, ".", "[.]")
 
-	// Partition IPs by address family for correct CoreDNS template matching
-	var apiV4Answers, apiV6Answers, apiIntV4Answers, apiIntV6Answers string
-	for _, ip := range apiIPs {
-		rt := dnsRecordType(ip)
-		if rt == "AAAA" {
-			apiV6Answers += fmt.Sprintf("        answer \"api.%s 60 IN AAAA %s\"\n", fqdn, ip)
-			apiIntV6Answers += fmt.Sprintf("        answer \"api-int.%s 60 IN AAAA %s\"\n", fqdn, ip)
-		} else {
-			apiV4Answers += fmt.Sprintf("        answer \"api.%s 60 IN A %s\"\n", fqdn, ip)
-			apiIntV4Answers += fmt.Sprintf("        answer \"api-int.%s 60 IN A %s\"\n", fqdn, ip)
-		}
-	}
-
-	// If no IPs are known yet, use forward-only mode
-	if len(apiIPs) == 0 && len(ingressIPs) == 0 {
+	// If no API IP is known yet, use forward-only mode.
+	if len(apiIPs) == 0 {
 		return fmt.Sprintf(`%s:5353 {
     errors
     log
@@ -196,6 +179,19 @@ func generateCorefile(fqdn string, upstreamDNS string, apiIPs []string, ingressI
     cache 30
 }
 `, fqdn, upstreamDNS)
+	}
+
+	// Partition IPs by address family for correct CoreDNS template matching
+	var apiV4Answers, apiV6Answers, apiIntV4Answers, apiIntV6Answers string
+	for _, ip := range apiIPs {
+		rt := dnsRecordType(ip)
+		if rt == "AAAA" {
+			apiV6Answers += fmt.Sprintf("        answer \"api.%s 60 IN AAAA %s\"\n", fqdn, ip)
+			apiIntV6Answers += fmt.Sprintf("        answer \"api-int.%s 60 IN AAAA %s\"\n", fqdn, ip)
+		} else {
+			apiV4Answers += fmt.Sprintf("        answer \"api.%s 60 IN A %s\"\n", fqdn, ip)
+			apiIntV4Answers += fmt.Sprintf("        answer \"api-int.%s 60 IN A %s\"\n", fqdn, ip)
+		}
 	}
 
 	// Build template blocks for each address family
@@ -256,44 +252,49 @@ func generateCorefile(fqdn string, upstreamDNS string, apiIPs []string, ingressI
 
 // generateAppsCorefile generates a separate CoreDNS server block for the *.apps
 // subdomain using the file plugin with a wildcard zone file.
-func generateAppsCorefile(fqdn string) string {
+func generateAppsCorefile(fqdn string, upstreamDNS string) string {
 	return fmt.Sprintf(`apps.%s:5353 {
     file /etc/coredns/apps.db
+    forward . %s
     reload 10s
     errors
     log
 }
-`, fqdn)
+`, fqdn, upstreamDNS)
 }
 
-// generateAppsZoneFile generates a DNS zone file with wildcard A records for the
-// *.apps subdomain. This is used by the CoreDNS file plugin.
-// The SOA serial is derived from the IP list so that the file plugin detects
-// zone changes and reloads automatically.
-func generateAppsZoneFile(fqdn string, ingressIPs []string) string {
-	var records string
-	for _, ip := range ingressIPs {
-		records += fmt.Sprintf("*  60   IN %s   %s\n", dnsRecordType(ip), ip)
-	}
-	serial := zoneSerial(ingressIPs)
+// generateAppsZoneFile generates a DNS zone file with a wildcard record for the
+// *.apps subdomain. The target can be an IP address or a canonical router name.
+// The SOA serial is derived from the target so that the file plugin detects zone
+// changes and reloads automatically.
+func generateAppsZoneFile(fqdn string, ingressTarget string) string {
+	serial := zoneSerial(ingressTarget)
 	return fmt.Sprintf(`$ORIGIN apps.%s.
 @  3600 IN SOA ns.tenant-dns.svc.cluster.local. admin.tenant-dns.svc.cluster.local. %d 3600 900 604800 30
 @  3600 IN NS  ns.tenant-dns.svc.cluster.local.
-%s`, fqdn, serial, records)
+%s`, fqdn, serial, dnsZoneRecord(ingressTarget))
 }
 
-// zoneSerial returns a deterministic SOA serial derived from the given IPs.
-// When IPs change the serial changes, triggering CoreDNS file plugin reload.
-func zoneSerial(ips []string) uint32 {
+// zoneSerial returns a deterministic SOA serial derived from the target.
+// When the target changes the serial changes, triggering CoreDNS file plugin reload.
+func zoneSerial(target string) uint32 {
 	h := fnv.New32a()
-	for _, ip := range ips {
-		h.Write([]byte(ip))
-	}
+	h.Write([]byte(target))
 	s := h.Sum32()
 	if s == 0 {
 		return 1
 	}
 	return s
+}
+
+func dnsZoneRecord(target string) string {
+	if target == "" {
+		return ""
+	}
+	if net.ParseIP(target) != nil {
+		return fmt.Sprintf("*  60   IN %s   %s\n", dnsRecordType(target), target)
+	}
+	return fmt.Sprintf("*  60   IN CNAME   %s\n", absoluteDNSName(target))
 }
 
 // GenerateTenantDNSForwarderManifests generates a day-0 manifest that configures

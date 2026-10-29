@@ -157,13 +157,14 @@ func ensurePodNetworkingManifests(
 		refs = append(refs, hiveext.ManifestsConfigMapReference{Name: NetworkMTUConfigMapName})
 	}
 
-	var apiIPs, ingressIPs []string
+	var apiIPs []string
+	ingressTarget := ""
 	if serviceIPs != nil {
 		if serviceIPs.APIClusterIP != "" {
 			apiIPs = []string{serviceIPs.APIClusterIP}
 		}
 		if serviceIPs.IngressClusterIP != "" {
-			ingressIPs = []string{serviceIPs.IngressClusterIP}
+			ingressTarget = serviceIPs.IngressClusterIP
 		}
 	}
 
@@ -173,7 +174,7 @@ func ensurePodNetworkingManifests(
 		oacp.Namespace,
 		infraCoreDNSIP,
 		apiIPs,
-		ingressIPs,
+		ingressTarget,
 	)
 	if len(dnsProxyManifests) > 0 {
 		if err := ensureManifestsConfigMap(ctx, c, oacp, DNSProxyConfigMapName, dnsProxyManifests); err != nil {

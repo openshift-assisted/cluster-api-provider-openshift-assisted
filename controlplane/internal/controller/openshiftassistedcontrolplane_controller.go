@@ -878,7 +878,12 @@ func (r *OpenshiftAssistedControlPlaneReconciler) cleanupDNSForwardingRule(ctx c
 		ctrl.LoggerFrom(ctx).Info("malformed DNS rule identity annotation, skipping cleanup", "value", ruleIdentity)
 		return nil
 	}
-	if err := kubevirt.RemoveDNSForwardingRule(ctx, r.Client, parts[1], parts[0]); err != nil {
+
+	infraResult, err := kubevirt.GetInfraClusterClient(ctx, r.Client, oacp, r.Scheme)
+	if err != nil {
+		return fmt.Errorf("could not get infra cluster client for DNS forwarding rule cleanup: %w", err)
+	}
+	if err := kubevirt.RemoveDNSForwardingRule(ctx, infraResult.Client, parts[1], parts[0]); err != nil {
 		return fmt.Errorf("could not remove DNS forwarding rule: %w", err)
 	}
 	return nil

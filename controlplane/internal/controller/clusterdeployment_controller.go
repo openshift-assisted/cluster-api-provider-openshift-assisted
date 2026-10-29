@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"encoding/json"
+	stderrors "errors"
 	"fmt"
 	"net"
 	"regexp"
@@ -43,6 +44,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
@@ -195,15 +197,27 @@ func (r *ClusterDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		return ctrl.Result{}, err
 	}
 
-	// Requeue periodically during installation to update the DNS proxy apps zone
-	// with virt-launcher pod IPs once VMs are running.
+	// Requeue frequently during installation so the DNS proxy switches from the
+	// bootstrap IP to the API service once the tenant kubeconfig is available.
+	// After installation, reconcile slowly so the Route canonical hostname stays
+	// current even if the hub router deployment changes.
 	if isKubeVirtInfra(cluster) &&
-		kubevirt.IsPodNetworking(acp.Spec.Config.APIVIPs, acp.Spec.Config.IngressVIPs) &&
-		!conditions.IsTrue(acp, string(controlplanev1alpha3.KubeconfigAvailableCondition)) {
-		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+		kubevirt.IsPodNetworking(acp.Spec.Config.APIVIPs, acp.Spec.Config.IngressVIPs) {
+		return dnsProxyRequeue(acp), nil
 	}
 
 	return ctrl.Result{}, nil
+}
+
+func dnsProxyRequeue(acp *controlplanev1alpha3.OpenshiftAssistedControlPlane) ctrl.Result {
+	if !conditions.IsTrue(acp, string(controlplanev1alpha3.KubeconfigAvailableCondition)) {
+		return ctrl.Result{RequeueAfter: 30 * time.Second}
+	}
+	return ctrl.Result{RequeueAfter: 5 * time.Minute}
+}
+
+func isIngressWildcardPolicyPermissionError(err error) bool {
+	return apierrors.IsForbidden(err) || apierrors.IsUnauthorized(err)
 }
 
 // reconcileKubeVirtInfra handles all KubeVirt-specific infrastructure setup:
@@ -223,10 +237,7 @@ func (r *ClusterDeploymentReconciler) reconcileKubeVirtInfra(
 		log.Error(err, "failed to get infra cluster client")
 		return ctrl.Result{}, err
 	}
-	infraNamespace := acp.Namespace
-	if infraResult.IsRemote {
-		infraNamespace = infraResult.Namespace
-	}
+	infraNamespace := infraResult.Namespace
 
 	if result, err := r.ensureGoldenPVC(ctx, acp, infraResult, infraNamespace, releaseImageWithDigest); err != nil || !result.IsZero() {
 		return result, err
@@ -239,14 +250,25 @@ func (r *ClusterDeploymentReconciler) reconcileKubeVirtInfra(
 	}
 
 	if err := kubevirt.EnsureIngressControllerWildcardPolicy(ctx, infraResult.Client); err != nil {
-		log.V(1).Info("could not ensure IngressController wildcard policy (may require cluster-admin, assuming pre-configured)", "error", err)
+		if isIngressWildcardPolicyPermissionError(err) {
+			log.Info(
+				"no permission to ensure IngressController wildcard policy; assuming it is preconfigured",
+				"error", err,
+			)
+		} else {
+			log.Error(err, "failed to ensure IngressController wildcard policy")
+			return ctrl.Result{}, err
+		}
 	}
 	if err := kubevirt.EnsureExternalRoutes(ctx, infraResult.Client, acp, clusterDeployment.Spec.ClusterName, infraNamespace); err != nil {
 		log.Error(err, "failed to ensure external routes")
 		return ctrl.Result{}, err
 	}
 
-	manifestDNSIPs := r.reconcileDNSProxy(ctx, acp, infraResult, clusterDeployment, serviceIPs, infraNamespace)
+	manifestDNSIPs, dnsProxyIP, dnsResult, err := r.reconcileDNSProxy(ctx, acp, infraResult, clusterDeployment, serviceIPs)
+	if err != nil || !dnsResult.IsZero() {
+		return dnsResult, err
+	}
 
 	pullSecretData := []byte{}
 	if acp.Spec.Config.PullSecretRef != nil {
@@ -269,9 +291,7 @@ func (r *ClusterDeploymentReconciler) reconcileKubeVirtInfra(
 		return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
 	}
 
-	infraCoreDNSIP := kubevirt.GetInfraCoreDNSIP(ctx, infraResult.Client)
-
-	if _, err := kubevirt.EnsureKubeVirtManifests(ctx, r.Client, acp, infraNS, manifestDNSIPs, oseCliImage, releaseImageWithDigest, pullSecretData, &containers.RemoteImageRepository{}, infraCoreDNSIP); err != nil {
+	if _, err := kubevirt.EnsureKubeVirtManifests(ctx, r.Client, acp, infraNS, manifestDNSIPs, dnsProxyIP, oseCliImage, releaseImageWithDigest, pullSecretData, &containers.RemoteImageRepository{}); err != nil {
 		log.Error(err, "failed to create KubeVirt platform manifests")
 		return ctrl.Result{}, err
 	}
@@ -331,13 +351,13 @@ func (r *ClusterDeploymentReconciler) reconcileDNSProxy(
 	infraResult *kubevirt.InfraClientResult,
 	clusterDeployment *hivev1.ClusterDeployment,
 	serviceIPs *kubevirt.ServiceIPs,
-	infraNamespace string,
-) *kubevirt.ServiceIPs {
+) (*kubevirt.ServiceIPs, string, ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
+	infraNamespace := infraResult.Namespace
 	needsDNSProxy := kubevirt.IsPodNetworking(acp.Spec.Config.APIVIPs, acp.Spec.Config.IngressVIPs)
 	if !needsDNSProxy {
 		log.Info("VIPs configured, skipping pod-networking setup (bridge networking)")
-		return serviceIPs
+		return serviceIPs, "", ctrl.Result{}, nil
 	}
 
 	kubeconfigAvailable := conditions.IsTrue(acp, string(controlplanev1alpha3.KubeconfigAvailableCondition))
@@ -358,44 +378,51 @@ func (r *ClusterDeploymentReconciler) reconcileDNSProxy(
 		log.V(1).Info("kubeconfig available, using service ClusterIP for DNS")
 	}
 
-	routerIPs, _ := kubevirt.GetRouterNodeIPs(ctx, infraResult.Client, clusterDeployment.Spec.ClusterName, infraNamespace)
-
 	apiIP := ""
 	if manifestDNSIPs != nil {
 		apiIP = manifestDNSIPs.APIClusterIP
 	}
+	if apiIP == "" {
+		log.V(1).Info("waiting for API service IP for DNS proxy")
+		return manifestDNSIPs, "", ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+	}
+
+	ingressCNAME, admitted, err := kubevirt.GetIngressRouteCanonicalHostname(
+		ctx,
+		infraResult.Client,
+		clusterDeployment.Spec.ClusterName,
+		infraNamespace,
+	)
+	if err != nil {
+		log.Error(err, "failed to read ingress Route canonical hostname")
+		return manifestDNSIPs, "", ctrl.Result{}, err
+	}
+	if !admitted {
+		log.V(1).Info("waiting for ingress Route admission")
+		return manifestDNSIPs, "", ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+	}
+
 	dnsConfig := &kubevirt.DNSProxyConfig{
-		APIIP:      apiIP,
-		IngressIPs: routerIPs,
+		APIIP:        apiIP,
+		IngressCNAME: ingressCNAME,
+		UpstreamDNS:  kubevirt.InfraDNSResolver,
 	}
-	if err := kubevirt.EnsureDNSProxy(ctx, infraResult.Client, acp, dnsConfig, infraNamespace); err != nil {
-		log.V(1).Info("could not ensure DNS proxy (best-effort)", "error", err)
-	}
-
-	dnsProxyIP := kubevirt.GetDNSProxyClusterIP(ctx, infraResult.Client, infraNamespace)
-	if dnsProxyIP != "" {
-		if err := kubevirt.EnsureDNSForwardingRule(ctx, r.Client, clusterDeployment.Spec.ClusterName, acp.Spec.Config.BaseDomain, dnsProxyIP, infraNamespace); err != nil {
-			log.V(1).Info("could not ensure DNS forwarding rule (best-effort)", "error", err)
-		} else {
-			ruleIdentity := infraNamespace + "/" + clusterDeployment.Spec.ClusterName
-			if acp.Annotations == nil || acp.Annotations[kubevirt.DNSRuleCreatedAnnotation] != ruleIdentity {
-				patch := client.MergeFrom(acp.DeepCopy())
-				if acp.Annotations == nil {
-					acp.Annotations = map[string]string{}
-				}
-				acp.Annotations[kubevirt.DNSRuleCreatedAnnotation] = ruleIdentity
-				if patchErr := r.Patch(ctx, acp, patch); patchErr != nil {
-					log.V(1).Info("could not persist DNS rule annotation (best-effort)", "error", patchErr)
-				}
-			}
+	dnsProxyIP, err := kubevirt.EnsureDNSProxy(ctx, infraResult.Client, acp, dnsConfig, infraNamespace)
+	if err != nil {
+		if stderrors.Is(err, kubevirt.ErrDNSProxyNotReady) {
+			log.V(1).Info("DNS proxy inputs are not ready yet")
+			return manifestDNSIPs, "", ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 		}
+		log.Error(err, "failed to ensure DNS proxy")
+		return manifestDNSIPs, "", ctrl.Result{}, err
 	}
 
-	if len(routerIPs) == 0 && !kubeconfigAvailable {
-		log.V(1).Info("DNS proxy apps zone has no ingress IPs yet, will update on next reconcile")
+	if dnsProxyIP == "" {
+		log.V(1).Info("waiting for DNS proxy service IP")
+		return manifestDNSIPs, "", ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 	}
 
-	return manifestDNSIPs
+	return manifestDNSIPs, dnsProxyIP, ctrl.Result{}, nil
 }
 
 func (r *ClusterDeploymentReconciler) ensureAgentClusterInstall(
@@ -527,7 +554,6 @@ func getReleaseImage(oacp controlplanev1alpha3.OpenshiftAssistedControlPlane, ar
 	}
 	return release.GetReleaseImage(oacp.Spec.DistributionVersion, releaseImageRepository, architecture)
 }
-
 
 func (r *ClusterDeploymentReconciler) updateClusterDeploymentRef(
 	ctx context.Context,

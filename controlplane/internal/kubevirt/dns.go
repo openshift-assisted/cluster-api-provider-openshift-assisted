@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"net"
+	"regexp"
 	"strings"
 )
 
@@ -263,6 +264,24 @@ func generateAppsCorefile(fqdn string, upstreamDNS string) string {
 `, fqdn, upstreamDNS)
 }
 
+// generateDynamicAppsCorefile rewrites any tenant apps hostname to the infra
+// router's canonical hostname and lets CoreDNS resolve it through the infra
+// cluster resolver. Unlike a static CNAME or A record, this works on both cloud
+// LoadBalancer and bare-metal keepalived ingress without cluster-scoped reads.
+func generateDynamicAppsCorefile(fqdn string, upstreamDNS string, canonicalHostname string) string {
+	appsFQDN := "apps." + fqdn
+	pattern := `(?i)^.*\.` + regexp.QuoteMeta(appsFQDN) + `\.?$`
+	canonicalHostname = absoluteDNSName(canonicalHostname)
+	return fmt.Sprintf(`%s:5353 {
+    rewrite stop name regex %s %s
+    forward . %s
+    cache 30
+    errors
+    log
+}
+`, appsFQDN, pattern, canonicalHostname, upstreamDNS)
+}
+
 // generateAppsZoneFile generates a DNS zone file with a wildcard record for the
 // *.apps subdomain. The target can be an IP address or a canonical router name.
 // The SOA serial is derived from the target so that the file plugin detects zone
@@ -299,50 +318,23 @@ func dnsZoneRecord(target string) string {
 
 // GenerateTenantDNSForwarderManifests generates a day-0 manifest that configures
 // the tenant cluster's DNS operator to forward queries for the tenant's own FQDN
-// (clusterName.baseDomain) back to the infra cluster's DNS.
+// to the namespaced tenant DNS proxy.
 //
 // The zone MUST be the full FQDN (e.g., "kubevirt-tenant.apps.example.com"),
 // NOT just the baseDomain — otherwise the DNS operator won't match queries for
 // api.kubevirt-tenant.apps.example.com or *.apps.kubevirt-tenant.apps.example.com.
 //
 // In KubeVirt deployments, the tenant VMs are pods on the infra cluster's network
-// and can reach the infra cluster's DNS service ClusterIP (172.30.0.10). Forwarding
-// to this IP works because the infra DNS operator has a forwarding rule (configured
-// by EnsureDNSProxy) that routes tenant domain queries to the tenant-dns proxy.
+// and can reach the proxy Service ClusterIP directly. This avoids modifying the
+// infra cluster's cluster-scoped DNS configuration.
 //
 // This ConfigMap MUST always be created (even before node IPs are known) because
 // it is referenced in AgentClusterInstall.spec.manifestsConfigMapRefs. If the
 // ConfigMap doesn't exist, AgentClusterInstall reports SpecSynced: False and
 // the installation cannot proceed.
-func GenerateTenantDNSForwarderManifests(fqdn string, dnsProxyNodeIPs []string) []ManifestEntry {
-	if len(dnsProxyNodeIPs) == 0 {
-		// Forward to the infra cluster's DNS service. This works for KubeVirt
-		// because tenant VMs can reach infra ClusterIPs directly (they are pods
-		// on the infra network). The infra DNS has a forwarding rule that routes
-		// these queries to the tenant-dns proxy.
-		return []ManifestEntry{
-			{
-				Filename: "99-tenant-dns-forwarder.yaml",
-				Content: fmt.Sprintf(`apiVersion: operator.openshift.io/v1
-kind: DNS
-metadata:
-  name: default
-spec:
-  servers:
-    - name: infra-domain-forwarder
-      zones:
-        - "%s"
-      forwardPlugin:
-        upstreams:
-          - "172.30.0.10:53"
-        policy: Random
-`, fqdn),
-			},
-		}
-	}
-
+func GenerateTenantDNSForwarderManifests(fqdn string, dnsProxyIPs []string) []ManifestEntry {
 	upstreams := ""
-	for _, ip := range dnsProxyNodeIPs {
+	for _, ip := range dnsProxyIPs {
 		upstreams += fmt.Sprintf("          - \"%s:5353\"\n", ip)
 	}
 

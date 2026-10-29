@@ -39,18 +39,20 @@ var _ = Describe("EnsureDNSProxy", func() {
 		_, err := kubevirt.EnsureDNSProxy(ctx, fakeClient, oacp, &kubevirt.DNSProxyConfig{
 			APIIP:        "10.96.10.10",
 			IngressCNAME: "router-default.apps.mgmt.example.com",
-			UpstreamDNS:  "10.96.0.10",
+			UpstreamDNS:  kubevirt.InfraDNSResolver,
 		}, "test-ns")
 		Expect(err).NotTo(HaveOccurred())
 
 		configMap := &corev1.ConfigMap{}
 		Expect(fakeClient.Get(ctx, client.ObjectKey{Name: "tenant-dns-corefile", Namespace: "test-ns"}, configMap)).To(Succeed())
-		Expect(configMap.Data["Corefile"]).To(ContainSubstring("forward . 10.96.0.10"))
-		Expect(configMap.Data["apps.db"]).To(ContainSubstring("IN CNAME"))
-		Expect(configMap.Data["apps.db"]).To(ContainSubstring("router-default.apps.mgmt.example.com."))
+		Expect(configMap.Data["Corefile"]).To(ContainSubstring(".:5353"))
+		Expect(configMap.Data["Corefile"]).To(ContainSubstring("rewrite stop name regex"))
+		Expect(configMap.Data["Corefile"]).To(ContainSubstring("router-default.apps.mgmt.example.com."))
+		Expect(configMap.Data["Corefile"]).To(ContainSubstring("forward . /etc/resolv.conf"))
+		Expect(configMap.Data).NotTo(HaveKey("apps.db"))
 	})
 
-	It("rewrites the apps zone when the admitted router CNAME changes", func() {
+	It("updates the router rewrite when the admitted router CNAME changes", func() {
 		ctx := context.Background()
 		scheme := runtime.NewScheme()
 		utilruntime.Must(corev1.AddToScheme(scheme))
@@ -74,15 +76,15 @@ var _ = Describe("EnsureDNSProxy", func() {
 			_, err := kubevirt.EnsureDNSProxy(ctx, fakeClient, oacp, &kubevirt.DNSProxyConfig{
 				APIIP:        "10.96.10.10",
 				IngressCNAME: cname,
-				UpstreamDNS:  "10.96.0.10",
+				UpstreamDNS:  kubevirt.InfraDNSResolver,
 			}, "test-ns")
 			Expect(err).NotTo(HaveOccurred())
 		}
 
 		configMap := &corev1.ConfigMap{}
 		Expect(fakeClient.Get(ctx, client.ObjectKey{Name: "tenant-dns-corefile", Namespace: "test-ns"}, configMap)).To(Succeed())
-		Expect(configMap.Data["apps.db"]).To(ContainSubstring("router-new.apps.mgmt.example.com."))
-		Expect(configMap.Data["apps.db"]).NotTo(ContainSubstring("router-old.apps.mgmt.example.com."))
+		Expect(configMap.Data["Corefile"]).To(ContainSubstring("router-new.apps.mgmt.example.com."))
+		Expect(configMap.Data["Corefile"]).NotTo(ContainSubstring("router-old.apps.mgmt.example.com."))
 	})
 
 	It("reports missing DNS inputs as not ready", func() {
@@ -126,5 +128,22 @@ var _ = Describe("LookupInfraCoreDNSIP", func() {
 		ip, err := kubevirt.LookupInfraCoreDNSIP(ctx, fakeClient)
 		Expect(err).To(HaveOccurred())
 		Expect(ip).To(BeEmpty())
+	})
+})
+
+var _ = Describe("GetTenantDNSProxyClusterIP", func() {
+	It("returns the namespaced proxy Service ClusterIP", func() {
+		ctx := context.Background()
+		scheme := runtime.NewScheme()
+		utilruntime.Must(corev1.AddToScheme(scheme))
+		service := &corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{Name: "tenant-dns", Namespace: "test-ns"},
+			Spec:       corev1.ServiceSpec{ClusterIP: "10.96.53.10"},
+		}
+		fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(service).Build()
+
+		ip, err := kubevirt.GetTenantDNSProxyClusterIP(ctx, fakeClient, "test-ns")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(ip).To(Equal("10.96.53.10"))
 	})
 })

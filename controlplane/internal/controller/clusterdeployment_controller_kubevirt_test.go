@@ -2,12 +2,12 @@ package controller
 
 import (
 	"context"
+	stderrors "errors"
 	"testing"
 	"time"
 
 	controlplanev1alpha3 "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/api/v1alpha3"
 	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/internal/kubevirt"
-	configv1 "github.com/openshift/api/config/v1"
 	routev1 "github.com/openshift/api/route/v1"
 	hiveext "github.com/openshift/assisted-service/api/hiveextension/v1beta1"
 	hivev1 "github.com/openshift/hive/apis/hive/v1"
@@ -15,7 +15,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -24,27 +23,18 @@ import (
 	fakeclient "sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
-var dnsOperatorTestGVK = schema.GroupVersionKind{
-	Group:   "operator.openshift.io",
-	Version: "v1",
-	Kind:    "DNS",
-}
-
 func TestReconcileDNSProxyWaitsForReadinessInputs(t *testing.T) {
 	tests := []struct {
-		name            string
-		serviceIPs      *kubevirt.ServiceIPs
-		infraCoreDNSIP  string
-		routeAdmitted   bool
-		wantConfigMap   bool
-		wantRequeueFor  time.Duration
-		wantAnnotation  bool
-		withDNSService  bool
-		withDNSOperator bool
+		name           string
+		serviceIPs     *kubevirt.ServiceIPs
+		routeAdmitted  bool
+		wantConfigMap  bool
+		wantRequeueFor time.Duration
+		wantProxyIP    string
+		withDNSService bool
 	}{
 		{
 			name:           "waits for the API service ClusterIP",
-			infraCoreDNSIP: "10.96.0.10",
 			routeAdmitted:  true,
 			wantRequeueFor: 30 * time.Second,
 		},
@@ -53,38 +43,28 @@ func TestReconcileDNSProxyWaitsForReadinessInputs(t *testing.T) {
 			serviceIPs: &kubevirt.ServiceIPs{
 				APIClusterIP: "10.96.10.10",
 			},
-			infraCoreDNSIP: "10.96.0.10",
-			wantRequeueFor: 30 * time.Second,
-		},
-		{
-			name: "waits for the infra CoreDNS ClusterIP",
-			serviceIPs: &kubevirt.ServiceIPs{
-				APIClusterIP: "10.96.10.10",
-			},
-			routeAdmitted:  true,
 			wantRequeueFor: 30 * time.Second,
 		},
 		{
 			name: "waits for the DNS proxy service ClusterIP",
 			serviceIPs: &kubevirt.ServiceIPs{
-				APIClusterIP: "10.96.10.10",
+				APIClusterIP:     "10.96.10.10",
+				IngressClusterIP: "10.96.20.20",
 			},
-			infraCoreDNSIP: "10.96.0.10",
 			routeAdmitted:  true,
 			wantConfigMap:  true,
 			wantRequeueFor: 30 * time.Second,
 		},
 		{
-			name: "creates the DNS forwarding rule when ready",
+			name: "uses the DNS proxy service ClusterIP when ready",
 			serviceIPs: &kubevirt.ServiceIPs{
-				APIClusterIP: "10.96.10.10",
+				APIClusterIP:     "10.96.10.10",
+				IngressClusterIP: "10.96.20.20",
 			},
-			infraCoreDNSIP:  "10.96.0.10",
-			routeAdmitted:   true,
-			wantConfigMap:   true,
-			wantAnnotation:  true,
-			withDNSService:  true,
-			withDNSOperator: true,
+			routeAdmitted:  true,
+			wantConfigMap:  true,
+			wantProxyIP:    "10.96.53.10",
+			withDNSService: true,
 		},
 	}
 
@@ -104,24 +84,13 @@ func TestReconcileDNSProxyWaitsForReadinessInputs(t *testing.T) {
 					t.Fatalf("failed to create DNS proxy service: %v", err)
 				}
 			}
-			if test.withDNSOperator {
-				dnsOperator := &unstructured.Unstructured{}
-				dnsOperator.SetGroupVersionKind(dnsOperatorTestGVK)
-				dnsOperator.SetName("default")
-				dnsOperator.Object["spec"] = map[string]interface{}{}
-				if err := client.Create(ctx, dnsOperator); err != nil {
-					t.Fatalf("failed to create DNS operator object: %v", err)
-				}
-			}
-
 			reconciler := &ClusterDeploymentReconciler{Client: client, Scheme: client.Scheme()}
-			manifestDNSIPs, result, err := reconciler.reconcileDNSProxy(
+			manifestDNSIPs, dnsProxyIP, result, err := reconciler.reconcileDNSProxy(
 				ctx,
 				oacp,
 				&kubevirt.InfraClientResult{Client: client, Namespace: "test-ns"},
 				dnsProxyTestClusterDeployment(),
 				test.serviceIPs,
-				test.infraCoreDNSIP,
 			)
 			if err != nil {
 				t.Fatalf("reconcileDNSProxy() error = %v", err)
@@ -132,6 +101,9 @@ func TestReconcileDNSProxyWaitsForReadinessInputs(t *testing.T) {
 			if result.RequeueAfter != test.wantRequeueFor {
 				t.Fatalf("requeueAfter = %v, want %v", result.RequeueAfter, test.wantRequeueFor)
 			}
+			if dnsProxyIP != test.wantProxyIP {
+				t.Fatalf("DNS proxy IP = %q, want %q", dnsProxyIP, test.wantProxyIP)
+			}
 
 			configMap := &corev1.ConfigMap{}
 			configMapErr := client.Get(ctx, types.NamespacedName{Name: "tenant-dns-corefile", Namespace: "test-ns"}, configMap)
@@ -140,16 +112,6 @@ func TestReconcileDNSProxyWaitsForReadinessInputs(t *testing.T) {
 			}
 			if !test.wantConfigMap && !apierrors.IsNotFound(configMapErr) {
 				t.Fatalf("expected no DNS proxy ConfigMap, got %v", configMapErr)
-			}
-
-			if test.wantAnnotation {
-				updatedOACP := &controlplanev1alpha3.OpenshiftAssistedControlPlane{}
-				if err := client.Get(ctx, types.NamespacedName{Name: "test-cluster", Namespace: "test-ns"}, updatedOACP); err != nil {
-					t.Fatalf("failed to get OACP: %v", err)
-				}
-				if updatedOACP.Annotations[kubevirt.DNSRuleCreatedAnnotation] != "test-ns/test-cluster" {
-					t.Fatalf("DNS rule annotation = %q, want %q", updatedOACP.Annotations[kubevirt.DNSRuleCreatedAnnotation], "test-ns/test-cluster")
-				}
 			}
 		})
 	}
@@ -184,6 +146,26 @@ func TestDNSProxyRequeue(t *testing.T) {
 
 			if got := dnsProxyRequeue(oacp); got.RequeueAfter != test.wantRequeueAfter {
 				t.Fatalf("requeueAfter = %v, want %v", got.RequeueAfter, test.wantRequeueAfter)
+			}
+		})
+	}
+}
+
+func TestIngressWildcardPolicyPermissionError(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "forbidden", err: apierrors.NewForbidden(schema.GroupResource{}, "default", nil), want: true},
+		{name: "unauthorized", err: apierrors.NewUnauthorized("unauthorized"), want: true},
+		{name: "other", err: stderrors.New("connection refused"), want: false},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := isIngressWildcardPolicyPermissionError(test.err); got != test.want {
+				t.Fatalf("isIngressWildcardPolicyPermissionError() = %v, want %v", got, test.want)
 			}
 		})
 	}
@@ -245,20 +227,10 @@ func newDNSProxyTestClient(t *testing.T, objects ...client.Object) client.Client
 	scheme := runtime.NewScheme()
 	utilruntime.Must(controlplanev1alpha3.AddToScheme(scheme))
 	utilruntime.Must(corev1.AddToScheme(scheme))
-	utilruntime.Must(configv1.AddToScheme(scheme))
 	utilruntime.Must(routev1.Install(scheme))
 	utilruntime.Must(appsv1.AddToScheme(scheme))
 	utilruntime.Must(hivev1.AddToScheme(scheme))
 	utilruntime.Must(hiveext.AddToScheme(scheme))
-	dnsSchemeBuilder := runtime.NewSchemeBuilder(func(s *runtime.Scheme) error {
-		s.AddKnownTypeWithName(dnsOperatorTestGVK, &unstructured.Unstructured{})
-		s.AddKnownTypeWithName(
-			schema.GroupVersionKind{Group: "operator.openshift.io", Version: "v1", Kind: "DNSList"},
-			&unstructured.UnstructuredList{},
-		)
-		return nil
-	})
-	utilruntime.Must(dnsSchemeBuilder.AddToScheme(scheme))
 
 	return fakeclient.NewClientBuilder().
 		WithScheme(scheme).

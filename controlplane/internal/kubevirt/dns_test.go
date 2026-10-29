@@ -22,14 +22,14 @@ var _ = Describe("DNS Proxy Manifests", func() {
 	})
 
 	Describe("GenerateTenantDNSForwarderManifests", func() {
-		It("should generate a forwarder manifest with node IPs", func() {
+		It("should generate a forwarder manifest with the proxy Service IP", func() {
 			manifests := kubevirt.GenerateTenantDNSForwarderManifests(
 				"test-cluster.apps.mgmt.example.com",
-				[]string{"10.128.2.5", "10.128.2.6"},
+				[]string{"10.96.53.10"},
 			)
 			Expect(manifests).To(HaveLen(1))
 			Expect(manifests[0].Filename).To(Equal("99-tenant-dns-forwarder.yaml"))
-			Expect(manifests[0].Content).To(ContainSubstring("10.128.2.5"))
+			Expect(manifests[0].Content).To(ContainSubstring("10.96.53.10:5353"))
 			Expect(manifests[0].Content).To(ContainSubstring("test-cluster.apps.mgmt.example.com"))
 		})
 	})
@@ -39,7 +39,7 @@ var _ = Describe("Ignition Overrides", func() {
 	Describe("KubeVirtDiscoveryIgnitionOverride", func() {
 		It("should generate ignition JSON containing API IP in base64 encoded content", func() {
 			override, err := kubevirt.KubeVirtDiscoveryIgnitionOverride(
-				"ssh-rsa AAAA...", "10.96.0.100", "test-cluster", "apps.mgmt.example.com", "")
+				"ssh-rsa AAAA...", "10.96.0.100", "test-cluster", "apps.mgmt.example.com", "10.96.53.10")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(override).To(ContainSubstring("ignition"))
 

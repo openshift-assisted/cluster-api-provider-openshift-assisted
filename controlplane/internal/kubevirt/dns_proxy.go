@@ -55,6 +55,11 @@ const (
 
 	DefaultCoreDNSImage    = "quay.io/openshift/origin-coredns:latest"
 	RelatedImageCoreDNSEnv = "RELATED_IMAGE_COREDNS"
+
+	// InfraDNSResolver makes CoreDNS read the infra cluster resolver from the
+	// proxy pod's /etc/resolv.conf. This avoids requiring permission to read the
+	// infra cluster's openshift-dns Service and works in remote-infra setups.
+	InfraDNSResolver = "/etc/resolv.conf"
 )
 
 var ErrDNSProxyNotReady = stderrors.New("DNS proxy is not ready")
@@ -110,10 +115,10 @@ func EnsureDNSProxy(
 	}
 
 	// 1. CoreDNS ConfigMap
-	corefile := generateCorefile(fqdn, config.UpstreamDNS, []string{config.APIIP})
+	corefile := generateCatchAllCorefile(config.UpstreamDNS) +
+		generateCorefile(fqdn, config.UpstreamDNS, []string{config.APIIP})
 	cmData := map[string]string{
-		"Corefile": generateAppsCorefile(fqdn, config.UpstreamDNS) + corefile,
-		"apps.db":  generateAppsZoneFile(fqdn, config.IngressCNAME),
+		"Corefile": generateDynamicAppsCorefile(fqdn, config.UpstreamDNS, config.IngressCNAME) + corefile,
 	}
 	cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: TenantDNSCorefileName, Namespace: namespace}}
 	if _, err := controllerutil.CreateOrUpdate(ctx, c, cm, func() error {
@@ -199,6 +204,30 @@ func GetAPIServiceClusterIP(ctx context.Context, c client.Client, clusterName, n
 		return ""
 	}
 	return svc.Spec.ClusterIP
+}
+
+// GetTenantDNSProxyClusterIP returns the ClusterIP of the namespaced tenant DNS
+// proxy. A project-admin can read this Service in the tenant namespace.
+func GetTenantDNSProxyClusterIP(ctx context.Context, c client.Client, namespace string) (string, error) {
+	svc := &corev1.Service{}
+	if err := c.Get(ctx, client.ObjectKey{Name: TenantDNSServiceName, Namespace: namespace}, svc); err != nil {
+		return "", fmt.Errorf("failed to get %s/%s: %w", namespace, TenantDNSServiceName, err)
+	}
+	if svc.Spec.ClusterIP == "" || svc.Spec.ClusterIP == "None" {
+		return "", fmt.Errorf("%s/%s has no ClusterIP", namespace, TenantDNSServiceName)
+	}
+	return svc.Spec.ClusterIP, nil
+}
+
+func generateCatchAllCorefile(upstreamDNS string) string {
+	return fmt.Sprintf(`.:5353 {
+    forward . %s
+    cache 30
+    errors
+    log
+}
+
+`, upstreamDNS)
 }
 
 // EnsureDNSForwardingRule ensures the cluster DNS operator forwards queries for

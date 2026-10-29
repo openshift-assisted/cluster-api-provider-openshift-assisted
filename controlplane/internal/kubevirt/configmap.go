@@ -45,11 +45,11 @@ func EnsureKubeVirtManifests(
 	oacp *controlplanev1alpha3.OpenshiftAssistedControlPlane,
 	infraNamespace string,
 	serviceIPs *ServiceIPs,
+	dnsProxyIP string,
 	oseCliImage string,
 	releaseImage string,
 	pullSecret []byte,
 	remoteImage containers.RemoteImage,
-	infraCoreDNSIP string,
 ) ([]hiveext.ManifestsConfigMapReference, error) {
 	var allRefs []hiveext.ManifestsConfigMapReference
 
@@ -112,8 +112,11 @@ func EnsureKubeVirtManifests(
 	if clusterName == "" {
 		clusterName = oacp.Name
 	}
+	if IsPodNetworking(oacp.Spec.Config.APIVIPs, oacp.Spec.Config.IngressVIPs) && dnsProxyIP == "" {
+		return nil, fmt.Errorf("tenant DNS proxy ClusterIP is required for pod-networking manifests")
+	}
 
-	refs, err := ensurePodNetworkingManifests(ctx, c, oacp, serviceIPs, infraCoreDNSIP, clusterName)
+	refs, err := ensurePodNetworkingManifests(ctx, c, oacp, serviceIPs, dnsProxyIP, clusterName)
 	if err != nil {
 		return nil, err
 	}
@@ -129,7 +132,7 @@ func ensurePodNetworkingManifests(
 	c client.Client,
 	oacp *controlplanev1alpha3.OpenshiftAssistedControlPlane,
 	serviceIPs *ServiceIPs,
-	infraCoreDNSIP string,
+	dnsProxyIP string,
 	clusterName string,
 ) ([]hiveext.ManifestsConfigMapReference, error) {
 	var refs []hiveext.ManifestsConfigMapReference
@@ -140,7 +143,7 @@ func ensurePodNetworkingManifests(
 		if serviceIPs != nil {
 			apiClusterIP = serviceIPs.APIClusterIP
 		}
-		podNetDNSFixManifests := GeneratePodNetworkDNSFixManifests(clusterName, oacp.Spec.Config.BaseDomain, apiClusterIP, infraCoreDNSIP)
+		podNetDNSFixManifests := GeneratePodNetworkDNSFixManifests(clusterName, oacp.Spec.Config.BaseDomain, apiClusterIP, dnsProxyIP)
 		if len(podNetDNSFixManifests) > 0 {
 			if err := ensureManifestsConfigMap(ctx, c, oacp, PodNetDNSFixManifestsConfigMapName, podNetDNSFixManifests); err != nil {
 				return nil, fmt.Errorf("failed to create pod network DNS fix manifests ConfigMap: %w", err)
@@ -172,7 +175,7 @@ func ensurePodNetworkingManifests(
 		clusterName,
 		oacp.Spec.Config.BaseDomain,
 		oacp.Namespace,
-		infraCoreDNSIP,
+		InfraDNSResolver,
 		apiIPs,
 		ingressTarget,
 	)
@@ -185,7 +188,7 @@ func ensurePodNetworkingManifests(
 	if podNet {
 		tenantDNSManifests := GenerateTenantDNSForwarderManifests(
 			fmt.Sprintf("%s.%s", clusterName, oacp.Spec.Config.BaseDomain),
-			nil,
+			[]string{dnsProxyIP},
 		)
 		if len(tenantDNSManifests) > 0 {
 			if err := ensureManifestsConfigMap(ctx, c, oacp, TenantDNSFwdConfigName, tenantDNSManifests); err != nil {

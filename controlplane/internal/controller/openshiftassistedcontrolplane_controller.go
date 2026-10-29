@@ -101,13 +101,13 @@ func isKubeVirtInfra(cluster *clusterv1.Cluster) bool {
 func resolveInfraVersion(ref clusterv1.ContractVersionedObjectReference) string {
 	type groupKind struct{ group, kind string }
 	knownVersions := map[groupKind]string{
-		{"infrastructure.cluster.x-k8s.io", "KubevirtCluster"}:         "v1alpha1",
-		{"infrastructure.cluster.x-k8s.io", "KubevirtMachine"}:         "v1alpha1",
-		{"infrastructure.cluster.x-k8s.io", "KubevirtMachineTemplate"}: "v1alpha1",
-		{"infrastructure.cluster.x-k8s.io", "Metal3Cluster"}:           "v1beta1",
-		{"infrastructure.cluster.x-k8s.io", "Metal3Machine"}:           "v1beta1",
-		{"infrastructure.cluster.x-k8s.io", "Metal3MachineTemplate"}:   "v1beta1",
-		{"bootstrap.cluster.x-k8s.io", "OpenshiftAssistedConfig"}:      "v1alpha2",
+		{"infrastructure.cluster.x-k8s.io", "KubevirtCluster"}:             "v1alpha1",
+		{"infrastructure.cluster.x-k8s.io", "KubevirtMachine"}:             "v1alpha1",
+		{"infrastructure.cluster.x-k8s.io", "KubevirtMachineTemplate"}:     "v1alpha1",
+		{"infrastructure.cluster.x-k8s.io", "Metal3Cluster"}:               "v1beta1",
+		{"infrastructure.cluster.x-k8s.io", "Metal3Machine"}:               "v1beta1",
+		{"infrastructure.cluster.x-k8s.io", "Metal3MachineTemplate"}:       "v1beta1",
+		{"bootstrap.cluster.x-k8s.io", "OpenshiftAssistedConfig"}:          "v1alpha2",
 		{"controlplane.cluster.x-k8s.io", "OpenshiftAssistedControlPlane"}: "v1alpha3",
 	}
 	if v, ok := knownVersions[groupKind{ref.APIGroup, ref.Kind}]; ok {
@@ -1281,11 +1281,23 @@ func (r *OpenshiftAssistedControlPlaneReconciler) reconcileReplicas(ctx context.
 
 func (r *OpenshiftAssistedControlPlaneReconciler) scaleUpControlPlane(ctx context.Context, oacp *controlplanev1alpha3.OpenshiftAssistedControlPlane, cluster *clusterv1.Cluster, failureDomain string) (*clusterv1.Machine, error) {
 	apiServiceIP := ""
+	dnsProxyIP := ""
 	if isKubeVirtInfra(cluster) {
-		apiServiceIP = kubevirt.GetAPIServiceClusterIP(ctx, r.Client, oacp.Name, oacp.Namespace)
+		infraResult, err := kubevirt.GetInfraClusterClient(ctx, r.Client, oacp, r.Scheme)
+		if err != nil {
+			return nil, fmt.Errorf("could not get infra cluster client: %w", err)
+		}
+		apiServiceIP = kubevirt.GetAPIServiceClusterIP(ctx, infraResult.Client, oacp.Name, infraResult.Namespace)
 		if apiServiceIP == "" {
 			ctrl.LoggerFrom(ctx).Info("waiting for API service to be created before scaling up")
 			return nil, fmt.Errorf("API service not yet available for KubeVirt cluster, will retry")
+		}
+		if kubevirt.IsPodNetworking(oacp.Spec.Config.APIVIPs, oacp.Spec.Config.IngressVIPs) {
+			dnsProxyIP, err = kubevirt.GetTenantDNSProxyClusterIP(ctx, infraResult.Client, infraResult.Namespace)
+			if err != nil {
+				ctrl.LoggerFrom(ctx).Info("waiting for tenant DNS proxy service before scaling up", "error", err)
+				return nil, fmt.Errorf("tenant DNS proxy not yet available for KubeVirt cluster, will retry")
+			}
 		}
 	}
 	name := names.SimpleNameGenerator.GenerateName(oacp.Name + "-")
@@ -1293,11 +1305,7 @@ func (r *OpenshiftAssistedControlPlaneReconciler) scaleUpControlPlane(ctx contex
 	if err != nil {
 		return nil, err
 	}
-	infraCoreDNSIP := ""
-	if isKubeVirtInfra(cluster) {
-		infraCoreDNSIP = kubevirt.GetInfraCoreDNSIP(ctx, r.Client)
-	}
-	bootstrapConfig := r.generateOpenshiftAssistedConfig(oacp, cluster.Name, name, apiServiceIP, infraCoreDNSIP, cluster)
+	bootstrapConfig := r.generateOpenshiftAssistedConfig(oacp, cluster.Name, name, apiServiceIP, dnsProxyIP, cluster)
 	_ = controllerutil.SetOwnerReference(oacp, bootstrapConfig, r.Scheme)
 	if err := r.Create(ctx, bootstrapConfig); err != nil {
 		setConditionFalse(oacp, controlplanev1alpha3.MachinesCreatedCondition, controlplanev1alpha3.BootstrapTemplateCloningFailedReason,
@@ -1521,8 +1529,7 @@ func inheritKubeVirtConfigDefaults(spec *bootstrapv1alpha2.OpenshiftAssistedConf
 	}
 }
 
-
-func (r *OpenshiftAssistedControlPlaneReconciler) generateOpenshiftAssistedConfig(oacp *controlplanev1alpha3.OpenshiftAssistedControlPlane, clusterName string, name string, apiServiceIP string, infraCoreDNSIP string, cluster *clusterv1.Cluster) *bootstrapv1alpha2.OpenshiftAssistedConfig {
+func (r *OpenshiftAssistedControlPlaneReconciler) generateOpenshiftAssistedConfig(oacp *controlplanev1alpha3.OpenshiftAssistedControlPlane, clusterName string, name string, apiServiceIP string, dnsProxyIP string, cluster *clusterv1.Cluster) *bootstrapv1alpha2.OpenshiftAssistedConfig {
 	labels := util.ControlPlaneMachineLabelsForCluster(oacp, clusterName)
 
 	// Merge in labels from the OpenshiftAssistedControlPlane itself
@@ -1561,18 +1568,16 @@ func (r *OpenshiftAssistedControlPlaneReconciler) generateOpenshiftAssistedConfi
 		}
 
 		// Only inject DNS/resolv.conf config for pod networking (no VIPs).
-		// Bridge networking VMs get DNS from DHCP and don't need the infra CoreDNS.
+		// Bridge networking VMs get DNS from DHCP and don't need the proxy.
 		discoveryAPIServiceIP := apiServiceIP
-		infraCoreDNSAddr := infraCoreDNSIP
+		dnsProxyAddr := dnsProxyIP
 		if kubevirt.IsBridgeNetworking(oacp.Spec.Config.APIVIPs, oacp.Spec.Config.IngressVIPs) {
 			discoveryAPIServiceIP = ""
-			infraCoreDNSAddr = ""
-		} else if infraCoreDNSAddr == "" {
-			infraCoreDNSAddr = "172.30.0.10"
+			dnsProxyAddr = ""
 		}
 
 		if _, exists := annotations[bootstrapv1alpha2.DiscoveryIgnitionOverrideAnnotation]; !exists {
-			if override, err := kubevirt.KubeVirtDiscoveryIgnitionOverride(sshKey, discoveryAPIServiceIP, tenantClusterName, oacp.Spec.Config.BaseDomain, infraCoreDNSAddr); err == nil && override != "" {
+			if override, err := kubevirt.KubeVirtDiscoveryIgnitionOverride(sshKey, discoveryAPIServiceIP, tenantClusterName, oacp.Spec.Config.BaseDomain, dnsProxyAddr); err == nil && override != "" {
 				annotations[bootstrapv1alpha2.DiscoveryIgnitionOverrideAnnotation] = override
 			}
 		}

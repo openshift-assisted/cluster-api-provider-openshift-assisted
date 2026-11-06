@@ -1,0 +1,48 @@
+---
+- name: Delete the CAPOA control plane
+  kubernetes.core.k8s:
+    api_version: controlplane.cluster.x-k8s.io/v1alpha3
+    kind: OpenshiftAssistedControlPlane
+    name: "{{ cleanup_cluster_name }}"
+    namespace: "{{ cleanup_namespace }}"
+    state: absent
+    wait: true
+    wait_timeout: 900
+
+- name: Delete the tenant CAPI Machines
+  kubernetes.core.k8s:
+    api_version: cluster.x-k8s.io/v1beta2
+    kind: Machine
+    namespace: "{{ cleanup_namespace }}"
+    label_selectors:
+      - cluster.x-k8s.io/cluster-name={{ cleanup_cluster_name }}
+    state: absent
+    wait: true
+    wait_timeout: 900
+
+- name: Delete the tenant CAPI Cluster
+  kubernetes.core.k8s:
+    api_version: cluster.x-k8s.io/v1beta2
+    kind: Cluster
+    name: "{{ cleanup_cluster_name }}"
+    namespace: "{{ cleanup_namespace }}"
+    state: absent
+    wait: true
+    wait_timeout: 900
+
+- name: Delete the tenant namespace and owned resources
+  kubernetes.core.k8s:
+    api_version: v1
+    kind: Namespace
+    name: "{{ cleanup_namespace }}"
+    state: absent
+    wait: true
+    wait_timeout: 3600
+
+- name: Verify that the tenant namespace is gone
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Namespace
+    name: "{{ cleanup_namespace }}"
+  register: tenant_namespace
+  failed_when: tenant_namespace.resources | length != 0

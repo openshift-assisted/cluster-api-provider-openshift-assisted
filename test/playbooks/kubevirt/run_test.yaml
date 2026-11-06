@@ -1,0 +1,66 @@
+---
+- name: Run the CAPOA KubeVirt end-to-end test
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    capi_version: "{{ lookup('ansible.builtin.env', 'CAPI_VERSION', default='v1.13.4') }}"
+    capk_image: "{{ lookup('ansible.builtin.env', 'CAPK_IMAGE', default='') }}"
+    capk_source_repository: >-
+      {{ lookup('ansible.builtin.env', 'CAPK_SOURCE_REPOSITORY',
+      default='https://github.com/kubernetes-sigs/cluster-api-provider-kubevirt') }}
+    capk_source_ref: "{{ lookup('ansible.builtin.env', 'CAPK_SOURCE_REF', default='c5c530b33067c434304743a8376015352aec21d0') }}"
+    capk_local_version: >-
+      {{ lookup('ansible.builtin.env', 'CAPK_LOCAL_VERSION',
+      default='v0.11.99-capoa.c5c530b') }}
+    capoa_controlplane_image: >-
+      {{ lookup('ansible.builtin.env', 'CAPOA_CONTROLPLANE_IMAGE',
+      default='quay.io/edge-infrastructure/cluster-api-controlplane-provider-openshift-assisted:latest') }}
+    capoa_bootstrap_image: >-
+      {{ lookup('ansible.builtin.env', 'CAPOA_BOOTSTRAP_IMAGE',
+      default='quay.io/edge-infrastructure/cluster-api-bootstrap-provider-openshift-assisted:latest') }}
+    cluster_name: "{{ lookup('ansible.builtin.env', 'KUBEVIRT_CLUSTER_NAME', default='capoa-kubevirt-e2e') }}"
+    cluster_namespace: "{{ lookup('ansible.builtin.env', 'KUBEVIRT_NAMESPACE', default='capoa-kubevirt-e2e') }}"
+    storage_class: "{{ lookup('ansible.builtin.env', 'KUBEVIRT_STORAGE_CLASS', default='managed-csi') }}"
+    openshift_version: "{{ lookup('ansible.builtin.env', 'OPENSHIFT_VERSION', default='4.22') }}"
+    control_plane_replicas: 3
+    medium_delay: 10
+    medium_retries: 60
+    high_delay: 30
+    high_retries: 180
+  tasks:
+    - name: Validate the management-cluster kubeconfig
+      ansible.builtin.assert:
+        that:
+          - lookup('ansible.builtin.env', 'KUBECONFIG') | length > 0
+        msg: KUBECONFIG must point to the management-cluster kubeconfig
+
+    - name: Verify KubeVirt prerequisites
+      ansible.builtin.import_role:
+        name: kubevirt_prerequisites
+
+    - name: Install CAPOA, Assisted Service, CAPI, and CAPK
+      ansible.builtin.import_role:
+        name: capoa_install
+
+    - name: Provision and validate the KubeVirt tenant
+      block:
+        - name: Create the compact KubeVirt tenant
+          ansible.builtin.import_role:
+            name: tenant_install
+
+        - name: Wait for CAPI and CAPOA tenant readiness
+          ansible.builtin.import_role:
+            name: tenant_assert
+
+        - name: Validate tenant OpenShift health
+          ansible.builtin.import_role:
+            name: tenant_health
+      always:
+        - name: Gather KubeVirt and CAPOA diagnostics
+          ansible.builtin.import_role:
+            name: gather
+
+        - name: Delete the KubeVirt tenant and wait for finalizers
+          ansible.builtin.import_role:
+            name: tenant_cleanup

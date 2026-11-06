@@ -1,0 +1,119 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: pull-secret
+  namespace: "{{ tenant_namespace }}"
+type: kubernetes.io/dockerconfigjson
+data:
+  .dockerconfigjson: "{{ pull_secret_data }}"
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: KubevirtCluster
+metadata:
+  name: "{{ tenant_cluster_name }}"
+  namespace: "{{ tenant_namespace }}"
+spec:
+  controlPlaneServiceTemplate:
+    spec:
+      type: ClusterIP
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: KubevirtMachineTemplate
+metadata:
+  name: "{{ tenant_cluster_name }}"
+  namespace: "{{ tenant_namespace }}"
+spec:
+  template:
+    spec:
+      virtualMachineBootstrapCheck:
+        checkStrategy: none
+      virtualMachineTemplate:
+        metadata:
+          namespace: "{{ tenant_namespace }}"
+        spec:
+          runStrategy: Always
+          dataVolumeTemplates:
+            - metadata:
+                name: rootdisk
+              spec:
+                source:
+                  pvc:
+                    name: rhcos-golden-{{ tenant_openshift_version.split('.')[0] }}.{{ tenant_openshift_version.split('.')[1] }}
+                    namespace: "{{ tenant_namespace }}"
+                storage:
+                  accessModes:
+                    - ReadWriteOnce
+                  volumeMode: Block
+                  resources:
+                    requests:
+                      storage: 100Gi
+                  storageClassName: "{{ tenant_storage_class }}"
+          template:
+            metadata:
+              annotations:
+                kubevirt.io/allow-pod-bridge-network-live-migration: ""
+            spec:
+              domain:
+                cpu:
+                  cores: 4
+                memory:
+                  guest: 16Gi
+                devices:
+                  disks:
+                    - name: rootdisk
+                      disk:
+                        bus: virtio
+                  interfaces:
+                    - name: default
+                      bridge: {}
+              networks:
+                - name: default
+                  pod: {}
+              volumes:
+                - name: rootdisk
+                  dataVolume:
+                    name: rootdisk
+---
+apiVersion: controlplane.cluster.x-k8s.io/v1alpha3
+kind: OpenshiftAssistedControlPlane
+metadata:
+  name: "{{ tenant_cluster_name }}"
+  namespace: "{{ tenant_namespace }}"
+spec:
+  replicas: {{ control_plane_replicas }}
+  distributionVersion: "{{ tenant_openshift_version }}"
+  machineTemplate:
+    metadata:
+      labels:
+        cluster.x-k8s.io/cluster-name: "{{ tenant_cluster_name }}"
+    infrastructureRef:
+      apiGroup: infrastructure.cluster.x-k8s.io
+      kind: KubevirtMachineTemplate
+      name: "{{ tenant_cluster_name }}"
+  config:
+    clusterName: "{{ tenant_cluster_name }}"
+    baseDomain: "{{ management_apps_domain }}"
+    pullSecretRef:
+      name: pull-secret
+    mastersSchedulable: true
+    networkType: OVNKubernetes
+    cloudControllerManager:
+      enabled: true
+    csiDriver:
+      enabled: true
+      infraStorageClass: "{{ tenant_storage_class }}"
+---
+apiVersion: cluster.x-k8s.io/v1beta2
+kind: Cluster
+metadata:
+  name: "{{ tenant_cluster_name }}"
+  namespace: "{{ tenant_namespace }}"
+spec:
+  controlPlaneRef:
+    apiGroup: controlplane.cluster.x-k8s.io
+    kind: OpenshiftAssistedControlPlane
+    name: "{{ tenant_cluster_name }}"
+  infrastructureRef:
+    apiGroup: infrastructure.cluster.x-k8s.io
+    kind: KubevirtCluster
+    name: "{{ tenant_cluster_name }}"

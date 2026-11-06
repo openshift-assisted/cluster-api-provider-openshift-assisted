@@ -1,0 +1,3 @@
+---
+assert_cluster_name: "{{ cluster_name }}"
+assert_namespace: "{{ cluster_namespace }}"

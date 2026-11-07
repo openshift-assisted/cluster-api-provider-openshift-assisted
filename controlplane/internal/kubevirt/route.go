@@ -19,8 +19,11 @@ package kubevirt
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	controlplanev1alpha3 "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/api/v1alpha3"
+	routev1 "github.com/openshift/api/route/v1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -33,6 +36,12 @@ var (
 	routeGVK             = schema.GroupVersionKind{Group: "route.openshift.io", Version: "v1", Kind: "Route"}
 	ingressControllerGVK = schema.GroupVersionKind{Group: "operator.openshift.io", Version: "v1", Kind: "IngressController"}
 )
+
+const ingressRouteNameSuffix = "-ingress-route"
+
+func ingressRouteName(clusterName string) string {
+	return clusterName + ingressRouteNameSuffix
+}
 
 // EnsureExternalRoutes creates passthrough OpenShift Routes on the infra cluster
 // for the tenant cluster's API and ingress traffic.
@@ -75,7 +84,7 @@ func EnsureExternalRoutes(
 	log.Info("ensured API passthrough route", "host", apiHost)
 
 	ingressRoute, err := buildPassthroughRoute(
-		clusterName+"-ingress-route",
+		ingressRouteName(clusterName),
 		namespace,
 		"wildcard."+appsHost,
 		ingressServiceName,
@@ -126,6 +135,51 @@ func EnsureIngressControllerWildcardPolicy(ctx context.Context, c client.Client)
 
 	log.Info("patched IngressController to allow wildcard routes")
 	return nil
+}
+
+// GetIngressRouteCanonicalHostname returns the canonical router hostname from
+// an admitted ingress Route. The returned hostname is absolute so it can be
+// used directly as a DNS CNAME target.
+func GetIngressRouteCanonicalHostname(
+	ctx context.Context,
+	c client.Reader,
+	clusterName string,
+	namespace string,
+) (string, bool, error) {
+	route := &routev1.Route{}
+	if err := c.Get(ctx, types.NamespacedName{
+		Name:      ingressRouteName(clusterName),
+		Namespace: namespace,
+	}, route); err != nil {
+		return "", false, err
+	}
+
+	for _, ingress := range route.Status.Ingress {
+		if !isAdmittedRouteIngress(ingress) {
+			continue
+		}
+		if ingress.RouterCanonicalHostname != "" {
+			return absoluteDNSName(ingress.RouterCanonicalHostname), true, nil
+		}
+	}
+
+	return "", false, nil
+}
+
+func isAdmittedRouteIngress(ingress routev1.RouteIngress) bool {
+	for _, condition := range ingress.Conditions {
+		if condition.Type == routev1.RouteAdmitted && condition.Status == corev1.ConditionTrue {
+			return true
+		}
+	}
+	return false
+}
+
+func absoluteDNSName(hostname string) string {
+	if strings.HasSuffix(hostname, ".") {
+		return hostname
+	}
+	return hostname + "."
 }
 
 func buildPassthroughRoute(name, namespace, host, serviceName string, targetPort int, wildcardPolicy string) (*unstructured.Unstructured, error) {

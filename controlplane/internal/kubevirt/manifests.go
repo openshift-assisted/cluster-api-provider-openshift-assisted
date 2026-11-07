@@ -77,36 +77,32 @@ spec:
 // GeneratePodNetworkDNSFixManifests produces MachineConfigs that fix pod-networking
 // specific issues for KubeVirt tenant clusters:
 //
-// 1. DNS fix: Ensures /etc/resolv.conf points to the infra CoreDNS IP so that
-//    kubelet can resolve api-int and join the cluster during bootstrap.
-//    DNS resolution goes through: resolv.conf → infra CoreDNS (172.30.0.10) →
-//    DNS proxy → bootstrap pod IP (during installation) or service ClusterIP
-//    (post-install). We deliberately do NOT add /etc/hosts entries for api-int
-//    because /etc/hosts takes precedence over DNS and would bypass the DNS proxy's
-//    bootstrap-aware routing. The DNS proxy correctly routes api-int to the
-//    bootstrap pod's direct IP during installation, avoiding the service ClusterIP
-//    which load-balances across all VM pods (including those not yet running
-//    kube-apiserver).
+//  1. DNS fix: Ensures /etc/resolv.conf points to the infra CoreDNS IP so that
+//     kubelet can resolve api-int and join the cluster during bootstrap.
+//     DNS resolution goes through: resolv.conf → infra CoreDNS (172.30.0.10) →
+//     DNS proxy → bootstrap pod IP (during installation) or service ClusterIP
+//     (post-install). We deliberately do NOT add /etc/hosts entries for api-int
+//     because /etc/hosts takes precedence over DNS and would bypass the DNS proxy's
+//     bootstrap-aware routing. The DNS proxy correctly routes api-int to the
+//     bootstrap pod's direct IP during installation, avoiding the service ClusterIP
+//     which load-balances across all VM pods (including those not yet running
+//     kube-apiserver).
 //
-// 2. TX checksum/TSO fix: Disables TX checksum offloading and TSO on the guest NIC.
-//    KubeVirt 1.8+ (CNV 4.22+) enables TX checksum on the k6t bridge, causing packets
-//    with CHECKSUM_PARTIAL to reach the VM. OVS inside the VM (used by OVN-Kubernetes)
-//    can't handle partial checksums on raw AF_PACKET sockets, preventing Geneve tunnel
-//    establishment and breaking nested OVN bootstrap.
+//  2. TX checksum/TSO fix: Disables TX checksum offloading and TSO on the guest NIC.
+//     KubeVirt 1.8+ (CNV 4.22+) enables TX checksum on the k6t bridge, causing packets
+//     with CHECKSUM_PARTIAL to reach the VM. OVS inside the VM (used by OVN-Kubernetes)
+//     can't handle partial checksums on raw AF_PACKET sockets, preventing Geneve tunnel
+//     establishment and breaking nested OVN bootstrap.
 //
-//    This is applied via a udev rule (not a systemd service ordered after
-//    NetworkManager-wait-online.service) so it takes effect the instant the NIC is
-//    created by the kernel — before NetworkManager ever starts DHCP on it and long
-//    before ovs-configuration.service runs. Applying this later, against a live
-//    already-addressed interface, lets `ethtool -K` momentarily reset the NIC; that
-//    reset can race with ovs-configuration.service reading the interface's IP to
-//    migrate it onto br-ex, occasionally leaving the node with no usable address on
-//    either interface until the VM is rebooted.
+//     This is applied via a udev rule (not a systemd service ordered after
+//     NetworkManager-wait-online.service) so it takes effect the instant the NIC is
+//     created by the kernel — before NetworkManager ever starts DHCP on it and long
+//     before ovs-configuration.service runs. Applying this later, against a live
+//     already-addressed interface, lets `ethtool -K` momentarily reset the NIC; that
+//     reset can race with ovs-configuration.service reading the interface's IP to
+//     migrate it onto br-ex, occasionally leaving the node with no usable address on
+//     either interface until the VM is rebooted.
 func GeneratePodNetworkDNSFixManifests(clusterName, baseDomain, _, infraCoreDNSIP string) []ManifestEntry {
-	if infraCoreDNSIP == "" {
-		infraCoreDNSIP = defaultInfraCoreDNSIP
-	}
-
 	resolvConf := fmt.Sprintf("nameserver %s\nsearch cluster.local svc.cluster.local\noptions ndots:5\n", infraCoreDNSIP)
 	resolvConfB64 := base64.StdEncoding.EncodeToString([]byte(resolvConf))
 

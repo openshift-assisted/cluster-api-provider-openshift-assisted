@@ -84,11 +84,10 @@ func dataURL(content string) string {
 // KubeVirtDiscoveryIgnitionOverride generates the discovery-phase ignition override
 // for KubeVirt platform. This adds the SSH key and configures DNS resolution by
 // writing the API service ClusterIP directly to /etc/hosts (no runtime DNS resolution needed).
-// infraDNSIP is the infra cluster's CoreDNS service ClusterIP (default: 172.30.0.10).
+// dnsProxyIP is the namespaced tenant DNS proxy Service ClusterIP. It must be
+// supplied for pod-networking tenants so first-boot resolution does not depend
+// on the infra cluster's service CIDR or cluster-scoped DNS configuration.
 func KubeVirtDiscoveryIgnitionOverride(sshKey, apiServiceIP, clusterName, baseDomain, infraDNSIP string) (string, error) {
-	if infraDNSIP == "" {
-		infraDNSIP = DefaultInfraClusterDNSIP
-	}
 	config := ignitionConfig{
 		Ignition: ignitionVersion{Version: "3.1.0"},
 	}
@@ -100,6 +99,9 @@ func KubeVirtDiscoveryIgnitionOverride(sshKey, apiServiceIP, clusterName, baseDo
 	}
 
 	if apiServiceIP != "" && clusterName != "" && baseDomain != "" {
+		if infraDNSIP == "" {
+			return "", fmt.Errorf("DNS proxy IP is required for KubeVirt pod-networking discovery ignition")
+		}
 		apiIntHostname := fmt.Sprintf("api-int.%s.%s", clusterName, baseDomain)
 		apiHostname := fmt.Sprintf("api.%s.%s", clusterName, baseDomain)
 		hostsEntry := fmt.Sprintf("%s %s %s", apiServiceIP, apiIntHostname, apiHostname)
@@ -162,8 +164,8 @@ WantedBy=multi-user.target
 //
 // DNS resolution for the installed OS is handled entirely by the MachineConfig
 // (00-fix-dns-pod-network) rendered by the MCS, which provides /etc/resolv.conf
-// pointing to the infra CoreDNS and /etc/NetworkManager dns=none. DNS queries
-// for api-int are resolved by the infra CoreDNS → DNS proxy chain, which routes
+// pointing to the tenant DNS proxy and /etc/NetworkManager dns=none. DNS queries
+// for api-int are resolved by the DNS proxy, which routes
 // to the bootstrap pod IP during installation. We do NOT use /etc/hosts entries
 // because they would override DNS and bypass the DNS proxy's bootstrap-aware
 // routing, causing the API service ClusterIP to load-balance across all VM pods

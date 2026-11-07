@@ -31,6 +31,9 @@ import (
 const (
 	APIServiceNameSuffix     = "-api"
 	IngressServiceNameSuffix = "-ingress"
+
+	LabelKubeVirt        = "kubevirt.io"
+	VirtLauncherPodValue = "virt-launcher"
 )
 
 // ServiceIPs holds the ClusterIPs assigned to the tenant cluster services.
@@ -51,8 +54,9 @@ type ServiceIPs struct {
 // The Ingress service exposes ports 443 (HTTPS) and 80 (HTTP) for tenant
 // cluster ingress traffic forwarded through the wildcard Route.
 //
-// The selector uses the CAPI cluster label (cluster.x-k8s.io/cluster-name) which
-// is automatically set by CAPK on all virt-launcher pods for the cluster.
+// API traffic selects control-plane VMs. Ingress traffic selects every
+// virt-launcher pod for the cluster so compact and worker-backed router
+// topologies both remain reachable.
 func EnsureExternalAccessServices(
 	ctx context.Context,
 	c client.Client,
@@ -74,8 +78,8 @@ func EnsureExternalAccessServices(
 		}
 		apiSvc.Spec.Type = corev1.ServiceTypeClusterIP
 		apiSvc.Spec.Selector = map[string]string{
-			LabelCAPIClusterName:    clusterName,
-			LabelCAPIRole: "control-plane",
+			LabelCAPIClusterName: clusterName,
+			LabelCAPIRole:        "control-plane",
 		}
 		apiSvc.Spec.Ports = []corev1.ServicePort{
 			{
@@ -129,8 +133,8 @@ func EnsureExternalAccessServices(
 		}
 		ingressSvc.Spec.Type = corev1.ServiceTypeClusterIP
 		ingressSvc.Spec.Selector = map[string]string{
-			LabelCAPIClusterName:    clusterName,
-			LabelCAPIRole: "control-plane",
+			LabelCAPIClusterName: clusterName,
+			LabelKubeVirt:        VirtLauncherPodValue,
 		}
 		ingressSvc.Spec.Ports = []corev1.ServicePort{
 			{

@@ -32,8 +32,9 @@ import (
 
 	bootstrapv1alpha2 "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/bootstrap/api/v1alpha2"
 	configv1 "github.com/openshift/api/config/v1"
-	aiv1beta1 "github.com/openshift/assisted-service/api/v1beta1"
+	routev1 "github.com/openshift/api/route/v1"
 	hiveext "github.com/openshift/assisted-service/api/hiveextension/v1beta1"
+	aiv1beta1 "github.com/openshift/assisted-service/api/v1beta1"
 	hivev1 "github.com/openshift/hive/apis/hive/v1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 
@@ -86,6 +87,7 @@ func init() {
 	utilruntime.Must(aiv1beta1.AddToScheme(scheme))
 	utilruntime.Must(bootstrapv1alpha2.AddToScheme(scheme))
 	utilruntime.Must(configv1.AddToScheme(scheme))
+	utilruntime.Must(routev1.Install(scheme))
 	//+kubebuilder:scaffold:scheme
 }
 
@@ -262,12 +264,12 @@ func ensureCRDContractLabels(ctx context.Context, reader client.Reader, c client
 	log := ctrl.Log.WithName("crd-labels")
 
 	crdLabels := map[string]map[string]string{
-		"kubevirtclusters.infrastructure.cluster.x-k8s.io":                          {"cluster.x-k8s.io/v1beta1": "v1alpha1", "cluster.x-k8s.io/v1beta2": "v1alpha1"},
-		"kubevirtmachines.infrastructure.cluster.x-k8s.io":                          {"cluster.x-k8s.io/v1beta1": "v1alpha1", "cluster.x-k8s.io/v1beta2": "v1alpha1"},
-		"kubevirtmachinetemplates.infrastructure.cluster.x-k8s.io":                  {"cluster.x-k8s.io/v1beta1": "v1alpha1", "cluster.x-k8s.io/v1beta2": "v1alpha1"},
-		"openshiftassistedconfigs.bootstrap.cluster.x-k8s.io":                       {"cluster.x-k8s.io/v1beta1": "v1alpha2", "cluster.x-k8s.io/v1beta2": "v1alpha2"},
-		"openshiftassistedconfigtemplates.bootstrap.cluster.x-k8s.io":               {"cluster.x-k8s.io/v1beta1": "v1alpha2", "cluster.x-k8s.io/v1beta2": "v1alpha2"},
-		"openshiftassistedcontrolplanes.controlplane.cluster.x-k8s.io":              {"cluster.x-k8s.io/v1beta1": "v1alpha3", "cluster.x-k8s.io/v1beta2": "v1alpha3"},
+		"kubevirtclusters.infrastructure.cluster.x-k8s.io":             {"cluster.x-k8s.io/v1beta1": "v1alpha1", "cluster.x-k8s.io/v1beta2": "v1alpha1"},
+		"kubevirtmachines.infrastructure.cluster.x-k8s.io":             {"cluster.x-k8s.io/v1beta1": "v1alpha1", "cluster.x-k8s.io/v1beta2": "v1alpha1"},
+		"kubevirtmachinetemplates.infrastructure.cluster.x-k8s.io":     {"cluster.x-k8s.io/v1beta1": "v1alpha1", "cluster.x-k8s.io/v1beta2": "v1alpha1"},
+		"openshiftassistedconfigs.bootstrap.cluster.x-k8s.io":          {"cluster.x-k8s.io/v1beta1": "v1alpha2", "cluster.x-k8s.io/v1beta2": "v1alpha2"},
+		"openshiftassistedconfigtemplates.bootstrap.cluster.x-k8s.io":  {"cluster.x-k8s.io/v1beta1": "v1alpha2", "cluster.x-k8s.io/v1beta2": "v1alpha2"},
+		"openshiftassistedcontrolplanes.controlplane.cluster.x-k8s.io": {"cluster.x-k8s.io/v1beta1": "v1alpha3", "cluster.x-k8s.io/v1beta2": "v1alpha3"},
 	}
 
 	for crdName, requiredLabels := range crdLabels {

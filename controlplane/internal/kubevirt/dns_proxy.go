@@ -18,6 +18,7 @@ package kubevirt
 
 import (
 	"context"
+	stderrors "errors"
 	"fmt"
 	"net"
 	"os"
@@ -35,7 +36,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/utils/ptr"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
@@ -55,7 +55,14 @@ const (
 
 	DefaultCoreDNSImage    = "quay.io/openshift/origin-coredns:latest"
 	RelatedImageCoreDNSEnv = "RELATED_IMAGE_COREDNS"
+
+	// InfraDNSResolver makes CoreDNS read the infra cluster resolver from the
+	// proxy pod's /etc/resolv.conf. This avoids requiring permission to read the
+	// infra cluster's openshift-dns Service and works in remote-infra setups.
+	InfraDNSResolver = "/etc/resolv.conf"
 )
+
+var ErrDNSProxyNotReady = stderrors.New("DNS proxy is not ready")
 
 // GetCoreDNSImage returns the image to use for the DNS proxy.
 // Priority: resolved image from release payload > RELATED_IMAGE_COREDNS env var > default.
@@ -69,10 +76,11 @@ func GetCoreDNSImage(resolvedCoreDNSImage string) string {
 	return DefaultCoreDNSImage
 }
 
-// DNSProxyConfig holds the IPs used for DNS resolution in the tenant cluster.
+// DNSProxyConfig holds the values used for DNS resolution in the tenant zone.
 type DNSProxyConfig struct {
-	APIIP      string
-	IngressIPs []string
+	APIIP        string
+	IngressCNAME string
+	UpstreamDNS  string
 }
 
 // EnsureDNSProxy deploys a CoreDNS-based DNS proxy on port 5353 that resolves
@@ -84,11 +92,9 @@ func EnsureDNSProxy(
 	oacp *controlplanev1alpha3.OpenshiftAssistedControlPlane,
 	config *DNSProxyConfig,
 	namespace string,
-) error {
-	log := ctrl.LoggerFrom(ctx)
-	if config == nil || config.APIIP == "" {
-		log.V(1).Info("skipping DNS proxy deployment: API service IP not yet available")
-		return nil
+) (string, error) {
+	if config == nil || config.APIIP == "" || config.IngressCNAME == "" || config.UpstreamDNS == "" {
+		return "", ErrDNSProxyNotReady
 	}
 
 	clusterName := oacp.Spec.Config.ClusterName
@@ -98,28 +104,28 @@ func EnsureDNSProxy(
 	baseDomain := oacp.Spec.Config.BaseDomain
 
 	if errs := validation.IsDNS1123Label(clusterName); len(errs) > 0 {
-		return fmt.Errorf("invalid clusterName %q: %s", clusterName, errs[0])
+		return "", fmt.Errorf("invalid clusterName %q: %s", clusterName, errs[0])
 	}
 	if errs := validation.IsDNS1123Subdomain(baseDomain); len(errs) > 0 {
-		return fmt.Errorf("invalid baseDomain %q: %s", baseDomain, errs[0])
+		return "", fmt.Errorf("invalid baseDomain %q: %s", baseDomain, errs[0])
 	}
 	fqdn := fmt.Sprintf("%s.%s", clusterName, baseDomain)
 	if errs := validation.IsDNS1123Subdomain(fqdn); len(errs) > 0 {
-		return fmt.Errorf("invalid FQDN %q: %s", fqdn, errs[0])
+		return "", fmt.Errorf("invalid FQDN %q: %s", fqdn, errs[0])
 	}
 
 	// 1. CoreDNS ConfigMap
-	corefile := generateCorefile(fqdn, DefaultInfraClusterDNSIP, []string{config.APIIP}, config.IngressIPs)
+	corefile := generateCatchAllCorefile(config.UpstreamDNS) +
+		generateCorefile(fqdn, config.UpstreamDNS, []string{config.APIIP})
 	cmData := map[string]string{
-		"Corefile": generateAppsCorefile(fqdn) + corefile,
-		"apps.db":  generateAppsZoneFile(fqdn, config.IngressIPs),
+		"Corefile": generateDynamicAppsCorefile(fqdn, config.UpstreamDNS, config.IngressCNAME) + corefile,
 	}
 	cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: TenantDNSCorefileName, Namespace: namespace}}
 	if _, err := controllerutil.CreateOrUpdate(ctx, c, cm, func() error {
 		cm.Data = cmData
 		return nil
 	}); err != nil {
-		return fmt.Errorf("failed to ensure corefile: %w", err)
+		return "", fmt.Errorf("failed to ensure corefile: %w", err)
 	}
 
 	// 2. Deployment (port 5353 - no SCC needed)
@@ -172,7 +178,7 @@ func EnsureDNSProxy(
 		}
 		return nil
 	}); err != nil {
-		return fmt.Errorf("failed to ensure deployment: %w", err)
+		return "", fmt.Errorf("failed to ensure deployment: %w", err)
 	}
 
 	// 3. Service
@@ -185,19 +191,10 @@ func EnsureDNSProxy(
 		}
 		return nil
 	}); err != nil {
-		return fmt.Errorf("failed to ensure service: %w", err)
+		return "", fmt.Errorf("failed to ensure service: %w", err)
 	}
 
-	return nil
-}
-
-// GetDNSProxyClusterIP returns the ClusterIP of the DNS proxy service.
-func GetDNSProxyClusterIP(ctx context.Context, c client.Client, namespace string) string {
-	svc := &corev1.Service{}
-	if err := c.Get(ctx, client.ObjectKey{Name: TenantDNSServiceName, Namespace: namespace}, svc); err != nil {
-		return ""
-	}
-	return svc.Spec.ClusterIP
+	return svc.Spec.ClusterIP, nil
 }
 
 // GetAPIServiceClusterIP returns the ClusterIP of the tenant's API service.
@@ -207,6 +204,30 @@ func GetAPIServiceClusterIP(ctx context.Context, c client.Client, clusterName, n
 		return ""
 	}
 	return svc.Spec.ClusterIP
+}
+
+// GetTenantDNSProxyClusterIP returns the ClusterIP of the namespaced tenant DNS
+// proxy. A project-admin can read this Service in the tenant namespace.
+func GetTenantDNSProxyClusterIP(ctx context.Context, c client.Client, namespace string) (string, error) {
+	svc := &corev1.Service{}
+	if err := c.Get(ctx, client.ObjectKey{Name: TenantDNSServiceName, Namespace: namespace}, svc); err != nil {
+		return "", fmt.Errorf("failed to get %s/%s: %w", namespace, TenantDNSServiceName, err)
+	}
+	if svc.Spec.ClusterIP == "" || svc.Spec.ClusterIP == "None" {
+		return "", fmt.Errorf("%s/%s has no ClusterIP", namespace, TenantDNSServiceName)
+	}
+	return svc.Spec.ClusterIP, nil
+}
+
+func generateCatchAllCorefile(upstreamDNS string) string {
+	return fmt.Sprintf(`.:5353 {
+    forward . %s
+    cache 30
+    errors
+    log
+}
+
+`, upstreamDNS)
 }
 
 // EnsureDNSForwardingRule ensures the cluster DNS operator forwards queries for
@@ -324,29 +345,6 @@ func RemoveDNSForwardingRule(ctx context.Context, c client.Client, clusterName, 
 	})
 }
 
-// GetRouterNodeIPs returns the pod IPs of virt-launcher pods for the cluster's
-// control plane VMs.
-func GetRouterNodeIPs(ctx context.Context, c client.Reader, clusterName, namespace string) ([]string, error) {
-	pods := &corev1.PodList{}
-	if err := c.List(ctx, pods,
-		client.InNamespace(namespace),
-		client.MatchingLabels{
-			"cluster.x-k8s.io/cluster-name": clusterName,
-			"cluster.x-k8s.io/role":         "control-plane",
-		},
-	); err != nil {
-		return nil, err
-	}
-
-	var ips []string
-	for _, pod := range pods.Items {
-		if pod.Status.Phase == corev1.PodRunning && pod.Status.PodIP != "" {
-			ips = append(ips, pod.Status.PodIP)
-		}
-	}
-	return ips, nil
-}
-
 // retryOnConflict retries fn up to maxRetries times when it returns a conflict error.
 func retryOnConflict(maxRetries int, fn func() error) error {
 	var err error
@@ -363,19 +361,29 @@ const (
 	defaultInfraCoreDNSIP = "172.30.0.10"
 )
 
-// GetInfraCoreDNSIP resolves the infra cluster's CoreDNS ClusterIP by looking
-// up the dns-default Service in openshift-dns. Falls back to the standard
-// OpenShift default (172.30.0.10) if the lookup fails.
-func GetInfraCoreDNSIP(ctx context.Context, infraClient client.Client) string {
+// LookupInfraCoreDNSIP resolves the infra cluster's CoreDNS ClusterIP by
+// looking up the dns-default Service in openshift-dns.
+func LookupInfraCoreDNSIP(ctx context.Context, infraClient client.Client) (string, error) {
 	svc := &corev1.Service{}
 	if err := infraClient.Get(ctx, client.ObjectKey{
 		Name:      "dns-default",
 		Namespace: "openshift-dns",
 	}, svc); err != nil {
-		return defaultInfraCoreDNSIP
+		return "", fmt.Errorf("failed to get openshift-dns/dns-default: %w", err)
 	}
 	if svc.Spec.ClusterIP == "" || svc.Spec.ClusterIP == "None" {
+		return "", fmt.Errorf("openshift-dns/dns-default has no usable ClusterIP")
+	}
+	return svc.Spec.ClusterIP, nil
+}
+
+// GetInfraCoreDNSIP resolves the infra CoreDNS ClusterIP for generated
+// machine bootstrap data, retaining the standard OpenShift fallback for older
+// callers that cannot block on the lookup.
+func GetInfraCoreDNSIP(ctx context.Context, infraClient client.Client) string {
+	ip, err := LookupInfraCoreDNSIP(ctx, infraClient)
+	if err != nil {
 		return defaultInfraCoreDNSIP
 	}
-	return svc.Spec.ClusterIP
+	return ip
 }

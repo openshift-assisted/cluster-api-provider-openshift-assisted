@@ -8,6 +8,8 @@ import (
 
 	controlplanev1alpha3 "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/api/v1alpha3"
 	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/internal/kubevirt"
+	routev1 "github.com/openshift/api/route/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -115,3 +117,91 @@ var _ = Describe("EnsureExternalRoutes", func() {
 		Expect(err).NotTo(HaveOccurred())
 	})
 })
+
+var _ = Describe("GetIngressRouteCanonicalHostname", func() {
+	var (
+		ctx        context.Context
+		scheme     *runtime.Scheme
+		fakeClient client.Client
+	)
+
+	BeforeEach(func() {
+		ctx = context.Background()
+		scheme = runtime.NewScheme()
+		utilruntime.Must(routev1.Install(scheme))
+	})
+
+	It("returns the canonical hostname from an admitted ingress", func() {
+		route := ingressRouteWithStatus([]routev1.RouteIngress{
+			{
+				RouterCanonicalHostname: "router-not-admitted.apps.mgmt.example.com",
+				Conditions: []routev1.RouteIngressCondition{
+					{Type: routev1.RouteAdmitted, Status: corev1.ConditionFalse},
+				},
+			},
+			{
+				RouterCanonicalHostname: "router-default.apps.mgmt.example.com",
+				Conditions: []routev1.RouteIngressCondition{
+					{Type: routev1.RouteAdmitted, Status: corev1.ConditionTrue},
+				},
+			},
+		})
+		fakeClient = fake.NewClientBuilder().WithScheme(scheme).WithObjects(route).Build()
+
+		hostname, admitted, err := kubevirt.GetIngressRouteCanonicalHostname(ctx, fakeClient, "test-cluster", "test-ns")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(admitted).To(BeTrue())
+		Expect(hostname).To(Equal("router-default.apps.mgmt.example.com."))
+	})
+
+	It("preserves an already absolute canonical hostname", func() {
+		route := ingressRouteWithStatus([]routev1.RouteIngress{
+			{
+				RouterCanonicalHostname: "router-default.apps.mgmt.example.com.",
+				Conditions: []routev1.RouteIngressCondition{
+					{Type: routev1.RouteAdmitted, Status: corev1.ConditionTrue},
+				},
+			},
+		})
+		fakeClient = fake.NewClientBuilder().WithScheme(scheme).WithObjects(route).Build()
+
+		hostname, admitted, err := kubevirt.GetIngressRouteCanonicalHostname(ctx, fakeClient, "test-cluster", "test-ns")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(admitted).To(BeTrue())
+		Expect(hostname).To(Equal("router-default.apps.mgmt.example.com."))
+	})
+
+	It("reports not ready when no ingress is admitted", func() {
+		route := ingressRouteWithStatus([]routev1.RouteIngress{
+			{
+				RouterCanonicalHostname: "router-default.apps.mgmt.example.com",
+				Conditions: []routev1.RouteIngressCondition{
+					{Type: routev1.RouteAdmitted, Status: corev1.ConditionFalse},
+				},
+			},
+		})
+		fakeClient = fake.NewClientBuilder().WithScheme(scheme).WithObjects(route).Build()
+
+		hostname, admitted, err := kubevirt.GetIngressRouteCanonicalHostname(ctx, fakeClient, "test-cluster", "test-ns")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(admitted).To(BeFalse())
+		Expect(hostname).To(BeEmpty())
+	})
+
+	It("reports not ready when status is absent", func() {
+		route := &routev1.Route{ObjectMeta: metav1.ObjectMeta{Name: "test-cluster-ingress-route", Namespace: "test-ns"}}
+		fakeClient = fake.NewClientBuilder().WithScheme(scheme).WithObjects(route).Build()
+
+		hostname, admitted, err := kubevirt.GetIngressRouteCanonicalHostname(ctx, fakeClient, "test-cluster", "test-ns")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(admitted).To(BeFalse())
+		Expect(hostname).To(BeEmpty())
+	})
+})
+
+func ingressRouteWithStatus(ingresses []routev1.RouteIngress) *routev1.Route {
+	return &routev1.Route{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-cluster-ingress-route", Namespace: "test-ns"},
+		Status:     routev1.RouteStatus{Ingress: ingresses},
+	}
+}

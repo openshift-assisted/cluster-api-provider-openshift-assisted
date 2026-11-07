@@ -80,6 +80,41 @@ var _ = Describe("EnsureExternalAccessServices", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(apiSvc.Spec.Selector["cluster.x-k8s.io/cluster-name"]).To(Equal("test-cluster"))
 		Expect(apiSvc.Spec.Selector["cluster.x-k8s.io/role"]).To(Equal("control-plane"))
+
+		ingressSvc := &corev1.Service{}
+		err = fakeClient.Get(ctx, client.ObjectKey{Name: "test-cluster-ingress", Namespace: "test-ns"}, ingressSvc)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(ingressSvc.Spec.Selector["cluster.x-k8s.io/cluster-name"]).To(Equal("test-cluster"))
+		Expect(ingressSvc.Spec.Selector["kubevirt.io"]).To(Equal("virt-launcher"))
+		_, hasRoleSelector := ingressSvc.Spec.Selector["cluster.x-k8s.io/role"]
+		Expect(hasRoleSelector).To(BeFalse())
+	})
+
+	It("should remove the stale control-plane selector from an existing Ingress service", func() {
+		existingService := &corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-cluster-ingress",
+				Namespace: "test-ns",
+			},
+			Spec: corev1.ServiceSpec{
+				Type:      corev1.ServiceTypeClusterIP,
+				ClusterIP: "10.96.20.20",
+				Selector:  map[string]string{"cluster.x-k8s.io/cluster-name": "test-cluster", "cluster.x-k8s.io/role": "control-plane"},
+			},
+		}
+		fakeClient = fake.NewClientBuilder().WithScheme(scheme).WithObjects(oacp, existingService).Build()
+
+		_, err := kubevirt.EnsureExternalAccessServices(ctx, fakeClient, oacp, "test-cluster", "test-ns")
+		Expect(err).NotTo(HaveOccurred())
+
+		ingressSvc := &corev1.Service{}
+		err = fakeClient.Get(ctx, client.ObjectKey{Name: "test-cluster-ingress", Namespace: "test-ns"}, ingressSvc)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(ingressSvc.Spec.Selector).To(Equal(map[string]string{
+			"cluster.x-k8s.io/cluster-name": "test-cluster",
+			"kubevirt.io":                   "virt-launcher",
+		}))
+		Expect(ingressSvc.Spec.ClusterIP).To(Equal("10.96.20.20"))
 	})
 
 	It("should be idempotent on re-creation", func() {

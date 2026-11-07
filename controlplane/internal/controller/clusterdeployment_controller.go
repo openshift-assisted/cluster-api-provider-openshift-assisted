@@ -59,6 +59,9 @@ const (
 	InstallConfigOverrides             = aiv1beta1.Group + "/install-config-overrides"
 	defaultBaremetalBaselineCapability = "None"
 	defaultBaselineCapability          = "vCurrent"
+	serviceCAConfigMapName             = "openshift-service-ca.crt"
+	serviceCAConfigMapKey              = "service-ca.crt"
+	ignitionCASecretKey                = "tls.crt"
 )
 
 var (
@@ -484,7 +487,14 @@ func (r *ClusterDeploymentReconciler) ensureAgentClusterInstall(
 			mcsProxySvcName := clusterDeployment.Labels[clusterv1.ClusterNameLabel] + "-" + kubevirt.MCSProxyServiceName
 			ignitionURL := fmt.Sprintf("http://%s.%s.svc.cluster.local:%d/config/worker",
 				mcsProxySvcName, clusterDeployment.Namespace, kubevirt.MCSProxyPort)
-			aci.Spec.IgnitionEndpoint = &hiveext.IgnitionEndpoint{Url: ignitionURL}
+			caReference, err := r.ensureKubeVirtIgnitionCA(ctx, clusterDeployment, oacp)
+			if err != nil {
+				return err
+			}
+			aci.Spec.IgnitionEndpoint = &hiveext.IgnitionEndpoint{
+				Url:                    ignitionURL,
+				CaCertificateReference: caReference,
+			}
 		}
 
 		return nil
@@ -496,6 +506,58 @@ func (r *ClusterDeploymentReconciler) ensureAgentClusterInstall(
 	}
 
 	return nil
+}
+
+func (r *ClusterDeploymentReconciler) ensureKubeVirtIgnitionCA(
+	ctx context.Context,
+	clusterDeployment *hivev1.ClusterDeployment,
+	oacp controlplanev1alpha3.OpenshiftAssistedControlPlane,
+) (*hiveext.CaCertificateReference, error) {
+	serviceCAConfigMap := &corev1.ConfigMap{}
+	configMapKey := client.ObjectKey{
+		Name:      serviceCAConfigMapName,
+		Namespace: clusterDeployment.Namespace,
+	}
+	if err := r.Get(ctx, configMapKey, serviceCAConfigMap); err != nil {
+		return nil, fmt.Errorf("failed to get service CA ConfigMap for KubeVirt ignition endpoint: %w", err)
+	}
+
+	certificate, ok := serviceCAConfigMap.Data[serviceCAConfigMapKey]
+	if !ok || certificate == "" {
+		return nil, fmt.Errorf(
+			"service CA ConfigMap %s in namespace %s does not contain a non-empty %s key",
+			serviceCAConfigMapName,
+			clusterDeployment.Namespace,
+			serviceCAConfigMapKey,
+		)
+	}
+
+	secretName := clusterDeployment.Name + "-ignition-ca"
+	caSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      secretName,
+			Namespace: clusterDeployment.Namespace,
+		},
+	}
+	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, caSecret, func() error {
+		if caSecret.Labels == nil {
+			caSecret.Labels = make(map[string]string)
+		}
+		caSecret.Labels[clusterv1.ClusterNameLabel] = clusterDeployment.Labels[clusterv1.ClusterNameLabel]
+		caSecret.Type = corev1.SecretTypeOpaque
+		caSecret.Data = map[string][]byte{
+			ignitionCASecretKey: []byte(certificate),
+		}
+		return controllerutil.SetOwnerReference(&oacp, caSecret, r.Scheme)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create or update service CA Secret for KubeVirt ignition endpoint: %w", err)
+	}
+
+	return &hiveext.CaCertificateReference{
+		Name:      secretName,
+		Namespace: clusterDeployment.Namespace,
+	}, nil
 }
 
 func (r *ClusterDeploymentReconciler) getWorkerNodesCount(ctx context.Context, cluster *clusterv1.Cluster) int {

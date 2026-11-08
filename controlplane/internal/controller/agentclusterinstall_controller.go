@@ -40,9 +40,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-const (
-	kubeconfigSecretKey = "kubeconfig"
-)
+const kubeconfigSecretKey = "kubeconfig"
 
 // AgentClusterInstallReconciler reconciles a AgentClusterInstall object
 type AgentClusterInstallReconciler struct {

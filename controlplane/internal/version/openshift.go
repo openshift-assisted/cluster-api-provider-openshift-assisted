@@ -47,7 +47,7 @@ func (o *OpenShiftKubernetesVersionDetectorType) GetKubernetesVersion(imageRef, 
 
 	image, err := o.remoteImageRepository.GetImage(imageRef, auth)
 	if err != nil {
-		return nil, fmt.Errorf("unable to get image: %v", err)
+		return nil, fmt.Errorf("unable to get image: %w", err)
 	}
 	extractor, err := containers.NewImageInspector(image)
 	if err != nil {

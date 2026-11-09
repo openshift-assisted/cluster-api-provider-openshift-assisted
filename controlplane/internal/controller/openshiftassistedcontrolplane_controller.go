@@ -256,12 +256,8 @@ func (r *OpenshiftAssistedControlPlaneReconciler) Reconcile(ctx context.Context,
 	}
 	releaseImage := getReleaseImage(*oacp, architecture)
 
-	k8sVersion, err := r.K8sVersionDetector.GetKubernetesVersion(releaseImage, string(pullsecret))
-	markKubernetesVersionCondition(oacp, err)
-	// if image not found, mark upgrade unavailable condition
-	if errors.Is(err, containers.ErrImageNotFound) {
-		setConditionFalse(oacp, controlplanev1alpha3.UpgradeAvailableCondition, controlplanev1alpha3.UpgradeImageUnavailableReason,
-			"upgrade unavailable: %s", err.Error())
+	k8sVersion, err := r.detectKubernetesVersion(oacp, releaseImage, pullsecret)
+	if err != nil {
 		return ctrl.Result{}, err
 	}
 	oacp.Status.Version = *k8sVersion
@@ -289,6 +285,27 @@ func (r *OpenshiftAssistedControlPlaneReconciler) Reconcile(ctx context.Context,
 	}
 
 	return result, r.reconcileReplicas(ctx, oacp, cluster)
+}
+
+// detectKubernetesVersion resolves the Kubernetes version from the release image
+// and sets the appropriate status conditions. If the image is not found it also
+// marks the upgrade-unavailable condition.
+func (r *OpenshiftAssistedControlPlaneReconciler) detectKubernetesVersion(
+	oacp *controlplanev1alpha3.OpenshiftAssistedControlPlane,
+	releaseImage string,
+	pullsecret []byte,
+) (*string, error) {
+	k8sVersion, err := r.K8sVersionDetector.GetKubernetesVersion(releaseImage, string(pullsecret))
+	markKubernetesVersionCondition(oacp, err)
+	if err != nil {
+		// if image not found, mark upgrade unavailable condition
+		if errors.Is(err, containers.ErrImageNotFound) {
+			setConditionFalse(oacp, controlplanev1alpha3.UpgradeAvailableCondition, controlplanev1alpha3.UpgradeImageUnavailableReason,
+				"upgrade unavailable: %s", err.Error())
+		}
+		return nil, err
+	}
+	return k8sVersion, nil
 }
 
 // reconcileMachineLifecycle handles pre-terminate hooks and etcd member reconciliation.
@@ -601,8 +618,11 @@ func getArchitecture(architectures []string, defaultArchitecture string) string 
 	if len(architectures) < 1 {
 		return defaultArchitecture
 	}
-	// if there is only one architecture, return it
+	// if there is only one architecture, return it (fall back to default if empty)
 	if len(architectures) == 1 {
+		if architectures[0] == "" {
+			return defaultArchitecture
+		}
 		return architectures[0]
 	}
 	firstArch := architectures[0]

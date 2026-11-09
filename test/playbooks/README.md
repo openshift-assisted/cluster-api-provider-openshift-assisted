@@ -2,6 +2,30 @@
 
 This directory contains Ansible playbooks for running end-to-end tests of the Cluster API Provider OpenShift Assisted project.
 
+## KubeVirt E2E
+
+`kubevirt/run_test.yaml` runs a compact three-control-plane OpenShift tenant on
+an existing OpenShift management cluster with OpenShift Virtualization installed.
+It installs Assisted Service, CAPI, CAPK, and CAPOA; provisions the tenant with
+pod networking; validates CAPI, ClusterVersion, ClusterOperator, and
+MachineConfigPool health; and deletes the tenant namespace while waiting for
+finalizers.
+
+```bash
+make e2e-kubevirt-test
+```
+
+The target installs the Ansible collection and Python dependencies used by
+`kubernetes.core`.
+
+The default storage class is `managed-csi`. Override it with
+`KUBEVIRT_STORAGE_CLASS` when the management cluster uses another block-capable
+storage class. `CAPOA_CONTROLPLANE_IMAGE` and `CAPOA_BOOTSTRAP_IMAGE` override
+the provider images and are populated by CI when the job builds images.
+CI also builds CAPK from the pinned upstream commit in `CAPK_SOURCE_REF`,
+passes its pullspec as `CAPK_IMAGE`, and installs CAPK manifests rendered from
+that same commit.
+
 ## Main Playbook: run_test.yaml
 
 The `run_test.yaml` playbook is the primary test automation script that sets up a complete testing environment and runs comprehensive end-to-end tests for the Cluster API Provider OpenShift Assisted.

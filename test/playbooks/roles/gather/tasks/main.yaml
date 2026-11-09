@@ -1,0 +1,54 @@
+---
+- name: Gather CAPOA and CAPI resources
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - get
+      - clusters,machines,kubevirtclusters,kubevirtmachines,openshiftassistedcontrolplanes,agentclusterinstalls,vmis,datavolumes
+      - --all-namespaces
+      - -o
+      - yaml
+  register: capoa_resources
+  changed_when: false
+  failed_when: false
+
+- name: Gather CAPOA controller logs
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - logs
+      - deployment/capoa-controlplane-controller-manager
+      - -n
+      - capoa-controlplane-system
+      - --tail=1000
+  register: capoa_controlplane_logs
+  changed_when: false
+  failed_when: false
+
+- name: Gather CAPK controller logs
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - logs
+      - deployment/controller-manager
+      - -n
+      - capk-system
+      - --tail=1000
+  register: capk_logs
+  changed_when: false
+  failed_when: false
+
+- name: Display gathered CAPOA and CAPI resources
+  ansible.builtin.debug:
+    msg: "{{ capoa_resources.stdout }}"
+  when: capoa_resources.stdout | length > 0
+
+- name: Display gathered CAPOA controller logs
+  ansible.builtin.debug:
+    msg: "{{ capoa_controlplane_logs.stdout }}"
+  when: capoa_controlplane_logs.stdout | length > 0
+
+- name: Display gathered CAPK controller logs
+  ansible.builtin.debug:
+    msg: "{{ capk_logs.stdout }}"
+  when: capk_logs.stdout | length > 0

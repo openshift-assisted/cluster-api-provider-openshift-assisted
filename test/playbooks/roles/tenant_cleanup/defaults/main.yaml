@@ -1,0 +1,3 @@
+---
+cleanup_namespace: "{{ cluster_namespace }}"
+cleanup_cluster_name: "{{ cluster_name }}"

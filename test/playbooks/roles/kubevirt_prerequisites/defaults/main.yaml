@@ -1,0 +1,2 @@
+---
+kubevirt_storage_class: "{{ storage_class }}"

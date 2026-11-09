@@ -191,6 +191,7 @@ func main() {
 	clientGenerator := workloadclient.NewWorkloadClusterClientGenerator()
 	if err = (&controlplanecontroller.OpenshiftAssistedControlPlaneReconciler{
 		Client:                  mgr.GetClient(),
+		APIReader:               mgr.GetAPIReader(),
 		Scheme:                  mgr.GetScheme(),
 		K8sVersionDetector:      version.NewKubernetesVersionDetector(releaseImageRepository),
 		UpgradeFactory:          upgrade.NewOpenshiftUpgradeFactory(releaseImageRepository, clientGenerator),

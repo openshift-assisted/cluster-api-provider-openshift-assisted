@@ -1,0 +1,355 @@
+---
+- name: Create the temporary tools directory
+  ansible.builtin.file:
+    path: "{{ clusterctl_path | dirname }}"
+    state: directory
+    mode: '0755'
+
+- name: Install clusterctl
+  ansible.builtin.get_url:
+    url: https://github.com/kubernetes-sigs/cluster-api/releases/download/{{ capi_version }}/clusterctl-linux-amd64
+    dest: "{{ clusterctl_path }}"
+    mode: '0755'
+
+- name: Require a CAPK image built from the pinned source commit
+  ansible.builtin.assert:
+    that:
+      - capk_image | length > 0
+    msg: CAPK_IMAGE must contain the pullspec for the CI-built pinned CAPK image
+
+- name: Create the pinned CAPK source directory
+  ansible.builtin.file:
+    path: "/tmp/capk-{{ capk_source_ref }}"
+    state: directory
+    mode: '0755'
+
+- name: Download the pinned CAPK source
+  ansible.builtin.get_url:
+    url: "{{ capk_source_repository }}/archive/{{ capk_source_ref }}.tar.gz"
+    dest: "/tmp/capk-{{ capk_source_ref }}.tar.gz"
+    mode: '0644'
+
+- name: Extract the pinned CAPK source
+  ansible.builtin.unarchive:
+    src: "/tmp/capk-{{ capk_source_ref }}.tar.gz"
+    dest: "/tmp/capk-{{ capk_source_ref }}"
+    remote_src: true
+    extra_opts:
+      - --strip-components=1
+    creates: "/tmp/capk-{{ capk_source_ref }}/go.mod"
+
+- name: Set the CI-built CAPK image in the pinned source
+  ansible.builtin.lineinfile:
+    path: "/tmp/capk-{{ capk_source_ref }}/config/default/manager_image_patch.yaml"
+    regexp: '^      - image: .*$'
+    line: '      - image: {{ capk_image }}'
+
+- name: Render the pinned CAPK components
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - kustomize
+      - "/tmp/capk-{{ capk_source_ref }}/config/default"
+  register: capk_components
+  changed_when: capk_components.rc == 0
+
+- name: Create a local clusterctl repository for the pinned CAPK source
+  ansible.builtin.file:
+    path: "/tmp/clusterctl-repository/infrastructure-kubevirt/{{ capk_local_version }}"
+    state: directory
+    mode: '0755'
+
+- name: Store the pinned CAPK components
+  ansible.builtin.copy:
+    content: "{{ capk_components.stdout }}"
+    dest: "/tmp/clusterctl-repository/infrastructure-kubevirt/{{ capk_local_version }}/infrastructure-components.yaml"
+    mode: '0644'
+
+- name: Store the pinned CAPK metadata
+  ansible.builtin.copy:
+    src: "/tmp/capk-{{ capk_source_ref }}/metadata.yaml"
+    dest: "/tmp/clusterctl-repository/infrastructure-kubevirt/{{ capk_local_version }}/metadata.yaml"
+    mode: '0644'
+    remote_src: true
+
+- name: Configure clusterctl to use the local CAPK repository
+  ansible.builtin.copy:
+    content: |
+      providers:
+        - name: kubevirt
+          type: InfrastructureProvider
+          url: file:///tmp/clusterctl-repository/infrastructure-kubevirt/{{ capk_local_version }}/infrastructure-components.yaml
+          file: infrastructure-components.yaml
+    dest: /tmp/clusterctl.yaml
+    mode: '0644'
+
+- name: Render the infrastructure-operator kustomization
+  ansible.builtin.template:
+    src: "{{ role_path }}/../../../e2e/manifests/infrastructure-operator/kustomization.yaml.j2"
+    dest: "{{ role_path }}/../../../e2e/manifests/infrastructure-operator/kustomization.yaml"
+    mode: '0644'
+  vars:
+    assisted_service_image: "{{ lookup('ansible.builtin.env', 'ASSISTED_SERVICE_IMAGE', default=default_assisted_service_image) }}"
+    infrastructure_operator_image: >-
+      {{ lookup('ansible.builtin.env', 'INFRASTRUCTURE_OPERATOR_IMAGE',
+      default=default_infrastructure_operator_image) }}
+    assisted_installer_agent_image: "{{ lookup('ansible.builtin.env', 'ASSISTED_INSTALLER_AGENT_IMAGE', default=default_assisted_installer_agent_image) }}"
+    assisted_installer_controller_image: >-
+      {{ lookup('ansible.builtin.env', 'ASSISTED_INSTALLER_CONTROLLER_IMAGE',
+      default=default_assisted_installer_controller_image) }}
+    assisted_installer_image: "{{ lookup('ansible.builtin.env', 'ASSISTED_INSTALLER_IMAGE', default=default_assisted_installer_image) }}"
+    infrastructure_operator_version: "{{ lookup('ansible.builtin.env', 'INFRASTRUCTURE_OPERATOR_VERSION', default=default_infrastructure_operator_version) }}"
+    assisted_service_version: "{{ lookup('ansible.builtin.env', 'ASSISTED_SERVICE_VERSION', default=default_assisted_service_version) }}"
+    assisted_installer_agent_version: >-
+      {{ lookup('ansible.builtin.env', 'ASSISTED_INSTALLER_AGENT_VERSION',
+      default=default_assisted_installer_agent_version) }}
+    assisted_installer_controller_version: >-
+      {{ lookup('ansible.builtin.env', 'ASSISTED_INSTALLER_CONTROLLER_VERSION',
+      default=default_assisted_installer_controller_version) }}
+    assisted_installer_version: "{{ lookup('ansible.builtin.env', 'ASSISTED_INSTALLER_VERSION', default=default_assisted_installer_version) }}"
+
+- name: Deploy the Assisted Service infrastructure operator
+  kubernetes.core.k8s:
+    definition: "{{ lookup('kubernetes.core.kustomize', dir=role_path + '/../../../e2e/manifests/infrastructure-operator') }}"
+    state: present
+    apply: true
+
+- name: Create the ingress-nginx namespace
+  kubernetes.core.k8s:
+    api_version: v1
+    kind: Namespace
+    name: nginx-ingress
+    state: present
+
+- name: Deploy ingress-nginx
+  kubernetes.core.k8s:
+    src: "{{ role_path }}/../../../e2e/manifests/ingress-nginx/nginx.yaml"
+    state: present
+    apply: true
+
+- name: Wait for the ingress load-balancer address
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Service
+    name: ingress-nginx-controller
+    namespace: nginx-ingress
+  register: ingress_service
+  until: >-
+    ingress_service.resources | default([]) | length == 1 and
+    (ingress_service.resources | default([]))[0].status.loadBalancer.ingress | default([]) | length > 0
+  retries: "{{ medium_retries | int }}"
+  delay: "{{ medium_delay | int }}"
+
+- name: Set the Assisted Service ingress hostname
+  ansible.builtin.set_fact:
+    assisted_service_hostname: assisted-service.{{ ingress_service.resources[0].status.loadBalancer.ingress[0].ip }}.nip.io
+
+- name: Configure Assisted Service for KubeVirt
+  kubernetes.core.k8s:
+    state: present
+    apply: true
+    definition: "{{ lookup('template', 'agent-service-config.yaml.j2') }}"
+
+- name: Wait for Assisted Service
+  kubernetes.core.k8s_info:
+    api_version: apps/v1
+    kind: Deployment
+    name: assisted-service
+    namespace: assisted-installer
+  register: assisted_service
+  until: >-
+    assisted_service.resources | default([]) | length == 1 and
+    (assisted_service.resources | default([]))[0].status.conditions | default([]) |
+    selectattr('type', 'equalto', 'Available') |
+    selectattr('status', 'equalto', 'True') |
+    list | length > 0
+  retries: "{{ medium_retries | int }}"
+  delay: "{{ medium_delay | int }}"
+
+- name: Initialize CAPI and CAPK
+  ansible.builtin.command:
+    argv:
+      - "{{ clusterctl_path }}"
+      - init
+      - --core
+      - cluster-api:{{ capi_version }}
+      - --bootstrap
+      - "-"
+      - --control-plane
+      - "-"
+      - --infrastructure
+      - kubevirt:{{ capk_local_version }}
+      - --config
+      - /tmp/clusterctl.yaml
+  register: clusterctl_init
+  changed_when: clusterctl_init.rc == 0
+
+- name: Make the upstream CAPI controller compatible with OpenShift SCC
+  kubernetes.core.k8s:
+    api_version: apps/v1
+    kind: Deployment
+    name: capi-controller-manager
+    namespace: capi-system
+    state: patched
+    definition:
+      spec:
+        template:
+          spec:
+            containers:
+              - name: manager
+                securityContext:
+                  runAsNonRoot: true
+                  runAsUser: null
+                  runAsGroup: null
+
+- name: Wait for the CAPI core provider
+  kubernetes.core.k8s_info:
+    api_version: apps/v1
+    kind: Deployment
+    name: capi-controller-manager
+    namespace: capi-system
+  register: capi_controller
+  until: >-
+    capi_controller.resources | default([]) | length == 1 and
+    capi_controller.resources[0].status.conditions | default([]) |
+    selectattr('type', 'equalto', 'Available') |
+    selectattr('status', 'equalto', 'True') |
+    list | length == 1
+  retries: "{{ medium_retries | int }}"
+  delay: "{{ medium_delay | int }}"
+
+- name: Wait for the CAPI webhook service endpoints
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Endpoints
+    name: capi-webhook-service
+    namespace: capi-system
+  register: capi_webhook_endpoints
+  until: >-
+    capi_webhook_endpoints.resources | default([]) | length == 1 and
+    capi_webhook_endpoints.resources[0].subsets | default([]) | length > 0 and
+    capi_webhook_endpoints.resources[0].subsets[0].addresses | default([]) | length > 0
+  retries: "{{ medium_retries | int }}"
+  delay: "{{ medium_delay | int }}"
+
+- name: Wait for the KubevirtCluster CRD to be established
+  kubernetes.core.k8s_info:
+    api_version: apiextensions.k8s.io/v1
+    kind: CustomResourceDefinition
+    name: kubevirtclusters.infrastructure.cluster.x-k8s.io
+    wait: true
+    wait_condition:
+      type: Established
+      status: "True"
+    wait_timeout: 300
+
+- name: Deploy the CAPOA bootstrap provider
+  kubernetes.core.k8s:
+    definition: "{{ lookup('kubernetes.core.kustomize', dir=role_path + '/../../../e2e/manifests/capboa') }}"
+    state: present
+    apply: true
+
+- name: Deploy the CAPOA control-plane provider
+  kubernetes.core.k8s:
+    definition: "{{ lookup('kubernetes.core.kustomize', dir=role_path + '/../../../e2e/manifests/capcoa') }}"
+    state: present
+    apply: true
+
+- name: Use the CI-built CAPOA bootstrap image
+  kubernetes.core.k8s:
+    api_version: apps/v1
+    kind: Deployment
+    name: capoa-bootstrap-controller-manager
+    namespace: capoa-bootstrap-system
+    state: patched
+    definition:
+      spec:
+        template:
+          spec:
+            containers:
+              - name: manager
+                image: "{{ capoa_bootstrap_image }}"
+                imagePullPolicy: Always
+
+- name: Use the management-cluster ingress CA with CAPOA bootstrap
+  kubernetes.core.k8s:
+    api_version: apps/v1
+    kind: Deployment
+    name: capoa-bootstrap-controller-manager
+    namespace: capoa-bootstrap-system
+    state: patched
+    definition:
+      spec:
+        template:
+          spec:
+            containers:
+              - name: manager
+                env:
+                  - name: ASSISTED_CA_BUNDLE_NAME
+                    value: default-ingress-cert
+                  - name: ASSISTED_CA_BUNDLE_NAMESPACE
+                    value: openshift-config-managed
+                  - name: ASSISTED_CA_BUNDLE_RESOURCE
+                    value: configmap
+                  - name: ASSISTED_CA_BUNDLE_KEY
+                    value: ca-bundle.crt
+
+- name: Use the CI-built CAPOA control-plane image
+  kubernetes.core.k8s:
+    api_version: apps/v1
+    kind: Deployment
+    name: capoa-controlplane-controller-manager
+    namespace: capoa-controlplane-system
+    state: patched
+    definition:
+      spec:
+        template:
+          spec:
+            containers:
+              - name: manager
+                image: "{{ capoa_controlplane_image }}"
+                imagePullPolicy: Always
+
+- name: Add the CAPI v1beta2 contract label to the CAPOA control-plane CRD
+  kubernetes.core.k8s:
+    api_version: apiextensions.k8s.io/v1
+    kind: CustomResourceDefinition
+    name: openshiftassistedcontrolplanes.controlplane.cluster.x-k8s.io
+    state: patched
+    definition:
+      metadata:
+        labels:
+          cluster.x-k8s.io/v1beta1: v1alpha3
+          cluster.x-k8s.io/v1beta2: v1alpha3
+
+- name: Wait for the CAPOA bootstrap provider
+  kubernetes.core.k8s_info:
+    api_version: apps/v1
+    kind: Deployment
+    name: capoa-bootstrap-controller-manager
+    namespace: capoa-bootstrap-system
+  register: capoa_bootstrap
+  until: >-
+    capoa_bootstrap.resources | default([]) | length == 1 and
+    (capoa_bootstrap.resources | default([]))[0].status.conditions | default([]) |
+    selectattr('type', 'equalto', 'Available') |
+    selectattr('status', 'equalto', 'True') |
+    list | length > 0
+  retries: "{{ medium_retries | int }}"
+  delay: "{{ medium_delay | int }}"
+
+- name: Wait for the CAPOA control-plane provider
+  kubernetes.core.k8s_info:
+    api_version: apps/v1
+    kind: Deployment
+    name: capoa-controlplane-controller-manager
+    namespace: capoa-controlplane-system
+  register: capoa_controlplane
+  until: >-
+    capoa_controlplane.resources | default([]) | length == 1 and
+    (capoa_controlplane.resources | default([]))[0].status.conditions | default([]) |
+    selectattr('type', 'equalto', 'Available') |
+    selectattr('status', 'equalto', 'True') |
+    list | length > 0
+  retries: "{{ medium_retries | int }}"
+  delay: "{{ medium_delay | int }}"

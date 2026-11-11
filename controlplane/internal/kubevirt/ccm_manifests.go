@@ -18,18 +18,44 @@ package kubevirt
 
 import (
 	"fmt"
+	"net"
+	"strings"
 
 	controlplanev1alpha3 "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/api/v1alpha3"
 )
 
+func infraAPIHostCIDR(infraAPIIP string) string {
+	if ip := net.ParseIP(infraAPIIP); ip != nil && ip.To4() == nil {
+		return infraAPIIP + "/128"
+	}
+	return infraAPIIP + "/32"
+}
+
+func networkPolicyIPBlockDestinations(cidrs []string) string {
+	destinations := make([]string, 0, len(cidrs))
+	for _, cidr := range cidrs {
+		destinations = append(destinations, fmt.Sprintf("        - ipBlock:\n            cidr: %s", cidr))
+	}
+	return strings.Join(destinations, "\n")
+}
+
+func networkPolicyTCPPorts(ports []int32) string {
+	lines := make([]string, 0, len(ports))
+	for _, port := range ports {
+		lines = append(lines, fmt.Sprintf("        - protocol: TCP\n          port: %d", port))
+	}
+	return strings.Join(lines, "\n")
+}
+
 const (
 	CCMManifestsConfigMapName = "kubevirt-ccm-manifests"
 
-	ccmNamespace        = "openshift-cloud-controller-manager"
-	ccmCredSecretName   = "kubevirt-infra-credentials"
-	ccmDeploymentName   = "kubevirt-cloud-controller-manager"
-	ccmServiceAccount   = "kubevirt-cloud-controller-manager"
-	ccmClusterRole      = "system:cloud-controller-manager"
+	ccmNamespace      = "openshift-cloud-controller-manager"
+	ccmCredSecretName = "kubevirt-infra-credentials"
+	ccmDeploymentName = "kubevirt-cloud-controller-manager"
+	ccmServiceAccount = "kubevirt-cloud-controller-manager"
+	ccmClusterRole    = "system:cloud-controller-manager"
+	ccmInfraRoleName  = "kubevirt-cloud-controller-manager"
 )
 
 // GenerateCCMManifests produces the manifest entries needed to deploy the KubeVirt
@@ -40,7 +66,14 @@ const (
 // used by a lightweight bash operator that runs on the tenant cluster and
 // re-resolves CCM images from ClusterVersion on OCP upgrades, keeping the
 // CCM deployment current without requiring management cluster connectivity.
-func GenerateCCMManifests(oacp *controlplanev1alpha3.OpenshiftAssistedControlPlane, infraNamespace, ccmImage, oseCliImage string) []ManifestEntry {
+func GenerateCCMManifests(
+	oacp *controlplanev1alpha3.OpenshiftAssistedControlPlane,
+	infraNamespace string,
+	clusterName string,
+	ccmImage string,
+	oseCliImage string,
+	egressDestinations CCMEgressDestinations,
+) []ManifestEntry {
 	if oacp.Spec.Config.CloudControllerManager == nil || !oacp.Spec.Config.CloudControllerManager.Enabled {
 		return nil
 	}
@@ -138,7 +171,46 @@ subjects:
 	})
 
 	manifests = append(manifests, ManifestEntry{
-		Filename: "04-ccm-deployment.yaml",
+		Filename: "04-ccm-egress-network-policy.yaml",
+		Content: fmt.Sprintf(`apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-apiserver-and-dns-egress
+  namespace: %s
+spec:
+  podSelector:
+    matchLabels:
+      app: %s
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+%s
+      ports:
+%s
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: openshift-dns
+          podSelector:
+            matchLabels:
+              dns.operator.openshift.io/daemonset-dns: default
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+        - protocol: UDP
+          port: 5353
+        - protocol: TCP
+          port: 5353
+`, ccmNamespace, ccmDeploymentName,
+			networkPolicyIPBlockDestinations(egressDestinations.all()),
+			networkPolicyTCPPorts(egressDestinations.apiPorts())),
+	})
+
+	manifests = append(manifests, ManifestEntry{
+		Filename: "05-ccm-deployment.yaml",
 		Content: fmt.Sprintf(`apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -168,7 +240,7 @@ spec:
             - --use-service-account-credentials=true
             - --leader-elect=true
             - --leader-elect-resource-namespace=%s
-            - --controllers=cloud-node,cloud-node-lifecycle,service-lb-controller
+            - --controllers=cloud-node-controller,cloud-node-lifecycle-controller,service-lb-controller
             - --authentication-skip-lookup
           resources:
             requests:
@@ -289,7 +361,7 @@ done
 func generateCCMOperatorManifests(oseCliImage string) []ManifestEntry {
 	return []ManifestEntry{
 		{
-			Filename: "05-ccm-operator-script.yaml",
+			Filename: "06-ccm-operator-script.yaml",
 			Content: fmt.Sprintf(`apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -300,7 +372,7 @@ data:
 %s`, ccmNamespace, indentMultiline(ccmOperatorScript)),
 		},
 		{
-			Filename: "06-ccm-operator-rbac.yaml",
+			Filename: "07-ccm-operator-rbac.yaml",
 			Content: fmt.Sprintf(`apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -381,7 +453,7 @@ subjects:
 `, ccmNamespace, ccmNamespace, ccmNamespace, ccmDeploymentName, ccmNamespace, ccmNamespace, ccmNamespace),
 		},
 		{
-			Filename: "07-ccm-operator-deployment.yaml",
+			Filename: "08-ccm-operator-deployment.yaml",
 			Content: fmt.Sprintf(`apiVersion: apps/v1
 kind: Deployment
 metadata:

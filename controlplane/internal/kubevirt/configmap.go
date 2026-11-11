@@ -19,7 +19,6 @@ package kubevirt
 import (
 	"context"
 	"fmt"
-
 	controlplanev1alpha3 "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/api/v1alpha3"
 	"github.com/openshift-assisted/cluster-api-provider-openshift-assisted/pkg/containers"
 	hiveext "github.com/openshift/assisted-service/api/hiveextension/v1beta1"
@@ -43,6 +42,7 @@ func EnsureKubeVirtManifests(
 	ctx context.Context,
 	c client.Client,
 	oacp *controlplanev1alpha3.OpenshiftAssistedControlPlane,
+	clusterName string,
 	infraNamespace string,
 	serviceIPs *ServiceIPs,
 	oseCliImage string,
@@ -50,10 +50,16 @@ func EnsureKubeVirtManifests(
 	pullSecret []byte,
 	remoteImage containers.RemoteImage,
 	infraCoreDNSIP string,
+	ccmEgressDestinations CCMEgressDestinations,
 ) ([]hiveext.ManifestsConfigMapReference, error) {
 	var allRefs []hiveext.ManifestsConfigMapReference
 
-	if oacp.Spec.Config.CloudControllerManager != nil && oacp.Spec.Config.CloudControllerManager.Enabled {
+	ccmEnabled := oacp.Spec.Config.CloudControllerManager != nil && oacp.Spec.Config.CloudControllerManager.Enabled
+	if ccmEnabled && IsPodNetworking(oacp.Spec.Config.APIVIPs, oacp.Spec.Config.IngressVIPs) {
+		ccmEgressDestinations = withTenantAPIBootstrapDestination(ccmEgressDestinations, serviceIPs)
+		if len(ccmEgressDestinations.InfraAPI) == 0 {
+			return nil, fmt.Errorf("infra Kubernetes API egress destinations are required")
+		}
 		ccmImage, err := ResolveImageFromPayload(releaseImage, pullSecret, "kubevirt-cloud-controller-manager", remoteImage)
 		if err != nil {
 			return nil, fmt.Errorf("failed to resolve CCM image from release payload: %w", err)
@@ -61,7 +67,8 @@ func EnsureKubeVirtManifests(
 		if ccmImage == "" {
 			return nil, fmt.Errorf("CCM image resolved to empty string from release payload")
 		}
-		ccmManifests := GenerateCCMManifests(oacp, infraNamespace, ccmImage, oseCliImage)
+		ccmManifests := GenerateCCMManifests(
+			oacp, infraNamespace, clusterName, ccmImage, oseCliImage, ccmEgressDestinations)
 		if len(ccmManifests) > 0 {
 			if err := ensureManifestsConfigMap(ctx, c, oacp, CCMManifestsConfigMapName, ccmManifests); err != nil {
 				return nil, fmt.Errorf("failed to create CCM manifests ConfigMap: %w", err)
@@ -106,11 +113,6 @@ func EnsureKubeVirtManifests(
 			}
 			allRefs = append(allRefs, hiveext.ManifestsConfigMapReference{Name: ResolvFixManifestsConfigMapName})
 		}
-	}
-
-	clusterName := oacp.Spec.Config.ClusterName
-	if clusterName == "" {
-		clusterName = oacp.Name
 	}
 
 	refs, err := ensurePodNetworkingManifests(ctx, c, oacp, serviceIPs, infraCoreDNSIP, clusterName)
@@ -222,9 +224,7 @@ func ensureManifestsConfigMap(
 	}
 
 	_, err := controllerutil.CreateOrUpdate(ctx, c, cm, func() error {
-		if cm.Data == nil {
-			cm.Data = make(map[string]string)
-		}
+		cm.Data = make(map[string]string)
 		for _, m := range manifests {
 			cm.Data[m.Filename] = m.Content
 		}

@@ -12,6 +12,15 @@ components:
 - https://github.com/metal3-io/baremetal-operator/ironic-deployment/components/basic-auth?ref=v0.6.0
 - https://github.com/metal3-io/baremetal-operator/ironic-deployment/components/tls?ref=v0.6.0
 
+# Pin ironic images (was implicit :latest); IPA_BRANCH in ironic_bmo.env pins
+# the ramdisk to a pre-1011624 revision.
+# https://review.opendev.org/c/openstack/ironic-python-agent/+/1011624
+images:
+- name: quay.io/metal3-io/ironic
+  newTag: v39.0.0
+- name: quay.io/metal3-io/ironic-ipa-downloader
+  newTag: main_2026-10-07_72b868f7b2c6c4e4bcbf264c5876482acfe6a198
+
 # Create a ConfigMap from ironic_bmo.env and call it ironic-bmo-configmap.
 # This ConfigMap will be used to set environment variables for the containers.
 configMapGenerator:

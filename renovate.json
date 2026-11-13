@@ -2,8 +2,7 @@
     "$schema": "https://docs.renovatebot.com/renovate-schema.json",
     "commitMessagePrefix": "NO-ISSUE: ",
     "labels": [
-        "lgtm",
-        "approved"
+        "allow-automatic-merge"
     ],
     "baseBranches": [
         "backplane-2.10",

@@ -22,11 +22,12 @@ import (
 
 	controlplanev1alpha3 "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/api/v1alpha3"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/clientcmd"
-	ctrl "sigs.k8s.io/controller-runtime"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -41,10 +42,14 @@ func IsKubeVirtInfra(cluster *clusterv1.Cluster) bool {
 
 // InfraClientResult holds the infra cluster client and namespace.
 type InfraClientResult struct {
-	Client    client.Client
-	Namespace string
-	IsRemote  bool
+	Client          client.Client
+	InfraClusterRef string
+	Namespace       string
+	Target          string
+	IsRemote        bool
 }
+
+const localInfraClusterTarget = "local"
 
 // GetInfraClusterClient builds a controller-runtime client for the infra cluster
 // by reading the kubeconfig from the Secret referenced by spec.config.infraClusterRef.
@@ -66,13 +71,33 @@ func GetInfraClusterClient(
 	// If no infra cluster ref is configured, use local client (same-cluster topology)
 	if oacp.Spec.Config.InfraClusterRef == nil {
 		log.V(1).Info("no infraClusterRef configured, using local client")
-		return &InfraClientResult{Client: c, Namespace: namespace, IsRemote: false}, nil
+		return &InfraClientResult{
+			Client:          c,
+			InfraClusterRef: localInfraClusterTarget,
+			Namespace:       namespace,
+			Target:          localInfraClusterTarget,
+			IsRemote:        false,
+		}, nil
 	}
 
-	// Read the kubeconfig from the referenced secret
-	secretName := oacp.Spec.Config.InfraClusterRef.Name
+	return GetInfraClusterClientFromSecret(ctx, c, namespace, oacp.Spec.Config.InfraClusterRef.Name, scheme)
+}
+
+// GetInfraClusterClientFromSecret builds a controller-runtime client for the infra
+// cluster whose kubeconfig is stored in the named Secret.
+func GetInfraClusterClientFromSecret(
+	ctx context.Context,
+	c client.Client,
+	namespace string,
+	secretName string,
+	scheme *runtime.Scheme,
+) (*InfraClientResult, error) {
+	log := ctrl.LoggerFrom(ctx)
 	secret := &corev1.Secret{}
 	if err := c.Get(ctx, client.ObjectKey{Name: secretName, Namespace: namespace}, secret); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil, fmt.Errorf("infra cluster secret %s/%s is missing: %w", namespace, secretName, errInfraCredentialsTargetUnreachable)
+		}
 		return nil, fmt.Errorf("failed to get infra cluster secret %s/%s: %w", namespace, secretName, err)
 	}
 
@@ -85,6 +110,10 @@ func GetInfraClusterClient(
 	restConfig, err := clientcmd.RESTConfigFromKubeConfig(kubeconfigData)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse infra kubeconfig from secret %s/%s: %w", namespace, secretName, err)
+	}
+	target, err := kubeconfigClusterTarget(string(kubeconfigData))
+	if err != nil {
+		return nil, fmt.Errorf("failed to identify infra cluster for secret %s/%s: %w", namespace, secretName, err)
 	}
 
 	// Determine infra namespace from the kubeconfig context
@@ -104,7 +133,13 @@ func GetInfraClusterClient(
 
 	log.Info("created infra cluster client from infraClusterRef",
 		"secret", secretName, "infraNamespace", infraNamespace)
-	return &InfraClientResult{Client: infraClient, Namespace: infraNamespace, IsRemote: true}, nil
+	return &InfraClientResult{
+		Client:          infraClient,
+		InfraClusterRef: "secret/" + secretName,
+		Namespace:       infraNamespace,
+		Target:          target,
+		IsRemote:        true,
+	}, nil
 }
 
 // EnsurePullSecretOnInfra copies the pull secret from the management cluster to the

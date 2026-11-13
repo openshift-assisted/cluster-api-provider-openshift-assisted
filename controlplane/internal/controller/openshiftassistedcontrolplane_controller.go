@@ -817,6 +817,10 @@ func (r *OpenshiftAssistedControlPlaneReconciler) handleDeletion(ctx context.Con
 		return err
 	}
 
+	if err := r.cleanupKubeVirtInfraCredentials(ctx, oacp); err != nil {
+		return err
+	}
+
 	if err := r.Delete(ctx, &hivev1.ClusterDeployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      oacp.Name,
@@ -829,6 +833,19 @@ func (r *OpenshiftAssistedControlPlaneReconciler) handleDeletion(ctx context.Con
 	// will be updated in the deferred function
 	controllerutil.RemoveFinalizer(oacp, oacpFinalizer)
 	return nil
+}
+
+func (r *OpenshiftAssistedControlPlaneReconciler) cleanupKubeVirtInfraCredentials(
+	ctx context.Context,
+	oacp *controlplanev1alpha3.OpenshiftAssistedControlPlane,
+) error {
+	return kubevirt.CleanupInfraCredentialsRBAC(ctx, r.Client, oacp, func(currentOACP *controlplanev1alpha3.OpenshiftAssistedControlPlane) (client.Client, error) {
+		infraResult, err := kubevirt.GetInfraClusterClient(ctx, r.Client, currentOACP, r.Scheme)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get infra cluster client for credentials cleanup: %w", err)
+		}
+		return infraResult.Client, nil
+	})
 }
 
 // clearPreTerminateHooks removes the pre-terminate hook annotation from all machines

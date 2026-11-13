@@ -109,7 +109,9 @@ func (r *ClusterDeploymentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 // +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterrolebindings,verbs=get;list;watch;create;update;patch
-// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=discovery.k8s.io,resources=endpointslices,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=kubevirt.io,resources=virtualmachineinstances,verbs=get;list;watch
 // +kubebuilder:rbac:groups=agent-install.openshift.io,resources=agentserviceconfigs,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=agent-install.openshift.io,resources=agents,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=agent-install.openshift.io,resources=infraenvs,verbs=get;list;watch;create;update;patch;delete
@@ -216,7 +218,6 @@ func (r *ClusterDeploymentReconciler) reconcileKubeVirtInfra(
 	releaseImageWithDigest string,
 ) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
-	infraNS := acp.Namespace
 
 	infraResult, err := kubevirt.GetInfraClusterClient(ctx, r.Client, acp, r.Scheme)
 	if err != nil {
@@ -270,12 +271,24 @@ func (r *ClusterDeploymentReconciler) reconcileKubeVirtInfra(
 	}
 
 	infraCoreDNSIP := kubevirt.GetInfraCoreDNSIP(ctx, infraResult.Client)
+	var ccmEgressDestinations kubevirt.CCMEgressDestinations
+	if acp.Spec.Config.CloudControllerManager != nil && acp.Spec.Config.CloudControllerManager.Enabled &&
+		kubevirt.IsPodNetworking(acp.Spec.Config.APIVIPs, acp.Spec.Config.IngressVIPs) {
+		ccmEgressDestinations, err = kubevirt.GetCCMEgressDestinations(
+			ctx, r.Client, acp, infraResult, clusterDeployment.Spec.ClusterName)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+	}
 
-	if _, err := kubevirt.EnsureKubeVirtManifests(ctx, r.Client, acp, infraNS, manifestDNSIPs, oseCliImage, releaseImageWithDigest, pullSecretData, &containers.RemoteImageRepository{}, infraCoreDNSIP); err != nil {
+	if _, err := kubevirt.EnsureKubeVirtManifests(
+		ctx, r.Client, acp, clusterDeployment.Spec.ClusterName, infraNamespace, manifestDNSIPs,
+		oseCliImage, releaseImageWithDigest, pullSecretData, &containers.RemoteImageRepository{},
+		infraCoreDNSIP, ccmEgressDestinations); err != nil {
 		log.Error(err, "failed to create KubeVirt platform manifests")
 		return ctrl.Result{}, err
 	}
-	if err := kubevirt.EnsureInfraCredentialsManifests(ctx, r.Client, acp); err != nil {
+	if err := kubevirt.EnsureInfraCredentialsManifests(ctx, r.Client, infraResult, acp); err != nil {
 		log.Error(err, "failed to create KubeVirt infra credentials manifests")
 		return ctrl.Result{}, err
 	}
@@ -528,7 +541,6 @@ func getReleaseImage(oacp controlplanev1alpha3.OpenshiftAssistedControlPlane, ar
 	return release.GetReleaseImage(oacp.Spec.DistributionVersion, releaseImageRepository, architecture)
 }
 
-
 func (r *ClusterDeploymentReconciler) updateClusterDeploymentRef(
 	ctx context.Context,
 	cd *hivev1.ClusterDeployment,
@@ -620,14 +632,14 @@ func getClusterAdditionalManifestRefs(acp controlplanev1alpha3.OpenshiftAssisted
 
 		// CCM provides LoadBalancer services — only relevant for pod-networking clusters
 		// (no VIPs). Bridge-networking clusters use keepalived VIPs directly.
-		if acp.Spec.Config.CloudControllerManager != nil && acp.Spec.Config.CloudControllerManager.Enabled && podNet {
+		ccmEnabled := acp.Spec.Config.CloudControllerManager != nil && acp.Spec.Config.CloudControllerManager.Enabled
+		if ccmEnabled && podNet {
 			additionalManifests = append(additionalManifests, hiveext.ManifestsConfigMapReference{Name: kubevirt.CCMManifestsConfigMapName})
 		}
 		if acp.Spec.Config.CSIDriver != nil && acp.Spec.Config.CSIDriver.Enabled {
 			additionalManifests = append(additionalManifests, hiveext.ManifestsConfigMapReference{Name: kubevirt.CSIManifestsConfigMapName})
 		}
-		if (acp.Spec.Config.CSIDriver != nil && acp.Spec.Config.CSIDriver.Enabled) ||
-			(acp.Spec.Config.CloudControllerManager != nil && acp.Spec.Config.CloudControllerManager.Enabled) {
+		if (acp.Spec.Config.CSIDriver != nil && acp.Spec.Config.CSIDriver.Enabled) || (ccmEnabled && podNet) {
 			additionalManifests = append(additionalManifests, hiveext.ManifestsConfigMapReference{Name: kubevirt.InfraCredentialsCMName})
 		}
 		if podNet {

@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -43,12 +44,14 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	capiutil "sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/cluster-api/util/conditions"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -59,6 +62,13 @@ const (
 	InstallConfigOverrides             = aiv1beta1.Group + "/install-config-overrides"
 	defaultBaremetalBaselineCapability = "None"
 	defaultBaselineCapability          = "vCurrent"
+	serviceCAConfigMapName             = "openshift-service-ca.crt"
+	serviceCAConfigMapKey              = "service-ca.crt"
+	rootCAConfigMapName                = "kube-root-ca.crt"
+	rootCAConfigMapKey                 = "ca.crt"
+	ignitionCASecretSuffix             = "-ignition-ca"
+	ignitionCASecretKey                = "tls.crt"
+	remoteIgnitionCARefreshInterval    = time.Hour
 )
 
 var (
@@ -89,11 +99,83 @@ func (r *ClusterDeploymentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	}
 
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&hivev1.ClusterDeployment{}).
-		WithEventFilter(clusterLabelPredicate).
-		Watches(&controlplanev1alpha3.OpenshiftAssistedControlPlane{}, &handler.EnqueueRequestForObject{}).
-		Watches(&clusterv1.MachineDeployment{}, &handler.EnqueueRequestForObject{}).
+		For(&hivev1.ClusterDeployment{}, builder.WithPredicates(clusterLabelPredicate)).
+		Watches(
+			&controlplanev1alpha3.OpenshiftAssistedControlPlane{},
+			&handler.EnqueueRequestForObject{},
+			builder.WithPredicates(clusterLabelPredicate),
+		).
+		Watches(
+			&clusterv1.MachineDeployment{},
+			&handler.EnqueueRequestForObject{},
+			builder.WithPredicates(clusterLabelPredicate),
+		).
+		WatchesMetadata(
+			&corev1.ConfigMap{},
+			handler.EnqueueRequestsFromMapFunc(r.serviceCAConfigMapToClusterDeployments),
+		).
+		Watches(
+			&corev1.Secret{},
+			handler.EnqueueRequestsFromMapFunc(r.ignitionCASecretToClusterDeployments),
+		).
 		Complete(r)
+}
+
+func (r *ClusterDeploymentReconciler) serviceCAConfigMapToClusterDeployments(
+	ctx context.Context,
+	configMap client.Object,
+) []ctrl.Request {
+	switch configMap.GetName() {
+	case serviceCAConfigMapName, rootCAConfigMapName:
+	default:
+		return nil
+	}
+
+	clusterDeployments := &hivev1.ClusterDeploymentList{}
+	if err := r.List(ctx, clusterDeployments, client.InNamespace(configMap.GetNamespace())); err != nil {
+		ctrl.LoggerFrom(ctx).Error(
+			err,
+			"failed to list ClusterDeployments for service CA reconciliation",
+			"namespace", configMap.GetNamespace(),
+		)
+		return nil
+	}
+
+	requests := make([]ctrl.Request, 0, len(clusterDeployments.Items))
+	for index := range clusterDeployments.Items {
+		clusterDeployment := &clusterDeployments.Items[index]
+		if _, ok := clusterDeployment.Labels[clusterv1.ClusterNameLabel]; !ok {
+			continue
+		}
+		requests = append(requests, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(clusterDeployment)})
+	}
+	return requests
+}
+
+func (r *ClusterDeploymentReconciler) ignitionCASecretToClusterDeployments(
+	_ context.Context,
+	secret client.Object,
+) []ctrl.Request {
+	if !strings.HasSuffix(secret.GetName(), ignitionCASecretSuffix) {
+		return nil
+	}
+
+	clusterDeploymentName := strings.TrimSuffix(secret.GetName(), ignitionCASecretSuffix)
+	ownerReference := metav1.OwnerReference{
+		APIVersion: controlplanev1alpha3.GroupVersion.String(),
+		Kind:       openshiftAssistedControlPlaneKind,
+		Name:       clusterDeploymentName,
+	}
+	if !capiutil.HasOwnerRef(secret.GetOwnerReferences(), ownerReference) {
+		return nil
+	}
+
+	return []ctrl.Request{{
+		NamespacedName: client.ObjectKey{
+			Name:      clusterDeploymentName,
+			Namespace: secret.GetNamespace(),
+		},
+	}}
 }
 
 // +kubebuilder:rbac:groups=hive.openshift.io,resources=clusterdeployments,verbs=get;list;watch;create;update;patch;delete
@@ -180,14 +262,21 @@ func (r *ClusterDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		}
 	}
 
+	var infraResult *kubevirt.InfraClientResult
 	if isKubeVirtInfra(cluster) {
-		result, err := r.reconcileKubeVirtInfra(ctx, acp, clusterDeployment, releaseImageWithDigest)
+		infraResult, err = kubevirt.GetInfraClusterClient(ctx, r.Client, acp, r.Scheme)
+		if err != nil {
+			log.Error(err, "failed to get infra cluster client")
+			return ctrl.Result{}, err
+		}
+		result, err := r.reconcileKubeVirtInfra(ctx, acp, clusterDeployment, releaseImageWithDigest, infraResult)
 		if err != nil || !result.IsZero() {
 			return result, err
 		}
 	}
 
-	if err := r.ensureAgentClusterInstall(ctx, clusterDeployment, *acp, cluster); err != nil {
+	aciResult, err := r.ensureAgentClusterInstall(ctx, clusterDeployment, *acp, cluster, infraResult)
+	if err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -203,6 +292,10 @@ func (r *ClusterDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 	}
 
+	if !aciResult.IsZero() {
+		return aciResult, nil
+	}
+
 	return ctrl.Result{}, nil
 }
 
@@ -214,19 +307,11 @@ func (r *ClusterDeploymentReconciler) reconcileKubeVirtInfra(
 	acp *controlplanev1alpha3.OpenshiftAssistedControlPlane,
 	clusterDeployment *hivev1.ClusterDeployment,
 	releaseImageWithDigest string,
+	infraResult *kubevirt.InfraClientResult,
 ) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
 	infraNS := acp.Namespace
-
-	infraResult, err := kubevirt.GetInfraClusterClient(ctx, r.Client, acp, r.Scheme)
-	if err != nil {
-		log.Error(err, "failed to get infra cluster client")
-		return ctrl.Result{}, err
-	}
-	infraNamespace := acp.Namespace
-	if infraResult.IsRemote {
-		infraNamespace = infraResult.Namespace
-	}
+	infraNamespace := infraResult.Namespace
 
 	if result, err := r.ensureGoldenPVC(ctx, acp, infraResult, infraNamespace, releaseImageWithDigest); err != nil || !result.IsZero() {
 		return result, err
@@ -403,7 +488,8 @@ func (r *ClusterDeploymentReconciler) ensureAgentClusterInstall(
 	clusterDeployment *hivev1.ClusterDeployment,
 	oacp controlplanev1alpha3.OpenshiftAssistedControlPlane,
 	cluster *clusterv1.Cluster,
-) error {
+	infraResult *kubevirt.InfraClientResult,
+) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
 
 	workerNodes := r.getWorkerNodesCount(ctx, cluster)
@@ -416,6 +502,10 @@ func (r *ClusterDeploymentReconciler) ensureAgentClusterInstall(
 			Namespace: clusterDeployment.Namespace,
 		},
 	}
+	// A missing service CA is not fatal to the ACI reconcile. Leave the ignition
+	// endpoint unset and retry so unrelated ACI changes continue to apply.
+	ignitionCAPending := false
+	remoteIgnitionCARefresh := false
 	mutate := func() error {
 		aci.Labels = util.ControlPlaneMachineLabelsForCluster(
 			&oacp,
@@ -481,10 +571,29 @@ func (r *ClusterDeploymentReconciler) ensureAgentClusterInstall(
 		// (including admin password secret creation).
 		if isKubeVirtInfra(cluster) &&
 			aci.Spec.ClusterMetadata != nil && aci.Spec.ClusterMetadata.AdminPasswordSecretRef != nil {
+			ignitionNamespace := clusterDeployment.Namespace
+			if infraResult != nil {
+				ignitionNamespace = infraResult.Namespace
+			}
 			mcsProxySvcName := clusterDeployment.Labels[clusterv1.ClusterNameLabel] + "-" + kubevirt.MCSProxyServiceName
 			ignitionURL := fmt.Sprintf("http://%s.%s.svc.cluster.local:%d/config/worker",
-				mcsProxySvcName, clusterDeployment.Namespace, kubevirt.MCSProxyPort)
-			aci.Spec.IgnitionEndpoint = &hiveext.IgnitionEndpoint{Url: ignitionURL}
+				mcsProxySvcName, ignitionNamespace, kubevirt.MCSProxyPort)
+			caReference, err := r.ensureKubeVirtIgnitionCA(ctx, clusterDeployment, oacp, infraResult)
+			if err != nil {
+				log.Error(err, "failed to ensure service CA for KubeVirt ignition endpoint; will retry")
+				ignitionCAPending = true
+				if aci.Spec.IgnitionEndpoint != nil &&
+					aci.Spec.IgnitionEndpoint.Url == ignitionURL &&
+					aci.Spec.IgnitionEndpoint.CaCertificateReference == nil {
+					aci.Spec.IgnitionEndpoint = nil
+				}
+			} else {
+				aci.Spec.IgnitionEndpoint = &hiveext.IgnitionEndpoint{
+					Url:                    ignitionURL,
+					CaCertificateReference: caReference,
+				}
+				remoteIgnitionCARefresh = infraResult != nil && infraResult.IsRemote
+			}
 		}
 
 		return nil
@@ -492,10 +601,159 @@ func (r *ClusterDeploymentReconciler) ensureAgentClusterInstall(
 
 	if _, err := controllerutil.CreateOrPatch(ctx, r.Client, aci, mutate); err != nil {
 		log.Error(err, "failed to create or update AgentClusterInstall")
-		return err
+		return ctrl.Result{}, err
 	}
 
+	if ignitionCAPending {
+		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+	}
+	if remoteIgnitionCARefresh {
+		return ctrl.Result{RequeueAfter: remoteIgnitionCARefreshInterval}, nil
+	}
+
+	return ctrl.Result{}, nil
+}
+
+func (r *ClusterDeploymentReconciler) ensureKubeVirtIgnitionCA(
+	ctx context.Context,
+	clusterDeployment *hivev1.ClusterDeployment,
+	oacp controlplanev1alpha3.OpenshiftAssistedControlPlane,
+	infraResult *kubevirt.InfraClientResult,
+) (*hiveext.CaCertificateReference, error) {
+	caClient := r.Client
+	caNamespace := clusterDeployment.Namespace
+	if infraResult != nil {
+		caClient = infraResult.Client
+		caNamespace = infraResult.Namespace
+	}
+	certificate, err := getKubeVirtIgnitionCACertificate(ctx, caClient, caNamespace)
+	if err != nil {
+		return nil, err
+	}
+
+	secretName := clusterDeployment.Name + ignitionCASecretSuffix
+	caSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      secretName,
+			Namespace: clusterDeployment.Namespace,
+		},
+	}
+	_, err = controllerutil.CreateOrUpdate(ctx, r.Client, caSecret, func() error {
+		if caSecret.UID != "" || caSecret.ResourceVersion != "" {
+			ownerReference := metav1.OwnerReference{
+				APIVersion: controlplanev1alpha3.GroupVersion.String(),
+				Kind:       openshiftAssistedControlPlaneKind,
+				Name:       oacp.Name,
+				UID:        oacp.UID,
+			}
+			if !hasExactOwnerReference(caSecret.OwnerReferences, ownerReference) {
+				return fmt.Errorf(
+					"ignition CA Secret %s in namespace %s is not owned by OpenshiftAssistedControlPlane %s",
+					secretName,
+					clusterDeployment.Namespace,
+					oacp.Name,
+				)
+			}
+		}
+		if caSecret.Labels == nil {
+			caSecret.Labels = make(map[string]string)
+		}
+		caSecret.Labels[clusterv1.ClusterNameLabel] = clusterDeployment.Labels[clusterv1.ClusterNameLabel]
+		caSecret.Type = corev1.SecretTypeOpaque
+		caSecret.Data = map[string][]byte{
+			ignitionCASecretKey: []byte(certificate),
+		}
+		return controllerutil.SetOwnerReference(&oacp, caSecret, r.Scheme)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create or update service CA Secret for KubeVirt ignition endpoint: %w", err)
+	}
+
+	return &hiveext.CaCertificateReference{
+		Name:      secretName,
+		Namespace: clusterDeployment.Namespace,
+	}, nil
+}
+
+func getKubeVirtIgnitionCACertificate(ctx context.Context, caClient client.Client, namespace string) (string, error) {
+	serviceCAConfigMap := &corev1.ConfigMap{}
+	err := caClient.Get(ctx, client.ObjectKey{
+		Name:      serviceCAConfigMapName,
+		Namespace: namespace,
+	}, serviceCAConfigMap)
+	if err == nil {
+		certificate, ok := serviceCAConfigMap.Data[serviceCAConfigMapKey]
+		if !ok || certificate == "" {
+			return "", fmt.Errorf(
+				"service CA ConfigMap %s in namespace %s does not contain a non-empty %s key",
+				serviceCAConfigMapName,
+				namespace,
+				serviceCAConfigMapKey,
+			)
+		}
+		if err := validateCACertificateBundle(certificate); err != nil {
+			return "", fmt.Errorf(
+				"service CA ConfigMap %s in namespace %s does not contain a valid certificate in %s: %w",
+				serviceCAConfigMapName,
+				namespace,
+				serviceCAConfigMapKey,
+				err,
+			)
+		}
+		return certificate, nil
+	}
+	if !apierrors.IsNotFound(err) {
+		return "", fmt.Errorf("failed to get service CA ConfigMap for KubeVirt ignition endpoint: %w", err)
+	}
+
+	rootCAConfigMap := &corev1.ConfigMap{}
+	if err := caClient.Get(ctx, client.ObjectKey{
+		Name:      rootCAConfigMapName,
+		Namespace: namespace,
+	}, rootCAConfigMap); err != nil {
+		return "", fmt.Errorf("failed to get service or root CA ConfigMap for KubeVirt ignition endpoint: %w", err)
+	}
+	certificate, ok := rootCAConfigMap.Data[rootCAConfigMapKey]
+	if !ok || certificate == "" {
+		return "", fmt.Errorf(
+			"root CA ConfigMap %s in namespace %s does not contain a non-empty %s key",
+			rootCAConfigMapName,
+			namespace,
+			rootCAConfigMapKey,
+		)
+	}
+	if err := validateCACertificateBundle(certificate); err != nil {
+		return "", fmt.Errorf(
+			"root CA ConfigMap %s in namespace %s does not contain a valid certificate in %s: %w",
+			rootCAConfigMapName,
+			namespace,
+			rootCAConfigMapKey,
+			err,
+		)
+	}
+	return certificate, nil
+}
+
+func validateCACertificateBundle(certificate string) error {
+	if !x509.NewCertPool().AppendCertsFromPEM([]byte(certificate)) {
+		return fmt.Errorf("bundle contains no parseable certificate")
+	}
 	return nil
+}
+
+func hasExactOwnerReference(
+	ownerReferences []metav1.OwnerReference,
+	ownerReference metav1.OwnerReference,
+) bool {
+	for _, existingReference := range ownerReferences {
+		if existingReference.APIVersion == ownerReference.APIVersion &&
+			existingReference.Kind == ownerReference.Kind &&
+			existingReference.Name == ownerReference.Name &&
+			existingReference.UID == ownerReference.UID {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *ClusterDeploymentReconciler) getWorkerNodesCount(ctx context.Context, cluster *clusterv1.Cluster) int {
@@ -527,7 +785,6 @@ func getReleaseImage(oacp controlplanev1alpha3.OpenshiftAssistedControlPlane, ar
 	}
 	return release.GetReleaseImage(oacp.Spec.DistributionVersion, releaseImageRepository, architecture)
 }
-
 
 func (r *ClusterDeploymentReconciler) updateClusterDeploymentRef(
 	ctx context.Context,

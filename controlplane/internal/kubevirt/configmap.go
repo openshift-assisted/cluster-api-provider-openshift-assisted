@@ -61,7 +61,11 @@ func EnsureKubeVirtManifests(
 		if ccmImage == "" {
 			return nil, fmt.Errorf("CCM image resolved to empty string from release payload")
 		}
-		ccmManifests := GenerateCCMManifests(oacp, infraNamespace, ccmImage, oseCliImage)
+		proxyEndpoints, err := infraProxyEndpoints(ctx, c, oacp)
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve infra proxy endpoints: %w", err)
+		}
+		ccmManifests := GenerateCCMManifests(oacp, infraNamespace, ccmImage, oseCliImage, proxyEndpoints)
 		if len(ccmManifests) > 0 {
 			if err := ensureManifestsConfigMap(ctx, c, oacp, CCMManifestsConfigMapName, ccmManifests); err != nil {
 				return nil, fmt.Errorf("failed to create CCM manifests ConfigMap: %w", err)
@@ -222,12 +226,11 @@ func ensureManifestsConfigMap(
 	}
 
 	_, err := controllerutil.CreateOrUpdate(ctx, c, cm, func() error {
-		if cm.Data == nil {
-			cm.Data = make(map[string]string)
-		}
+		data := make(map[string]string, len(manifests))
 		for _, m := range manifests {
-			cm.Data[m.Filename] = m.Content
+			data[m.Filename] = m.Content
 		}
+		cm.Data = data
 		return controllerutil.SetOwnerReference(owner, cm, c.Scheme())
 	})
 	return err

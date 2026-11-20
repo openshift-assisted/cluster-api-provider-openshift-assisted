@@ -17,13 +17,20 @@ limitations under the License.
 package kubevirt
 
 import (
+	"context"
 	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	controlplanev1alpha3 "github.com/openshift-assisted/cluster-api-provider-openshift-assisted/controlplane/api/v1alpha3"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/tools/clientcmd"
+	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
 func newOACP(ccmEnabled bool, csiEnabled bool, infraSC string) *controlplanev1alpha3.OpenshiftAssistedControlPlane {
@@ -38,7 +45,7 @@ func newOACP(ccmEnabled bool, csiEnabled bool, infraSC string) *controlplanev1al
 	}
 	if csiEnabled {
 		oacp.Spec.Config.CSIDriver = &controlplanev1alpha3.CSIDriverSpec{
-			Enabled:          true,
+			Enabled:           true,
 			InfraStorageClass: infraSC,
 		}
 	}
@@ -47,78 +54,213 @@ func newOACP(ccmEnabled bool, csiEnabled bool, infraSC string) *controlplanev1al
 
 var _ = Describe("CCM Manifests", func() {
 	const (
-		testInfraNS     = "infra-test-ns"
-		testCCMImage    = "registry.example.com/kubevirt-ccm@sha256:abc123"
-		testOseCliImage = "registry.example.com/ose-cli@sha256:cli123"
+		testCurrentContext = "current"
+		testInfraNS        = "infra-test-ns"
+		testCCMImage       = "registry.example.com/kubevirt-ccm@sha256:abc123"
+		testOseCliImage    = "registry.example.com/ose-cli@sha256:cli123"
 	)
 
 	It("should return nil when CCM is not enabled", func() {
 		oacp := newOACP(false, false, "")
-		result := GenerateCCMManifests(oacp, testInfraNS, testCCMImage, testOseCliImage)
+		result := GenerateCCMManifests(oacp, testInfraNS, testCCMImage, testOseCliImage, nil)
 		Expect(result).To(BeNil())
 	})
 
 	It("should return nil when CCM spec is nil", func() {
 		oacp := newOACP(false, false, "")
 		oacp.Spec.Config.CloudControllerManager = nil
-		result := GenerateCCMManifests(oacp, testInfraNS, testCCMImage, testOseCliImage)
+		result := GenerateCCMManifests(oacp, testInfraNS, testCCMImage, testOseCliImage, nil)
 		Expect(result).To(BeNil())
 	})
 
 	It("should return nil when CCM image is empty", func() {
 		oacp := newOACP(true, false, "")
-		result := GenerateCCMManifests(oacp, testInfraNS, "", testOseCliImage)
+		result := GenerateCCMManifests(oacp, testInfraNS, "", testOseCliImage, nil)
 		Expect(result).To(BeNil())
 	})
 
 	It("should generate all required manifests when CCM is enabled", func() {
 		oacp := newOACP(true, false, "")
-		result := GenerateCCMManifests(oacp, testInfraNS, testCCMImage, testOseCliImage)
+		result := GenerateCCMManifests(oacp, testInfraNS, testCCMImage, testOseCliImage, nil)
 
-		Expect(result).To(HaveLen(7))
+		Expect(result).To(HaveLen(8))
 		Expect(result[0].Filename).To(Equal("01-ccm-namespace.yaml"))
 		Expect(result[1].Filename).To(Equal("02-ccm-cloud-config.yaml"))
-		Expect(result[2].Filename).To(Equal("03-ccm-rbac.yaml"))
-		Expect(result[3].Filename).To(Equal("04-ccm-deployment.yaml"))
-		Expect(result[4].Filename).To(Equal("05-ccm-operator-script.yaml"))
-		Expect(result[5].Filename).To(Equal("06-ccm-operator-rbac.yaml"))
-		Expect(result[6].Filename).To(Equal("07-ccm-operator-deployment.yaml"))
+		Expect(result[2].Filename).To(Equal("03-ccm-bootstrap-egress.yaml"))
+		Expect(result[3].Filename).To(Equal("04-ccm-rbac.yaml"))
+		Expect(result[4].Filename).To(Equal("05-ccm-deployment.yaml"))
+		Expect(result[5].Filename).To(Equal("06-ccm-operator-script.yaml"))
+		Expect(result[6].Filename).To(Equal("07-ccm-operator-rbac.yaml"))
+		Expect(result[7].Filename).To(Equal("08-ccm-operator-deployment.yaml"))
 	})
 
 	It("should omit operator manifests when oseCliImage is empty", func() {
 		oacp := newOACP(true, false, "")
-		result := GenerateCCMManifests(oacp, testInfraNS, testCCMImage, "")
+		result := GenerateCCMManifests(oacp, testInfraNS, testCCMImage, "", nil)
 
-		Expect(result).To(HaveLen(4))
-		Expect(result[3].Filename).To(Equal("04-ccm-deployment.yaml"))
+		Expect(result).To(HaveLen(5))
+		Expect(result[4].Filename).To(Equal("05-ccm-deployment.yaml"))
 	})
 
 	It("should set the infra namespace in cloud-config", func() {
 		oacp := newOACP(true, false, "")
-		result := GenerateCCMManifests(oacp, testInfraNS, testCCMImage, testOseCliImage)
+		result := GenerateCCMManifests(oacp, testInfraNS, testCCMImage, testOseCliImage, nil)
 
 		Expect(result[1].Content).To(ContainSubstring("namespace: " + testInfraNS))
+		Expect(result[1].Content).To(ContainSubstring("enableEPSController: true"))
+		Expect(result[1].Content).To(ContainSubstring("selectorless: true"))
+		Expect(result[2].Content).To(ContainSubstring("port: 6443"))
 	})
 
 	It("should use the resolved CCM image directly in the deployment", func() {
 		oacp := newOACP(true, false, "")
-		result := GenerateCCMManifests(oacp, testInfraNS, testCCMImage, testOseCliImage)
+		result := GenerateCCMManifests(oacp, testInfraNS, testCCMImage, testOseCliImage, nil)
 
-		Expect(result[3].Content).To(ContainSubstring("image: " + testCCMImage))
+		Expect(result[4].Content).To(ContainSubstring("image: " + testCCMImage))
+		Expect(result[4].Content).To(ContainSubstring("--cluster-name=test-cluster"))
+		Expect(result[4].Content).To(ContainSubstring(
+			"--controllers=cloud-node-controller,cloud-node-lifecycle-controller,service-lb-controller,kubevirt_eps_controller",
+		))
+	})
+
+	It("should grant the CCM EndpointSlice access", func() {
+		oacp := newOACP(true, false, "")
+		result := GenerateCCMManifests(oacp, testInfraNS, testCCMImage, testOseCliImage, nil)
+
+		Expect(result[3].Content).To(ContainSubstring("apiGroups: [\"discovery.k8s.io\"]"))
+		Expect(result[3].Content).To(ContainSubstring("resources: [\"endpointslices\"]"))
+		Expect(result[3].Content).To(ContainSubstring("verbs: [\"get\", \"list\", \"watch\"]"))
 	})
 
 	It("should reference the infra credentials secret in the deployment", func() {
 		oacp := newOACP(true, false, "")
-		result := GenerateCCMManifests(oacp, testInfraNS, testCCMImage, testOseCliImage)
+		result := GenerateCCMManifests(oacp, testInfraNS, testCCMImage, testOseCliImage, nil)
 
-		Expect(result[3].Content).To(ContainSubstring("secretName: " + ccmCredSecretName))
+		Expect(result[4].Content).To(ContainSubstring("secretName: " + ccmCredSecretName))
 	})
 
 	It("should use ose-cli image in the operator deployment", func() {
 		oacp := newOACP(true, false, "")
-		result := GenerateCCMManifests(oacp, testInfraNS, testCCMImage, testOseCliImage)
+		result := GenerateCCMManifests(oacp, testInfraNS, testCCMImage, testOseCliImage, nil)
 
-		Expect(result[6].Content).To(ContainSubstring("image: " + testOseCliImage))
+		Expect(result[7].Content).To(ContainSubstring("image: " + testOseCliImage))
+		Expect(result[7].Content).To(ContainSubstring("value: " + testInfraNS))
+		Expect(result[7].Content).To(ContainSubstring("value: test-cluster"))
+	})
+
+	It("should watch and normalize mirrored LoadBalancer Services", func() {
+		oacp := newOACP(true, false, "")
+		result := GenerateCCMManifests(oacp, testInfraNS, testCCMImage, testOseCliImage, nil)
+
+		Expect(result[5].Content).To(ContainSubstring("--watch"))
+		Expect(result[5].Content).To(ContainSubstring(`"externalTrafficPolicy":"Local"`))
+	})
+
+	It("should allow the infrastructure proxy endpoint", func() {
+		oacp := newOACP(true, false, "")
+		proxyEndpoints := []proxyEndpoint{{CIDR: "192.0.2.20/32", Port: 3128}}
+		result := GenerateCCMManifests(oacp, testInfraNS, testCCMImage, testOseCliImage, proxyEndpoints)
+
+		Expect(result[2].Content).To(ContainSubstring("cidr: 192.0.2.20/32"))
+		Expect(result[2].Content).To(ContainSubstring("port: 3128"))
+	})
+
+	It("should resolve proxy endpoints from the infra kubeconfig", func() {
+		config := clientcmdapi.NewConfig()
+		config.CurrentContext = testCurrentContext
+		config.Contexts[testCurrentContext] = &clientcmdapi.Context{Cluster: "selected-infra"}
+		config.Contexts["unused"] = &clientcmdapi.Context{Cluster: "unused-infra"}
+		config.Clusters["selected-infra"] = &clientcmdapi.Cluster{ProxyURL: "http://192.0.2.20:3128"}
+		config.Clusters["unused-infra"] = &clientcmdapi.Cluster{ProxyURL: "http://192.0.2.30:3128"}
+		kubeconfig, err := clientcmd.Write(*config)
+		Expect(err).NotTo(HaveOccurred())
+
+		oacp := newOACP(true, false, "")
+		secret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: "infra-cluster-credentials", Namespace: oacp.Namespace},
+			Data:       map[string][]byte{"kubeconfig": kubeconfig},
+		}
+		fakeClient := fake.NewClientBuilder().WithObjects(secret).Build()
+
+		endpoints, err := infraProxyEndpoints(context.Background(), fakeClient, oacp)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(endpoints).To(Equal([]proxyEndpoint{{CIDR: "192.0.2.20/32", Port: 3128}}))
+	})
+
+	It("should default SOCKS5 proxy ports", func() {
+		config := clientcmdapi.NewConfig()
+		config.CurrentContext = testCurrentContext
+		config.Contexts[testCurrentContext] = &clientcmdapi.Context{Cluster: "infra"}
+		config.Clusters["infra"] = &clientcmdapi.Cluster{ProxyURL: "socks5://192.0.2.20"}
+		kubeconfig, err := clientcmd.Write(*config)
+		Expect(err).NotTo(HaveOccurred())
+
+		oacp := newOACP(true, false, "")
+		secret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: "infra-cluster-credentials", Namespace: oacp.Namespace},
+			Data:       map[string][]byte{"kubeconfig": kubeconfig},
+		}
+		fakeClient := fake.NewClientBuilder().WithObjects(secret).Build()
+
+		endpoints, err := infraProxyEndpoints(context.Background(), fakeClient, oacp)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(endpoints).To(Equal([]proxyEndpoint{{CIDR: "192.0.2.20/32", Port: 1080}}))
+	})
+
+	It("should replace stale manifest keys", func() {
+		scheme := runtime.NewScheme()
+		Expect(corev1.AddToScheme(scheme)).To(Succeed())
+		Expect(controlplanev1alpha3.AddToScheme(scheme)).To(Succeed())
+		oacp := newOACP(true, false, "")
+		configMap := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{Name: "manifests", Namespace: oacp.Namespace},
+			Data:       map[string]string{"old.yaml": "old"},
+		}
+		fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(configMap).Build()
+
+		err := ensureManifestsConfigMap(context.Background(), fakeClient, oacp, "manifests", []ManifestEntry{
+			{Filename: "new.yaml", Content: "new"},
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		updated := &corev1.ConfigMap{}
+		Expect(fakeClient.Get(context.Background(), client.ObjectKeyFromObject(configMap), updated)).To(Succeed())
+		Expect(updated.Data).To(Equal(map[string]string{"new.yaml": "new"}))
+	})
+
+	It("should rewrite the infra kubeconfig for the internal API", func() {
+		config := clientcmdapi.NewConfig()
+		config.CurrentContext = testCurrentContext
+		config.Contexts[testCurrentContext] = &clientcmdapi.Context{Cluster: "infra"}
+		config.Clusters["infra"] = &clientcmdapi.Cluster{Server: "https://api.example.com:6443"}
+		config.Clusters["unused"] = &clientcmdapi.Cluster{}
+		kubeconfig, err := clientcmd.Write(*config)
+		Expect(err).NotTo(HaveOccurred())
+
+		rewritten, err := rewriteKubeconfigForInternalAPI(string(kubeconfig), "https://192.0.2.10:443")
+		Expect(err).NotTo(HaveOccurred())
+
+		parsed, err := clientcmd.Load([]byte(rewritten))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(parsed.Clusters["infra"].Server).To(Equal("https://192.0.2.10:443"))
+		Expect(parsed.Clusters["infra"].TLSServerName).To(Equal("api.example.com"))
+	})
+
+	It("should resolve the infra API server from the Kubernetes Service", func() {
+		scheme := runtime.NewScheme()
+		Expect(corev1.AddToScheme(scheme)).To(Succeed())
+		apiService := &corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{Name: "kubernetes", Namespace: "default"},
+			Spec: corev1.ServiceSpec{
+				ClusterIP: "192.0.2.10",
+				Ports:     []corev1.ServicePort{{Name: "https", Port: 443}},
+			},
+		}
+		infraClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(apiService).Build()
+
+		server, err := getInfraAPIServer(context.Background(), infraClient)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(server).To(Equal("https://192.0.2.10:443"))
 	})
 })
 

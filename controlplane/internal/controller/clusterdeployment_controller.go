@@ -310,7 +310,6 @@ func (r *ClusterDeploymentReconciler) reconcileKubeVirtInfra(
 	infraResult *kubevirt.InfraClientResult,
 ) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
-	infraNS := acp.Namespace
 	infraNamespace := infraResult.Namespace
 
 	if result, err := r.ensureGoldenPVC(ctx, acp, infraResult, infraNamespace, releaseImageWithDigest); err != nil || !result.IsZero() {
@@ -356,11 +355,11 @@ func (r *ClusterDeploymentReconciler) reconcileKubeVirtInfra(
 
 	infraCoreDNSIP := kubevirt.GetInfraCoreDNSIP(ctx, infraResult.Client)
 
-	if _, err := kubevirt.EnsureKubeVirtManifests(ctx, r.Client, acp, infraNS, manifestDNSIPs, oseCliImage, releaseImageWithDigest, pullSecretData, &containers.RemoteImageRepository{}, infraCoreDNSIP); err != nil {
+	if _, err := kubevirt.EnsureKubeVirtManifests(ctx, r.Client, acp, infraNamespace, manifestDNSIPs, oseCliImage, releaseImageWithDigest, pullSecretData, &containers.RemoteImageRepository{}, infraCoreDNSIP); err != nil {
 		log.Error(err, "failed to create KubeVirt platform manifests")
 		return ctrl.Result{}, err
 	}
-	if err := kubevirt.EnsureInfraCredentialsManifests(ctx, r.Client, acp); err != nil {
+	if err := kubevirt.EnsureInfraCredentialsManifests(ctx, r.Client, infraResult.Client, acp, infraNamespace); err != nil {
 		log.Error(err, "failed to create KubeVirt infra credentials manifests")
 		return ctrl.Result{}, err
 	}

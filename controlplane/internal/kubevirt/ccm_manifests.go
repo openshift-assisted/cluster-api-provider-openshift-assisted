@@ -25,11 +25,11 @@ import (
 const (
 	CCMManifestsConfigMapName = "kubevirt-ccm-manifests"
 
-	ccmNamespace        = "openshift-cloud-controller-manager"
-	ccmCredSecretName   = "kubevirt-infra-credentials"
-	ccmDeploymentName   = "kubevirt-cloud-controller-manager"
-	ccmServiceAccount   = "kubevirt-cloud-controller-manager"
-	ccmClusterRole      = "system:cloud-controller-manager"
+	ccmNamespace      = "openshift-cloud-controller-manager"
+	ccmCredSecretName = "kubevirt-infra-credentials"
+	ccmDeploymentName = "kubevirt-cloud-controller-manager"
+	ccmServiceAccount = "kubevirt-cloud-controller-manager"
+	ccmClusterRole    = "system:cloud-controller-manager"
 )
 
 // GenerateCCMManifests produces the manifest entries needed to deploy the KubeVirt
@@ -40,13 +40,22 @@ const (
 // used by a lightweight bash operator that runs on the tenant cluster and
 // re-resolves CCM images from ClusterVersion on OCP upgrades, keeping the
 // CCM deployment current without requiring management cluster connectivity.
-func GenerateCCMManifests(oacp *controlplanev1alpha3.OpenshiftAssistedControlPlane, infraNamespace, ccmImage, oseCliImage string) []ManifestEntry {
+func GenerateCCMManifests(
+	oacp *controlplanev1alpha3.OpenshiftAssistedControlPlane,
+	infraNamespace, ccmImage, oseCliImage string,
+	proxyEndpoints []proxyEndpoint,
+) []ManifestEntry {
 	if oacp.Spec.Config.CloudControllerManager == nil || !oacp.Spec.Config.CloudControllerManager.Enabled {
 		return nil
 	}
 
 	if ccmImage == "" {
 		return nil
+	}
+
+	clusterName := oacp.Spec.Config.ClusterName
+	if clusterName == "" {
+		clusterName = oacp.Name
 	}
 
 	var manifests []ManifestEntry
@@ -75,6 +84,7 @@ data:
     namespace: %s
     loadBalancer:
       enabled: true
+      enableEPSController: true
       creationPollInterval: 5
       creationPollTimeout: 60
       selectorless: true
@@ -85,7 +95,25 @@ data:
 	})
 
 	manifests = append(manifests, ManifestEntry{
-		Filename: "03-ccm-rbac.yaml",
+		Filename: "03-ccm-bootstrap-egress.yaml",
+		Content: fmt.Sprintf(`apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ccm-required-egress
+  namespace: %s
+spec:
+  podSelector:
+    matchLabels:
+      app: %s
+  policyTypes:
+    - Egress
+  egress:
+%s
+`, ccmNamespace, ccmDeploymentName, ccmEgressRules(proxyEndpoints)),
+	})
+
+	manifests = append(manifests, ManifestEntry{
+		Filename: "04-ccm-rbac.yaml",
 		Content: fmt.Sprintf(`apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -121,6 +149,9 @@ rules:
   - apiGroups: [""]
     resources: ["serviceaccounts/token"]
     verbs: ["create"]
+  - apiGroups: ["discovery.k8s.io"]
+    resources: ["endpointslices"]
+    verbs: ["get", "list", "watch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -138,7 +169,7 @@ subjects:
 	})
 
 	manifests = append(manifests, ManifestEntry{
-		Filename: "04-ccm-deployment.yaml",
+		Filename: "05-ccm-deployment.yaml",
 		Content: fmt.Sprintf(`apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -168,7 +199,8 @@ spec:
             - --use-service-account-credentials=true
             - --leader-elect=true
             - --leader-elect-resource-namespace=%s
-            - --controllers=cloud-node,cloud-node-lifecycle,service-lb-controller
+            - --cluster-name=%s
+            - --controllers=cloud-node-controller,cloud-node-lifecycle-controller,service-lb-controller,kubevirt_eps_controller
             - --authentication-skip-lookup
           resources:
             requests:
@@ -198,24 +230,54 @@ spec:
       nodeSelector:
         node-role.kubernetes.io/master: ""
 `, ccmDeploymentName, ccmNamespace, ccmDeploymentName, ccmDeploymentName, ccmDeploymentName,
-			ccmServiceAccount, ccmImage, ccmNamespace, ccmCredSecretName),
+			ccmServiceAccount, ccmImage, ccmNamespace, clusterName, ccmCredSecretName),
 	})
 
 	if oseCliImage != "" {
-		manifests = append(manifests, generateCCMOperatorManifests(oseCliImage)...)
+		manifests = append(manifests, generateCCMOperatorManifests(oseCliImage, infraNamespace, clusterName)...)
 	}
 
 	return manifests
 }
 
-// ccmOperatorScript watches ClusterVersion on the tenant cluster and patches the
-// CCM Deployment with the correct digest-pinned image from the current release
-// payload. This keeps the CCM current across OCP upgrades without requiring
-// connectivity to the management cluster.
+func ccmEgressRules(proxyEndpoints []proxyEndpoint) string {
+	rules := `    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+        - ipBlock:
+            cidr: ::/0
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 6443
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+`
+	for _, endpoint := range proxyEndpoints {
+		rules += fmt.Sprintf(`    - to:
+        - ipBlock:
+            cidr: %s
+      ports:
+        - protocol: TCP
+          port: %d
+`, endpoint.CIDR, endpoint.Port)
+	}
+	return rules
+}
+
+// ccmOperatorScript keeps the CCM Deployment aligned with the current release
+// payload and normalizes this tenant's mirrored LoadBalancer Services so
+// external traffic reaches only nodes that host tenant VMs.
 const ccmOperatorScript = `#!/bin/bash
 set -euo pipefail
 
 NAMESPACE="openshift-cloud-controller-manager"
+INFRA_KUBECONFIG="/etc/kubernetes/infra-kubeconfig/kubeconfig"
+INFRA_NAMESPACE="${INFRA_NAMESPACE:?INFRA_NAMESPACE is required}"
+INFRA_CLUSTER_NAME="${INFRA_CLUSTER_NAME:?INFRA_CLUSTER_NAME is required}"
 PULL_SECRET_DIR="/tmp/ccm-pull-secret"
 PULL_SECRET_PATH="$PULL_SECRET_DIR/.dockerconfigjson"
 RECONCILE_INTERVAL="${RECONCILE_INTERVAL:-60}"
@@ -225,6 +287,36 @@ MAPPINGS=(
 )
 
 log() { echo "[$(date -u '+%Y-%m-%d %H:%M:%S UTC')] $*"; }
+
+enforce_local_external_traffic_policy() {
+  local service policy
+  while true; do
+    if ! oc --kubeconfig "$INFRA_KUBECONFIG" -n "$INFRA_NAMESPACE" get service \
+      --field-selector spec.type=LoadBalancer \
+      -l "cluster.x-k8s.io/cluster-name=$INFRA_CLUSTER_NAME" \
+      --watch -o jsonpath='{.metadata.name}{"|"}{.spec.externalTrafficPolicy}{"\n"}' |
+      while IFS='|' read -r service policy; do
+        if [[ "$policy" == "Local" ]]; then
+          continue
+        fi
+        local patched=false
+        for attempt in 1 2 3; do
+          if oc --kubeconfig "$INFRA_KUBECONFIG" -n "$INFRA_NAMESPACE" patch service "$service" \
+            --type=merge -p '{"spec":{"externalTrafficPolicy":"Local"}}'; then
+            patched=true
+            break
+          fi
+          sleep 2
+        done
+        if [[ "$patched" != true ]]; then
+          log "WARN: could not set externalTrafficPolicy=Local for infra Service $service after 3 attempts"
+        fi
+      done; then
+      log "WARN: infra LoadBalancer Service watch stopped; retrying"
+    fi
+    sleep 5
+  done
+}
 
 wait_for_clusterversion() {
   log "Waiting for ClusterVersion..."
@@ -265,6 +357,8 @@ reconcile_images() {
   $all_ok
 }
 
+enforce_local_external_traffic_policy &
+
 log "=== KubeVirt CCM Operator starting ==="
 wait_for_clusterversion
 wait_for_workloads
@@ -286,10 +380,10 @@ while true; do
 done
 `
 
-func generateCCMOperatorManifests(oseCliImage string) []ManifestEntry {
+func generateCCMOperatorManifests(oseCliImage, infraNamespace, clusterName string) []ManifestEntry {
 	return []ManifestEntry{
 		{
-			Filename: "05-ccm-operator-script.yaml",
+			Filename: "06-ccm-operator-script.yaml",
 			Content: fmt.Sprintf(`apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -300,7 +394,7 @@ data:
 %s`, ccmNamespace, indentMultiline(ccmOperatorScript)),
 		},
 		{
-			Filename: "06-ccm-operator-rbac.yaml",
+			Filename: "07-ccm-operator-rbac.yaml",
 			Content: fmt.Sprintf(`apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -381,7 +475,7 @@ subjects:
 `, ccmNamespace, ccmNamespace, ccmNamespace, ccmDeploymentName, ccmNamespace, ccmNamespace, ccmNamespace),
 		},
 		{
-			Filename: "07-ccm-operator-deployment.yaml",
+			Filename: "08-ccm-operator-deployment.yaml",
 			Content: fmt.Sprintf(`apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -404,9 +498,17 @@ spec:
         - name: operator
           image: %s
           command: ["/bin/bash", "/scripts/operator.sh"]
+          env:
+            - name: INFRA_NAMESPACE
+              value: %s
+            - name: INFRA_CLUSTER_NAME
+              value: %s
           volumeMounts:
             - name: scripts
               mountPath: /scripts
+              readOnly: true
+            - name: infra-kubeconfig
+              mountPath: /etc/kubernetes/infra-kubeconfig
               readOnly: true
           resources:
             requests:
@@ -416,13 +518,16 @@ spec:
         - name: scripts
           configMap:
             name: kubevirt-ccm-operator-script
+        - name: infra-kubeconfig
+          secret:
+            secretName: %s
       tolerations:
         - key: node-role.kubernetes.io/master
           operator: Exists
           effect: NoSchedule
       nodeSelector:
         node-role.kubernetes.io/master: ""
-`, ccmNamespace, oseCliImage),
+`, ccmNamespace, oseCliImage, infraNamespace, clusterName, ccmCredSecretName),
 		},
 	}
 }

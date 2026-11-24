@@ -24,6 +24,7 @@ require (
 	github.com/spf13/pflag v1.0.7
 	go.uber.org/zap v1.27.0
 	k8s.io/api v0.33.5
+	k8s.io/apiextensions-apiserver v0.33.5
 	k8s.io/apimachinery v0.33.5
 	k8s.io/apiserver v0.33.5
 	k8s.io/client-go v0.33.5
@@ -122,7 +123,6 @@ require (
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	gorm.io/gorm v1.24.5 // indirect
-	k8s.io/apiextensions-apiserver v0.33.5 // indirect
 	k8s.io/cluster-bootstrap v0.33.3 // indirect
 	k8s.io/kube-openapi v0.0.0-20250318190949-c8a335a9a2ff // indirect
 	sigs.k8s.io/json v0.0.0-20241010143419-9aa6b5e7a4b3 // indirect

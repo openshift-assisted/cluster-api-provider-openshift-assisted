@@ -6,49 +6,46 @@ on:
     branches:
       - master
 
+permissions:
+  contents: write
+  actions: write
+
 jobs:
   fast-forward:
     runs-on: ubuntu-latest
     env:
-      CURRENT_BRANCH: backplane-5.1
-      NEXT_BRANCH: backplane-5.2
+      BRANCHES: backplane-5.1 backplane-5.2
 
     steps:
-      - name: Generate GitHub App Token
-        id: generate_token
-        uses: actions/create-github-app-token@v1
-        with:
-          app-id: ${{ secrets.GH_APP_ID }}
-          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
-
       - name: Checkout repo
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          token: ${{ steps.generate_token.outputs.token }}
 
-      - name: Fetch all branches
-        run: git fetch --all
-
-      - name: Configure Git
+      - name: Fast-forward release branches
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          git config --global user.email "capi-openshift-assisted@redhat.com"
-          git config --global user.name "CAPOA GitHub Action"
-
-      - name: Fast-forward ${{ env.CURRENT_BRANCH }}
-        run: |
-          git checkout "${CURRENT_BRANCH}"
-          if ! git merge --ff-only origin/master; then
-            echo "::warning::${CURRENT_BRANCH} diverged from master, resetting"
-            git reset --hard origin/master
-          fi
-          git push origin "${CURRENT_BRANCH}" --force-with-lease
-
-      - name: Fast-forward ${{ env.NEXT_BRANCH }}
-        run: |
-          git checkout "${NEXT_BRANCH}"
-          if ! git merge --ff-only origin/master; then
-            echo "::warning::${NEXT_BRANCH} diverged from master, resetting"
-            git reset --hard origin/master
-          fi
-          git push origin "${NEXT_BRANCH}" --force-with-lease
+          set -euo pipefail
+          failures=0
+          for branch in ${BRANCHES}; do
+            echo "Fast-forwarding ${branch} to origin/master"
+            if ! git checkout -B "${branch}" "origin/${branch}"; then
+              echo "::error::origin/${branch} not found; create it from master first"
+              failures=$((failures + 1))
+              continue
+            fi
+            before=$(git rev-parse "origin/${branch}")
+            if ! git merge --ff-only origin/master; then
+              echo "::error::${branch} has diverged from master; refusing to overwrite."
+              failures=$((failures + 1))
+              continue
+            fi
+            git push origin "${branch}"
+            # Pushes made with GITHUB_TOKEN do not trigger other workflows, so
+            # dispatch the image publisher explicitly.
+            if [[ "$(git rev-parse "${branch}")" != "${before}" ]]; then
+              gh workflow run publish_images.yaml --ref "${branch}"
+            fi
+          done
+          exit "${failures}"

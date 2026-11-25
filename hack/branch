@@ -18,24 +18,32 @@ if [[ -z "${current_version}" || -z "${next_version}" || -z "${freeze_version}" 
         exit 1
     fi
 
-    current_ffwd=$(grep 'CURRENT_BRANCH:' "${SYNC_BRANCH_FILE}" | awk '{print $2}' | sed 's/backplane-//')
-    next_ffwd=$(grep 'NEXT_BRANCH:' "${SYNC_BRANCH_FILE}" | awk '{print $2}' | sed 's/backplane-//')
+    branches_list=$(grep 'BRANCHES:' "${SYNC_BRANCH_FILE}" | head -1 | sed 's/^.*BRANCHES:[[:space:]]*//' | xargs)
 
-    if [[ -z "${current_ffwd}" || -z "${next_ffwd}" ]]; then
-        echo "Error: Could not parse CURRENT_BRANCH/NEXT_BRANCH from ${SYNC_BRANCH_FILE}"
+    if [[ -z "${branches_list}" ]]; then
+        echo "Error: Could not parse BRANCHES from ${SYNC_BRANCH_FILE}"
         exit 1
     fi
 
-    freeze_version="${current_ffwd}"
-    current_version="${next_ffwd}"
+    # Sort versions numerically; the newest entry is the current release and
+    # the one below it is the branch being frozen.
+    mapfile -t sorted_versions < <(printf '%s\n' ${branches_list} | sed 's/^backplane-//' | sort -t. -k1,1n -k2,2n)
+
+    if [[ "${#sorted_versions[@]}" -lt 2 ]]; then
+        echo "Error: Expected at least two branches in BRANCHES, got '${branches_list}'"
+        exit 1
+    fi
+
+    freeze_version="${sorted_versions[-2]}"
+    current_version="${sorted_versions[-1]}"
 
     current_major=$(echo "${current_version}" | cut -d. -f1)
     current_minor=$(echo "${current_version}" | cut -d. -f2)
     next_version="${current_major}.$((current_minor + 1))"
 
     echo "Auto-detected from ${SYNC_BRANCH_FILE}:"
-    echo "  Freeze: ${freeze_version} (was CURRENT_BRANCH)"
-    echo "  Current: ${current_version} (was NEXT_BRANCH, now promoted)"
+    echo "  Freeze: ${freeze_version} (newest-but-one in BRANCHES)"
+    echo "  Current: ${current_version} (newest in BRANCHES, promoted)"
     echo "  Next: ${next_version} (new pre-staged branch)"
 fi
 
@@ -147,11 +155,24 @@ if [ ! -f "${SYNC_BRANCH_FILE}" ]; then
     exit 1
 fi
 
-sed -i "s/CURRENT_BRANCH: .*$/CURRENT_BRANCH: ${current_branch}/g" "${SYNC_BRANCH_FILE}"
-sed -i "s/NEXT_BRANCH: .*$/NEXT_BRANCH: ${next_branch}/g" "${SYNC_BRANCH_FILE}"
+# Update sync-branch.yaml: drop the frozen branch, append the next pre-staged branch
+branches_list=$(grep 'BRANCHES:' "${SYNC_BRANCH_FILE}" | head -1 | sed 's/^.*BRANCHES:[[:space:]]*//' | xargs)
+if [[ -z "${branches_list}" ]]; then
+    echo "Error: Could not parse BRANCHES from ${SYNC_BRANCH_FILE}"
+    exit 1
+fi
 
-if ! grep -q "CURRENT_BRANCH: ${current_branch}" "${SYNC_BRANCH_FILE}" || \
-   ! grep -q "NEXT_BRANCH: ${next_branch}" "${SYNC_BRANCH_FILE}"; then
+if ! printf '%s\n' ${branches_list} | grep -qx "${freeze_branch}"; then
+    echo "Error: ${freeze_branch} not found in BRANCHES of ${SYNC_BRANCH_FILE}"
+    exit 1
+fi
+
+new_branches_list=$(printf '%s\n' ${branches_list} | grep -v "^${freeze_branch}$" | xargs)
+new_branches_list="${new_branches_list} ${next_branch}"
+
+sed -i "s|BRANCHES:.*$|BRANCHES: ${new_branches_list}|" "${SYNC_BRANCH_FILE}"
+
+if [[ "$(grep 'BRANCHES:' "${SYNC_BRANCH_FILE}" | head -1 | sed 's/^.*BRANCHES:[[:space:]]*//' | xargs)" != "${new_branches_list}" ]]; then
     echo "Error: Failed to update branches in ${SYNC_BRANCH_FILE}"
     exit 1
 fi

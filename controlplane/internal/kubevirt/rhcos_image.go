@@ -71,6 +71,11 @@ const (
 	// to provide a mirrored CLI/tools image for disconnected environments.
 	RelatedImageCLIEnvVar = "RELATED_IMAGE_CLI"
 
+	// RelatedImageCDIImporterEnvVar is an optional controller-provided image used
+	// when the importer image cannot be resolved from the infra cluster's CDI
+	// deployment, for example when the infra credentials are namespace-scoped.
+	RelatedImageCDIImporterEnvVar = "RELATED_IMAGE_CDI_IMPORTER"
+
 	// CDI deployment coordinates for resolving the importer image at runtime.
 	cdiDeploymentName      = "cdi-deployment"
 	cdiDeploymentNamespace = "openshift-cnv"
@@ -181,7 +186,7 @@ func EnsureRHCOSGoldenPVC(
 		return false, fmt.Errorf("failed to check RHCOS import Job: %w", err)
 	}
 
-	importImage, imgErr := ResolveCDIImporterImage(ctx, infraClient)
+	importImage, imgErr := resolveRHCOSImportImage(ctx, infraClient)
 	if imgErr != nil {
 		return false, fmt.Errorf("failed to resolve CDI importer image: %w", imgErr)
 	}
@@ -237,6 +242,25 @@ func ResolveCDIImporterImage(ctx context.Context, c client.Client) (string, erro
 		}
 	}
 	return "", fmt.Errorf("%s env var not found in CDI deployment %s/%s", cdiImporterImageEnvVar, cdiDeploymentNamespace, cdiDeploymentName)
+}
+
+func resolveRHCOSImportImage(ctx context.Context, infraClient client.Client) (string, error) {
+	importImage, err := ResolveCDIImporterImage(ctx, infraClient)
+	if err == nil {
+		return importImage, nil
+	}
+
+	fallbackImage := strings.TrimSpace(os.Getenv(RelatedImageCDIImporterEnvVar))
+	if fallbackImage == "" {
+		return "", err
+	}
+
+	ctrl.LoggerFrom(ctx).Info(
+		"using configured CDI importer image after dynamic resolution failed",
+		"envVar", RelatedImageCDIImporterEnvVar,
+		"error", err,
+	)
+	return fallbackImage, nil
 }
 
 func buildGoldenPVC(name, namespace string, oacp *controlplanev1alpha3.OpenshiftAssistedControlPlane) *corev1.PersistentVolumeClaim {

@@ -3,6 +3,7 @@ contentOrigin:
     - ./ubi.repo
 
 packages:
+  - crypto-policies
   - crypto-policies-scripts
 
 arches:

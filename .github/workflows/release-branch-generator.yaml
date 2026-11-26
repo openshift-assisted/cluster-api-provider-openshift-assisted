@@ -35,16 +35,24 @@ jobs:
         run: |
           SYNC_FILE=".github/workflows/sync-branch.yaml"
 
-          CURRENT_FFWD=$(grep 'CURRENT_BRANCH:' "${SYNC_FILE}" | awk '{print $2}')
-          NEXT_FFWD=$(grep 'NEXT_BRANCH:' "${SYNC_FILE}" | awk '{print $2}')
+          BRANCHES_LIST=$(grep 'BRANCHES:' "${SYNC_FILE}" | head -1 | sed 's/^.*BRANCHES:[[:space:]]*//' | xargs)
 
-          if [ -z "${CURRENT_FFWD}" ] || [ -z "${NEXT_FFWD}" ]; then
-            echo "::error::Could not parse CURRENT_BRANCH/NEXT_BRANCH from ${SYNC_FILE}"
+          if [ -z "${BRANCHES_LIST}" ]; then
+            echo "::error::Could not parse BRANCHES from ${SYNC_FILE}"
             exit 1
           fi
 
-          FREEZE_VERSION="${CURRENT_FFWD#backplane-}"
-          CURRENT_VERSION="${NEXT_FFWD#backplane-}"
+          # Sort versions numerically; the newest entry is the current release
+          # and the one below it is the branch being frozen.
+          mapfile -t SORTED_VERSIONS < <(printf '%s\n' ${BRANCHES_LIST} | sed 's/^backplane-//' | sort -t. -k1,1n -k2,2n)
+
+          if [ "${#SORTED_VERSIONS[@]}" -lt 2 ]; then
+            echo "::error::Expected at least two branches in BRANCHES, got '${BRANCHES_LIST}'"
+            exit 1
+          fi
+
+          FREEZE_VERSION="${SORTED_VERSIONS[-2]}"
+          CURRENT_VERSION="${SORTED_VERSIONS[-1]}"
 
           CURRENT_MAJOR=$(echo "${CURRENT_VERSION}" | cut -d. -f1)
           CURRENT_MINOR=$(echo "${CURRENT_VERSION}" | cut -d. -f2)
@@ -60,8 +68,8 @@ jobs:
             fi
           fi
 
-          echo "Freeze: ${FREEZE_VERSION} (${CURRENT_FFWD})"
-          echo "Current: ${CURRENT_VERSION} (${NEXT_FFWD} promoted)"
+          echo "Freeze: ${FREEZE_VERSION} (backplane-${FREEZE_VERSION})"
+          echo "Current: ${CURRENT_VERSION} (backplane-${CURRENT_VERSION} promoted)"
           echo "Next: ${NEXT_VERSION} (new pre-staged branch)"
 
           echo "FREEZE_VERSION=${FREEZE_VERSION}" >> $GITHUB_ENV
@@ -105,8 +113,8 @@ jobs:
             gh pr create \
               --head "${PR_BRANCH}" \
               --base master \
-              --title "Release ${CURRENT_BRANCH}" \
-              --body "Automated PR for release branch ${CURRENT_BRANCH}. Freezing backplane-${FREEZE_VERSION}."
+              --title "Freeze backplane-${FREEZE_VERSION}" \
+              --body "Freeze backplane-${FREEZE_VERSION} for release and cut master over to backplane-${CURRENT_VERSION}. Pre-staging backplane-${NEXT_VERSION}."
           else
             echo "PR #${PR_NUMBER} already exists"
           fi

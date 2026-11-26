@@ -18,6 +18,12 @@ package kubevirt
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os/exec"
+	"regexp"
+	"strconv"
 	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -107,8 +113,8 @@ var _ = Describe("CCM Manifests", func() {
 		result := GenerateCCMManifests(oacp, testInfraNS, testCCMImage, testOseCliImage, nil)
 
 		Expect(result[1].Content).To(ContainSubstring("namespace: " + testInfraNS))
-		Expect(result[1].Content).To(ContainSubstring("enableEPSController: true"))
-		Expect(result[1].Content).To(ContainSubstring("selectorless: true"))
+		Expect(result[1].Content).To(ContainSubstring("selectorless: false"))
+		Expect(result[1].Content).NotTo(ContainSubstring("enableEPSController"))
 		Expect(result[2].Content).To(ContainSubstring("port: 6443"))
 	})
 
@@ -119,17 +125,16 @@ var _ = Describe("CCM Manifests", func() {
 		Expect(result[4].Content).To(ContainSubstring("image: " + testCCMImage))
 		Expect(result[4].Content).To(ContainSubstring("--cluster-name=test-cluster"))
 		Expect(result[4].Content).To(ContainSubstring(
-			"--controllers=cloud-node-controller,cloud-node-lifecycle-controller,service-lb-controller,kubevirt_eps_controller",
+			"--controllers=cloud-node-controller,cloud-node-lifecycle-controller,service-lb-controller",
 		))
 	})
 
-	It("should grant the CCM EndpointSlice access", func() {
+	It("should not require CCM EndpointSlice access", func() {
 		oacp := newOACP(true, false, "")
 		result := GenerateCCMManifests(oacp, testInfraNS, testCCMImage, testOseCliImage, nil)
 
-		Expect(result[3].Content).To(ContainSubstring("apiGroups: [\"discovery.k8s.io\"]"))
-		Expect(result[3].Content).To(ContainSubstring("resources: [\"endpointslices\"]"))
-		Expect(result[3].Content).To(ContainSubstring("verbs: [\"get\", \"list\", \"watch\"]"))
+		Expect(result[3].Content).NotTo(ContainSubstring("apiGroups: [\"discovery.k8s.io\"]"))
+		Expect(result[3].Content).NotTo(ContainSubstring("resources: [\"endpointslices\"]"))
 	})
 
 	It("should reference the infra credentials secret in the deployment", func() {
@@ -153,7 +158,48 @@ var _ = Describe("CCM Manifests", func() {
 		result := GenerateCCMManifests(oacp, testInfraNS, testCCMImage, testOseCliImage, nil)
 
 		Expect(result[5].Content).To(ContainSubstring("--watch"))
-		Expect(result[5].Content).To(ContainSubstring(`"externalTrafficPolicy":"Local"`))
+		Expect(result[5].Content).To(ContainSubstring(`\"externalTrafficPolicy\":\"Local\"`))
+		Expect(result[5].Content).To(ContainSubstring(`{.spec.selector}`))
+		Expect(result[5].Content).To(ContainSubstring(`mirrored_service_is_normalized`))
+		Expect(result[5].Content).To(ContainSubstring(`\"cluster.x-k8s.io/cluster-name\":\"$INFRA_CLUSTER_NAME\"`))
+		Expect(result[5].Content).To(ContainSubstring(`\"cluster.x-k8s.io/role\":null`))
+		Expect(result[5].Content).To(ContainSubstring(`\"kubevirt.io\":\"virt-launcher\"`))
+		Expect(result[5].Content).To(ContainSubstring(`\"kubevirt.io\":\"virt-launcher\"}}}"`))
+
+		match := regexp.MustCompile(`--type=merge -p ("(?:\\.|[^"\\])*")`).FindStringSubmatch(result[5].Content)
+		Expect(match).To(HaveLen(2))
+		payload, err := strconv.Unquote(match[1])
+		Expect(err).NotTo(HaveOccurred())
+		var patch map[string]any
+		Expect(json.Unmarshal([]byte(payload), &patch)).To(Succeed())
+		Expect(patch).To(HaveKey("spec"))
+	})
+
+	It("should distinguish an absent role selector from a present empty value", func() {
+		runNormalization := func(policy string, selector string) bool {
+			script := fmt.Sprintf(`#!/bin/bash
+set -euo pipefail
+INFRA_CLUSTER_NAME=test-cluster
+%s
+if mirrored_service_is_normalized %q %q; then
+  exit 0
+fi
+exit 1
+`, mirroredServiceNormalizationFunction, policy, selector)
+			err := exec.Command("bash", "-c", script).Run()
+			if err == nil {
+				return true
+			}
+			var exitErr *exec.ExitError
+			Expect(errors.As(err, &exitErr)).To(BeTrue())
+			Expect(exitErr.ExitCode()).To(Equal(1))
+			return false
+		}
+
+		normalizedSelector := `{"cluster.x-k8s.io/cluster-name":"test-cluster","kubevirt.io":"virt-launcher"}`
+		Expect(runNormalization("Local", normalizedSelector)).To(BeTrue())
+		Expect(runNormalization("Local", `{"cluster.x-k8s.io/cluster-name":"test-cluster","cluster.x-k8s.io/role":"worker","kubevirt.io":"virt-launcher"}`)).To(BeFalse())
+		Expect(runNormalization("Local", `{"cluster.x-k8s.io/cluster-name":"test-cluster","cluster.x-k8s.io/role":"","kubevirt.io":"virt-launcher"}`)).To(BeFalse())
 	})
 
 	It("should allow the infrastructure proxy endpoint", func() {
@@ -163,6 +209,15 @@ var _ = Describe("CCM Manifests", func() {
 
 		Expect(result[2].Content).To(ContainSubstring("cidr: 192.0.2.20/32"))
 		Expect(result[2].Content).To(ContainSubstring("port: 3128"))
+	})
+
+	It("should allow egress for the CCM and its operator", func() {
+		oacp := newOACP(true, false, "")
+		result := GenerateCCMManifests(oacp, testInfraNS, testCCMImage, testOseCliImage, nil)
+
+		Expect(result[2].Content).To(ContainSubstring("operator: In"))
+		Expect(result[2].Content).To(ContainSubstring(ccmDeploymentName))
+		Expect(result[2].Content).To(ContainSubstring("kubevirt-ccm-operator"))
 	})
 
 	It("should resolve proxy endpoints from the infra kubeconfig", func() {

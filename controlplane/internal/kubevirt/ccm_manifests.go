@@ -84,10 +84,9 @@ data:
     namespace: %s
     loadBalancer:
       enabled: true
-      enableEPSController: true
       creationPollInterval: 5
       creationPollTimeout: 60
-      selectorless: true
+      selectorless: false
     instancesV2:
       enabled: true
       zoneAndRegionEnabled: false
@@ -103,8 +102,12 @@ metadata:
   namespace: %s
 spec:
   podSelector:
-    matchLabels:
-      app: %s
+    matchExpressions:
+      - key: app
+        operator: In
+        values:
+          - %s
+          - kubevirt-ccm-operator
   policyTypes:
     - Egress
   egress:
@@ -149,9 +152,6 @@ rules:
   - apiGroups: [""]
     resources: ["serviceaccounts/token"]
     verbs: ["create"]
-  - apiGroups: ["discovery.k8s.io"]
-    resources: ["endpointslices"]
-    verbs: ["get", "list", "watch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -200,7 +200,7 @@ spec:
             - --leader-elect=true
             - --leader-elect-resource-namespace=%s
             - --cluster-name=%s
-            - --controllers=cloud-node-controller,cloud-node-lifecycle-controller,service-lb-controller,kubevirt_eps_controller
+            - --controllers=cloud-node-controller,cloud-node-lifecycle-controller,service-lb-controller
             - --authentication-skip-lookup
           resources:
             requests:
@@ -268,6 +268,17 @@ func ccmEgressRules(proxyEndpoints []proxyEndpoint) string {
 	return rules
 }
 
+// mirroredServiceNormalizationFunction reports whether a mirrored Service has
+// the supported Local policy and the expected role-independent VM selector.
+const mirroredServiceNormalizationFunction = `mirrored_service_is_normalized() {
+  local policy="$1" selector="$2"
+  [[ "$policy" == "Local" &&
+     "$selector" == *'"cluster.x-k8s.io/cluster-name":"'"$INFRA_CLUSTER_NAME"'"'* &&
+     "$selector" == *'"kubevirt.io":"virt-launcher"'* &&
+     "$selector" != *'"cluster.x-k8s.io/role"'* ]]
+}
+`
+
 // ccmOperatorScript keeps the CCM Deployment aligned with the current release
 // payload and normalizes this tenant's mirrored LoadBalancer Services so
 // external traffic reaches only nodes that host tenant VMs.
@@ -288,28 +299,29 @@ MAPPINGS=(
 
 log() { echo "[$(date -u '+%Y-%m-%d %H:%M:%S UTC')] $*"; }
 
-enforce_local_external_traffic_policy() {
-  local service policy
+` + mirroredServiceNormalizationFunction + `
+normalize_mirrored_load_balancer_services() {
+  local service policy selector
   while true; do
     if ! oc --kubeconfig "$INFRA_KUBECONFIG" -n "$INFRA_NAMESPACE" get service \
       --field-selector spec.type=LoadBalancer \
       -l "cluster.x-k8s.io/cluster-name=$INFRA_CLUSTER_NAME" \
-      --watch -o jsonpath='{.metadata.name}{"|"}{.spec.externalTrafficPolicy}{"\n"}' |
-      while IFS='|' read -r service policy; do
-        if [[ "$policy" == "Local" ]]; then
+      --watch -o jsonpath='{.metadata.name}{"|"}{.spec.externalTrafficPolicy}{"|"}{.spec.selector}{"\n"}' |
+      while IFS='|' read -r service policy selector; do
+        if mirrored_service_is_normalized "$policy" "$selector"; then
           continue
         fi
         local patched=false
         for attempt in 1 2 3; do
           if oc --kubeconfig "$INFRA_KUBECONFIG" -n "$INFRA_NAMESPACE" patch service "$service" \
-            --type=merge -p '{"spec":{"externalTrafficPolicy":"Local"}}'; then
+            --type=merge -p "{\"spec\":{\"externalTrafficPolicy\":\"Local\",\"selector\":{\"cluster.x-k8s.io/cluster-name\":\"$INFRA_CLUSTER_NAME\",\"cluster.x-k8s.io/role\":null,\"kubevirt.io\":\"virt-launcher\"}}}"; then
             patched=true
             break
           fi
           sleep 2
         done
         if [[ "$patched" != true ]]; then
-          log "WARN: could not set externalTrafficPolicy=Local for infra Service $service after 3 attempts"
+          log "WARN: could not normalize infra Service $service after 3 attempts"
         fi
       done; then
       log "WARN: infra LoadBalancer Service watch stopped; retrying"
@@ -357,7 +369,7 @@ reconcile_images() {
   $all_ok
 }
 
-enforce_local_external_traffic_policy &
+normalize_mirrored_load_balancer_services &
 
 log "=== KubeVirt CCM Operator starting ==="
 wait_for_clusterversion

@@ -33,7 +33,7 @@ ARG release=main
 ARG version=latest
 ARG git_commit=unknown
 
-RUN microdnf install -y --disablerepo="*" --enablerepo="ubi-9-*" crypto-policies-scripts && \
+RUN microdnf install -y --disablerepo="*" --enablerepo="ubi-9-*" crypto-policies crypto-policies-scripts && \
     update-crypto-policies --set DEFAULT:PQ && \
     microdnf clean all
 

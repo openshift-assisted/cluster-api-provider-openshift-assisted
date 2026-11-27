@@ -2,6 +2,7 @@ package kubevirt_test
 
 import (
 	"context"
+	"os"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -33,6 +34,15 @@ var _ = Describe("RHCOS Golden PVC", func() {
 	BeforeEach(func() {
 		ctx = context.Background()
 		namespace = testNamespace
+		previousImage, imageWasSet := os.LookupEnv(kubevirt.RelatedImageCDIImporterEnvVar)
+		DeferCleanup(func() {
+			if imageWasSet {
+				Expect(os.Setenv(kubevirt.RelatedImageCDIImporterEnvVar, previousImage)).To(Succeed())
+				return
+			}
+			Expect(os.Unsetenv(kubevirt.RelatedImageCDIImporterEnvVar)).To(Succeed())
+		})
+		Expect(os.Unsetenv(kubevirt.RelatedImageCDIImporterEnvVar)).To(Succeed())
 		scheme = runtime.NewScheme()
 		utilruntime.Must(corev1.AddToScheme(scheme))
 		utilruntime.Must(batchv1.AddToScheme(scheme))
@@ -248,6 +258,67 @@ var _ = Describe("RHCOS Golden PVC", func() {
 				Expect(job.Spec.Template.Spec.Containers[0].Image).To(Equal("registry.example.com/cdi-importer:v4.22"))
 				Expect(job.Spec.Template.Spec.Containers[0].Command[0]).To(Equal("/bin/sh"))
 				Expect(job.Spec.Template.Spec.Containers[0].Command[2]).To(ContainSubstring("qemu-img convert -O raw"))
+			})
+
+			It("should prefer the resolved CDI importer image over the configured fallback", func() {
+				cm := &corev1.ConfigMap{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "capoa-rhcos-url-4.22",
+						Namespace: namespace,
+					},
+					Data: map[string]string{
+						kubevirt.RHCOSURLConfigMapKey: "https://example.com/rhcos.ociarchive",
+					},
+				}
+				pvc := &corev1.PersistentVolumeClaim{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "rhcos-golden-4.22",
+						Namespace: namespace,
+					},
+				}
+				Expect(os.Setenv(kubevirt.RelatedImageCDIImporterEnvVar, "registry.example.com/fallback:v4.22")).To(Succeed())
+				cdiDeploy := newCDIDeployment("registry.example.com/cdi-importer:v4.22")
+				fakeClient = fake.NewClientBuilder().WithScheme(scheme).WithObjects(oacp).Build()
+				infraClient = fake.NewClientBuilder().WithScheme(scheme).WithObjects(cm, pvc, cdiDeploy).Build()
+
+				_, err := kubevirt.EnsureRHCOSGoldenPVC(ctx, fakeClient, infraClient, oacp,
+					"quay.io/release:4.22", "pull-secret", namespace, "")
+				Expect(err).NotTo(HaveOccurred())
+
+				job := &batchv1.Job{}
+				err = infraClient.Get(ctx, client.ObjectKey{Name: "rhcos-import-4.22", Namespace: namespace}, job)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(job.Spec.Template.Spec.Containers[0].Image).To(Equal("registry.example.com/cdi-importer:v4.22"))
+			})
+
+			It("should use the configured fallback when CDI cannot be resolved", func() {
+				cm := &corev1.ConfigMap{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "capoa-rhcos-url-4.22",
+						Namespace: namespace,
+					},
+					Data: map[string]string{
+						kubevirt.RHCOSURLConfigMapKey: "https://example.com/rhcos.ociarchive",
+					},
+				}
+				pvc := &corev1.PersistentVolumeClaim{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "rhcos-golden-4.22",
+						Namespace: namespace,
+					},
+				}
+				Expect(os.Setenv(kubevirt.RelatedImageCDIImporterEnvVar, "registry.example.com/fallback:v4.22")).To(Succeed())
+				fakeClient = fake.NewClientBuilder().WithScheme(scheme).WithObjects(oacp).Build()
+				infraClient = fake.NewClientBuilder().WithScheme(scheme).WithObjects(cm, pvc).Build()
+
+				_, err := kubevirt.EnsureRHCOSGoldenPVC(ctx, fakeClient, infraClient, oacp,
+					"quay.io/release:4.22", "pull-secret", namespace, "")
+				Expect(err).NotTo(HaveOccurred())
+
+				job := &batchv1.Job{}
+				err = infraClient.Get(ctx, client.ObjectKey{Name: "rhcos-import-4.22", Namespace: namespace}, job)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(job.Spec.Template.Spec.Containers[0].Image).To(Equal("registry.example.com/fallback:v4.22"))
 			})
 
 			It("should return an error when CDI deployment is not found", func() {
